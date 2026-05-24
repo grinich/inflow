@@ -28,7 +28,6 @@ function enrichProfileIfNeeded(urn: string): void {
     if (data.title) updates.title = data.title;
     if (data.companyLogoUrl) updates.companyLogoUrl = data.companyLogoUrl;
     if (data.locationName && !p.location) updates.location = data.locationName;
-    if (data.vanitySlug && p.publicId?.startsWith('ACo')) updates.publicId = data.vanitySlug;
     if (Object.keys(updates).length > 0) {
       await db.profiles.update(urn, updates);
     }
