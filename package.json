@@ -1,0 +1,33 @@
+{
+  "name": "inflow",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@wxt-dev/module-react": "^1.2.2",
+    "cmdk": "^1.1.1",
+    "date-fns": "^4.3.0",
+    "dexie": "^4.4.2",
+    "dexie-react-hooks": "^4.4.0",
+    "nanoid": "^5.1.11",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "wxt": "^0.20.26",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/chrome": "^0.1.42",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3"
+  }
+}

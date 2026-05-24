@@ -1,0 +1,46 @@
+export interface Command {
+  id: string;
+  label: string;
+  shortcut: string;
+  action: () => void;
+}
+
+export function buildCommands(actions: {
+  archiveSelected: () => void;
+  moveToOtherSelected: () => void;
+  moveToSpamSelected: () => void;
+  markReadSelected: () => void;
+  markUnreadSelected: () => void;
+  openSelected: () => void;
+  reply: () => void;
+  compose: () => void;
+  goBack: () => void;
+  showShortcuts: () => void;
+  triggerSync: () => void;
+  toggleTheme: () => void;
+  goToFocused: () => void;
+  goToOther: () => void;
+  goToArchived: () => void;
+  goToSpam: () => void;
+  undo: () => void;
+}): Command[] {
+  return [
+    { id: 'archive', label: 'Archive conversation', shortcut: 'E', action: actions.archiveSelected },
+    { id: 'move-to-other', label: 'Move to Other', shortcut: 'O', action: actions.moveToOtherSelected },
+    { id: 'move-to-spam', label: 'Mark as spam', shortcut: '!', action: actions.moveToSpamSelected },
+    { id: 'mark-read', label: 'Mark as read', shortcut: '', action: actions.markReadSelected },
+    { id: 'mark-unread', label: 'Mark as unread', shortcut: 'U', action: actions.markUnreadSelected },
+    { id: 'open', label: 'Open conversation', shortcut: 'Enter', action: actions.openSelected },
+    { id: 'reply', label: 'Reply', shortcut: 'R', action: actions.reply },
+    { id: 'compose', label: 'Compose new message', shortcut: 'C', action: actions.compose },
+    { id: 'undo', label: 'Undo last action', shortcut: 'Z', action: actions.undo },
+    { id: 'back', label: 'Go back to inbox', shortcut: 'Esc', action: actions.goBack },
+    { id: 'go-focused', label: 'Go to Focused inbox', shortcut: '1', action: actions.goToFocused },
+    { id: 'go-other', label: 'Go to Other inbox', shortcut: '2', action: actions.goToOther },
+    { id: 'go-archived', label: 'Go to Archived', shortcut: '3', action: actions.goToArchived },
+    { id: 'go-spam', label: 'Go to Spam', shortcut: '4', action: actions.goToSpam },
+    { id: 'shortcuts', label: 'Show keyboard shortcuts', shortcut: '?', action: actions.showShortcuts },
+    { id: 'sync', label: 'Sync now', shortcut: '', action: actions.triggerSync },
+    { id: 'theme', label: 'Toggle theme (Dark / Light / System)', shortcut: '', action: actions.toggleTheme },
+  ];
+}

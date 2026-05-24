@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+/* Theme variables — light is default */
+:root {
+  --surface: #ffffff;
+  --surface-raised: #f9fafb;
+  --surface-hover: #f4f4f5;
+  --surface-active: #dbeafe;
+  --surface-input: #f4f4f5;
+  --surface-muted: #e4e4e7;
+  --edge: #e4e4e7;
+  --ring: #d4d4d8;
+  --ring-muted: #e4e4e7;
+  --fg: #27272a;
+  --fg-strong: #09090b;
+  --fg-secondary: #52525b;
+  --fg-muted: #71717a;
+  --fg-faint: #a1a1aa;
+  --scrollbar: #d4d4d8;
+  --scrollbar-hover: #a1a1aa;
+}
+
+.dark {
+  --surface: #09090b;
+  --surface-raised: #18181b;
+  --surface-hover: rgba(39, 39, 42, 0.5);
+  --surface-active: rgba(37, 99, 235, 0.25);
+  --surface-input: rgba(39, 39, 42, 0.5);
+  --surface-muted: #3f3f46;
+  --edge: #27272a;
+  --ring: #3f3f46;
+  --ring-muted: rgba(63, 63, 70, 0.5);
+  --fg: #e4e4e7;
+  --fg-strong: #ffffff;
+  --fg-secondary: #a1a1aa;
+  --fg-muted: #71717a;
+  --fg-faint: #52525b;
+  --scrollbar: #3f3f46;
+  --scrollbar-hover: #52525b;
+}
+
+/* Register theme colors for Tailwind v4 */
+@theme inline {
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-surface-input: var(--surface-input);
+  --color-surface-muted: var(--surface-muted);
+  --color-edge: var(--edge);
+  --color-ring: var(--ring);
+  --color-ring-muted: var(--ring-muted);
+  --color-fg: var(--fg);
+  --color-fg-strong: var(--fg-strong);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+}
+
+/* Lightbox zoom animation */
+@keyframes lightbox-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lightbox-zoom-in {
+  animation: lightbox-zoom-in 200ms ease-out;
+}
+
+/* Reverse spin for sync icon (counterclockwise) */
+@keyframes reverse-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+.animate-reverse-spin {
+  animation: reverse-spin 1s linear infinite;
+}
+
+/* Message send animation */
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-message-in {
+  animation: message-in 250ms ease-out;
+}
+
+/* cmdk styles */
+[cmdk-root] {
+  width: 100%;
+}
+
+[cmdk-input] {
+  width: 100%;
+}
