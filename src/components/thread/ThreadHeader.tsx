@@ -66,10 +66,6 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
       if (d.company) updates.company = d.company;
       if (d.title) updates.title = d.title;
       if (d.companyLogoUrl) updates.companyLogoUrl = d.companyLogoUrl;
-      if (d.vanitySlug) {
-        const existing = await db.profiles.get(firstUrn);
-        if (existing?.publicId?.startsWith('ACo')) updates.publicId = d.vanitySlug;
-      }
       if (Object.keys(updates).length > 0) {
         await db.profiles.update(firstUrn, updates);
       }

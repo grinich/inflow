@@ -18,7 +18,6 @@ export type BridgeMessage =
   | { type: 'MARK_READ'; conversationId: string }
   | { type: 'MARK_UNREAD'; conversationId: string }
   | { type: 'MOVE_TO_SPAM'; conversationId: string }
-  | { type: 'FETCH_PROFILE'; publicId: string }
   | { type: 'FETCH_PROFILE_BY_URN'; urn: string }
   | { type: 'GET_DEBUG_LOGS' }
   | { type: 'CLEAR_DEBUG_LOGS' }

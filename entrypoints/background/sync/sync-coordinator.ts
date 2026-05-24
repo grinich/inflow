@@ -10,9 +10,13 @@ import type { Conversation } from '@/types/conversation';
 const ALARM_NAME = 'inflow-sync';
 const POLL_INTERVAL_MINUTES = 0.5; // 30 seconds
 const STALENESS_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
-const BACKFILL_BATCH_SIZE = 5;
-const BURST_MAX_PAGES = 10;
-const DISCOVERY_DELAY_MS = 300; // delay between discovery pages to avoid rate limiting
+const BACKFILL_BATCH_SIZE = 3;
+const BURST_MAX_PAGES = 5;
+
+/** Random delay between discovery pages to look more human (1.5–3s). */
+function discoveryDelay(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
+}
 
 const CATEGORIES: InboxCategory[] = [
   'PRIMARY_INBOX',
@@ -179,7 +183,7 @@ async function onSyncTick(): Promise<void> {
         const updatedStates = await db.syncState.toArray();
         broadcastProgress(new Map(updatedStates.map((s) => [s.category, s])));
 
-        await new Promise((r) => setTimeout(r, DISCOVERY_DELAY_MS));
+        await discoveryDelay();
       }
     } catch (err) {
       debugLog('error', `[COORDINATOR] Discovery failed for ${cat}: ${err}`);
@@ -315,7 +319,7 @@ export async function burstDiscover(
 
       // Small delay between pages to avoid rate limiting
       if (page < maxPages - 1) {
-        await new Promise((r) => setTimeout(r, DISCOVERY_DELAY_MS));
+        await discoveryDelay();
       }
     }
 

@@ -5,7 +5,10 @@ import { prefetchSharedPosts } from './prefetch-posts';
 import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
 
-const BACKFILL_DELAY_MS = 500;
+/** Random delay between backfill conversations (1–2.5s). */
+function backfillDelay(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
+}
 const MAX_RETRIES = 3;
 
 /**
@@ -113,9 +116,9 @@ export async function backfillBatch(batchSize = 5, onProgress?: () => void): Pro
       );
     }
 
-    // Rate limit delay between API calls
+    // Rate limit delay between conversations
     if (pending.indexOf(item) < pending.length - 1) {
-      await new Promise((r) => setTimeout(r, BACKFILL_DELAY_MS));
+      await backfillDelay();
     }
   }
 

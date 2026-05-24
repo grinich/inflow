@@ -14,7 +14,7 @@ import {
 } from './api/conversations';
 import { fetchMessages, fetchAllMessages, sendMessage, editMessage, createConversation } from './api/messages';
 import { searchTypeahead } from './api/typeahead';
-import { fetchProfile, fetchProfileByUrn } from './api/profiles';
+import { fetchProfileByUrn } from './api/profiles';
 import { getSession, getMemberUrn } from './auth/session';
 import { syncConversations, syncCategory } from './sync/sync-engine';
 import { burstDiscover, toggleSyncPause, broadcastProgress } from './sync/sync-coordinator';
@@ -164,10 +164,6 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
     case 'CREATE_CONVERSATION': {
       const result = await createConversation(msg.recipientUrns, msg.body, msg.attachments);
       return { success: true, data: result };
-    }
-    case 'FETCH_PROFILE': {
-      const profile = await fetchProfile(msg.publicId);
-      return { success: true, data: profile };
     }
     case 'FETCH_PROFILE_BY_URN': {
       const profile = await fetchProfileByUrn(msg.urn);

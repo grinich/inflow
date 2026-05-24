@@ -6,9 +6,39 @@ const BASE_URL = 'https://www.linkedin.com/voyager/api';
 // Use declarativeNetRequest to attach cookies since fetch() forbids the Cookie header
 let lastCookieValue = '';
 
+function randomHex(len: number): string {
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Stable per-session values — generated once on service worker start, like a real page session
+const PAGE_INSTANCE = `urn:li:page:messaging_thread;${randomHex(12)}`;
+
+// Stable version for the session — real client sends the same version throughout a session
+const SESSION_VERSION = (() => {
+  const now = new Date();
+  const major = 1;
+  const minor = now.getFullYear() - 2012;
+  const patch = now.getMonth() * 4000 + now.getDate() * 100 + Math.floor(Math.random() * 99);
+  return `${major}.${minor}.${patch}`;
+})();
+
+/** Cached x-li-track header — stable for the entire session like the real client. */
+const LI_TRACK = JSON.stringify({
+  clientVersion: SESSION_VERSION,
+  mpVersion: SESSION_VERSION,
+  osName: 'web',
+  timezoneOffset: new Date().getTimezoneOffset() * -1,
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  deviceFormFactor: 'DESKTOP',
+  mpName: 'voyager-web',
+  displayDensity: globalThis.devicePixelRatio || 1,
+  displayWidth: globalThis.screen?.width || 1920,
+  displayHeight: globalThis.screen?.height || 1080,
+});
+
 export async function ensureCookieRule(): Promise<void> {
-  // Fetch ALL LinkedIn cookies — the realtime endpoint needs more than
-  // just li_at/JSESSIONID (e.g. lidc, bcookie, PerimeterX cookies).
   const allCookies = await chrome.cookies.getAll({ url: 'https://www.linkedin.com' });
   const authCookies = await getLinkedInCookies();
   if (!authCookies || allCookies.length === 0) return;
@@ -24,10 +54,16 @@ export async function ensureCookieRule(): Promise<void> {
     const OTHER = 'other' as chrome.declarativeNetRequest.ResourceType;
     const MODIFY = 'modifyHeaders' as chrome.declarativeNetRequest.RuleActionType;
 
+    // CRITICAL: initiatorDomains scopes rules to only apply to requests from
+    // this extension's service worker, NOT to LinkedIn's own page requests.
+    // Without this, the rules corrupt LinkedIn's normal page requests (wrong
+    // Referer, replaced cookies) which triggers PerimeterX bot detection.
+    const extDomain = chrome.runtime.id;
+
     await chrome.declarativeNetRequest.updateSessionRules({
       removeRuleIds: [1, 2],
       addRules: [
-        // Rule 1: inject all cookies on LinkedIn requests
+        // Rule 1: make Voyager API requests look same-origin (cookie + browser headers)
         {
           id: 1,
           priority: 1,
@@ -35,33 +71,38 @@ export async function ensureCookieRule(): Promise<void> {
             type: MODIFY,
             requestHeaders: [
               { header: 'Cookie', operation: SET, value: cookieValue },
+              { header: 'Sec-Fetch-Site', operation: SET, value: 'same-origin' },
+              { header: 'Sec-Fetch-Mode', operation: SET, value: 'cors' },
+              { header: 'Sec-Fetch-Dest', operation: SET, value: 'empty' },
+              { header: 'Origin', operation: SET, value: 'https://www.linkedin.com' },
+              { header: 'Referer', operation: SET, value: 'https://www.linkedin.com/messaging/' },
             ],
           },
           condition: {
-            urlFilter: '||www.linkedin.com/',
+            urlFilter: '||www.linkedin.com/voyager/',
             resourceTypes: [XHR, OTHER],
+            initiatorDomains: [extDomain],
           },
         },
-        // Rule 2: make /realtime/ requests look same-origin.
-        // Service worker fetch sends Sec-Fetch-Site: none/cross-site,
-        // which LinkedIn's server (PerimeterX) rejects. Override these
-        // browser-controlled headers to match what a page fetch sends.
+        // Rule 2: make realtime SSE requests look same-origin
         {
           id: 2,
           priority: 2,
           action: {
             type: MODIFY,
             requestHeaders: [
+              { header: 'Cookie', operation: SET, value: cookieValue },
               { header: 'Sec-Fetch-Site', operation: SET, value: 'same-origin' },
               { header: 'Sec-Fetch-Mode', operation: SET, value: 'cors' },
               { header: 'Sec-Fetch-Dest', operation: SET, value: 'empty' },
-              { header: 'Referer', operation: SET, value: 'https://www.linkedin.com/messaging/' },
               { header: 'Origin', operation: SET, value: 'https://www.linkedin.com' },
+              { header: 'Referer', operation: SET, value: 'https://www.linkedin.com/messaging/' },
             ],
           },
           condition: {
             urlFilter: '||www.linkedin.com/realtime/',
             resourceTypes: [XHR, OTHER],
+            initiatorDomains: [extDomain],
           },
         },
       ],
@@ -73,6 +114,12 @@ export async function ensureCookieRule(): Promise<void> {
   }
 }
 
+/** Random delay between 50-300ms to avoid machine-like request patterns. */
+async function jitter(): Promise<void> {
+  const delay = 50 + Math.random() * 250;
+  return new Promise((r) => setTimeout(r, delay));
+}
+
 export async function voyagerFetch(
   path: string,
   options: RequestInit = {}
@@ -82,13 +129,11 @@ export async function voyagerFetch(
     throw new Error('Not authenticated — LinkedIn cookies not found');
   }
 
-  // CSRF token is the JSESSIONID value without surrounding quotes
   const csrfToken = cookies.jsessionId.replace(/"/g, '');
-
   const url = `${BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
-  // Ensure the declarativeNetRequest rule is set to inject cookies
   await ensureCookieRule();
+  await jitter();
 
   debugLog('info', `voyagerFetch: ${url}`);
 
@@ -97,6 +142,10 @@ export async function voyagerFetch(
     headers: {
       'csrf-token': csrfToken,
       'x-restli-protocol-version': '2.0.0',
+      'x-li-lang': 'en_US',
+      'x-li-track': LI_TRACK,
+      'x-li-page-instance': PAGE_INSTANCE,
+      'x-li-deco-include-micro-schema': 'true',
       accept: 'application/vnd.linkedin.normalized+json+2.1',
       ...(options.headers || {}),
     },
@@ -104,7 +153,6 @@ export async function voyagerFetch(
 
   const shortPath = url.split('/voyager/api/')[1]?.substring(0, 120) || url;
   if (!res.ok) {
-    // Clone so callers can still read the body
     const clone = res.clone();
     const body = await clone.text().catch(() => '');
     debugLog('error', `Voyager ${res.status} ${shortPath}: ${body.substring(0, 300)}`);
@@ -118,10 +166,6 @@ export async function voyagerFetch(
 /**
  * Fetch helper for non-Voyager LinkedIn endpoints (e.g. /realtime/*).
  * Cookies and Sec-Fetch headers are injected via declarativeNetRequest rules.
- *
- * Includes `x-li-track` header which LinkedIn's server uses to determine the
- * app context (mpName). Without this, /realtime/connect returns 400
- * "Could not map to valid appName for supplied mpName: null".
  */
 export async function realtimeFetch(
   path: string,
@@ -133,28 +177,16 @@ export async function realtimeFetch(
   const csrfToken = cookies.jsessionId.replace(/"/g, '');
   const url = `https://www.linkedin.com${path.startsWith('/') ? path : `/${path}`}`;
 
-  const liTrack = JSON.stringify({
-    clientVersion: '1.13.44343',
-    mpVersion: '1.13.44343',
-    osName: 'web',
-    timezoneOffset: new Date().getTimezoneOffset() * -1,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    deviceFormFactor: 'DESKTOP',
-    mpName: 'voyager-web',
-    displayDensity: 1,
-    displayWidth: 1920,
-    displayHeight: 1080,
-  });
-
   return fetch(url, {
     ...options,
     headers: {
       'csrf-token': csrfToken,
-      'x-li-track': liTrack,
+      'x-li-track': LI_TRACK,
+      'x-li-page-instance': PAGE_INSTANCE,
+      'x-li-lang': 'en_US',
       'x-restli-protocol-version': '2.0.0',
       'x-li-accept': 'application/vnd.linkedin.normalized+json+2.1',
       ...options.headers,
     },
   });
 }
-
