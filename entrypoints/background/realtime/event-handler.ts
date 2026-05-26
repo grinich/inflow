@@ -420,7 +420,23 @@ async function handleVoyagerEvent(
       }
       await db.conversations.update(convId, updates);
     } else {
-      debugLog('info', `[RT] Conversation ${convId} not in DB — next poll will pick it up`);
+      // Create a minimal conversation so it appears in the list immediately
+      const senders = convMessages.filter((m) => !m.isFromMe);
+      const sender = senders[0] || latest;
+      await db.conversations.put({
+        id: convId,
+        participantUrns: [sender.senderUrn],
+        participantNames: [sender.senderName],
+        participantPictures: [sender.senderPicture],
+        lastMessage: latest.body || 'New message',
+        lastActivityAt: latest.createdAt,
+        read: 0,
+        archived: 0,
+        category: 'PRIMARY_INBOX',
+        hasAttachments: convMessages.some((m) => m.attachments?.length) ? 1 : 0,
+        starred: 0,
+      });
+      debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
     }
   }
 
@@ -663,8 +679,25 @@ async function handleIncludedMessage(
         updates.read = 0;
       }
       await db.conversations.update(convId, updates);
+    } else {
+      // Create a minimal conversation so it appears in the list immediately
+      const senders = convMessages.filter((m) => !m.isFromMe);
+      const sender = senders[0] || latest;
+      await db.conversations.put({
+        id: convId,
+        participantUrns: [sender.senderUrn],
+        participantNames: [sender.senderName],
+        participantPictures: [sender.senderPicture],
+        lastMessage: latest.body || 'New message',
+        lastActivityAt: latest.createdAt,
+        read: 0,
+        archived: 0,
+        category: 'PRIMARY_INBOX',
+        hasAttachments: convMessages.some((m) => m.attachments?.length) ? 1 : 0,
+        starred: 0,
+      });
+      debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
     }
-    // If the conversation doesn't exist in DB, the next poll will pick it up.
   }
 
   // Update hasAttachments flag if any messages have attachments
@@ -781,13 +814,23 @@ async function cleanupOptimisticMessages(messages: Message[]): Promise<void> {
       .equals(convId)
       .toArray();
 
-    const toDelete = all
-      .filter((m) => m.id.startsWith('temp-') && bodies.has(m.body))
-      .map((m) => m.id);
+    const tempMessages = all.filter((m) => m.id.startsWith('temp-') && bodies.has(m.body));
 
-    if (toDelete.length > 0) {
-      await db.messages.bulkDelete(toDelete);
-      debugLog('info', `[RT] Replaced ${toDelete.length} optimistic temp message(s) in ${convId}`);
+    if (tempMessages.length > 0) {
+      // Preserve repliedMessage from temp messages onto the SSE replacements
+      // (SSE events often lack renderContent, so the reply quote would vanish)
+      const sseMessages = myMessages.filter((m) => m.conversationId === convId);
+      for (const temp of tempMessages) {
+        if (temp.repliedMessage) {
+          const sseMatch = sseMessages.find((s) => s.body === temp.body && !s.repliedMessage);
+          if (sseMatch) {
+            await db.messages.update(sseMatch.id, { repliedMessage: temp.repliedMessage });
+          }
+        }
+      }
+
+      await db.messages.bulkDelete(tempMessages.map((m) => m.id));
+      debugLog('info', `[RT] Replaced ${tempMessages.length} optimistic temp message(s) in ${convId}`);
     }
   }
 }
@@ -933,7 +976,10 @@ function extractRepliedMessage(
     const body = replied.messageBody?.text || '';
     // SSE events don't include participant entities, so we can't resolve sender name here.
     // The full fetch will fill it in later.
-    return { senderName: '', body };
+    const messageId = replied.originalMessageUrn || replied['*originalMessage'] || undefined;
+    const senderUrn = replied.originalSenderUrn || undefined;
+    const sentAt = replied.originalSendAt || undefined;
+    return { senderName: '', body, messageId, senderUrn, sentAt };
   }
 
   return undefined;

@@ -59,6 +59,8 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     const [attachments, setAttachments] = useState<File[]>([]);
     const { sendMessage, sendAndArchive, archiveConversation } = useOptimisticAction();
     const setComposeActive = useUIStore((s) => s.setComposeActive);
+    const replyingTo = useUIStore((s) => s.replyingTo);
+    const setReplyingTo = useUIStore((s) => s.setReplyingTo);
     const [cmdHeld, setCmdHeld] = useState(false);
 
     useEffect(() => {
@@ -122,6 +124,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       let cancelled = false;
       setBody('');
       setAttachments([]);
+      setReplyingTo(null);
       loadDraft(conversationId).then((draft) => {
         if (cancelled) return;
         setBody(draft.text);
@@ -129,6 +132,13 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       });
       return () => { cancelled = true; };
     }, [conversationId]);
+
+    // Auto-focus textarea when reply is selected
+    useEffect(() => {
+      if (replyingTo && textareaRef.current) {
+        textareaRef.current.focus();
+      }
+    }, [replyingTo]);
 
     // Listen for files dropped on the app window
     useEffect(() => {
@@ -177,8 +187,14 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       const text = body.trim();
       const filesToSend = attachments.length > 0 ? [...attachments] : undefined;
       if (!text && !filesToSend) return;
+
+      // Read reply state directly from store to avoid stale closure
+      // (the inflow:send event listener may hold an old handleSend reference)
+      const currentReply = useUIStore.getState().replyingTo;
+
       setBody('');
       setAttachments([]);
+      useUIStore.getState().setReplyingTo(null);
       saveDraft(conversationId, '', []);
       document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
       // Reset textarea height
@@ -192,7 +208,15 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         // Draft conversation → CREATE_CONVERSATION instead of SEND_MESSAGE
         await handleDraftSend(text, filesToSend);
       } else {
-        await sendMessage(conversationId, text, filesToSend);
+        // Build replyTo payload from the replyingTo message
+        const replyTo = currentReply ? {
+          messageUrn: currentReply.id,
+          senderUrn: currentReply.senderUrn,
+          senderName: currentReply.senderName,
+          sentAt: currentReply.createdAt,
+          body: currentReply.body,
+        } : undefined;
+        await sendMessage(conversationId, text, filesToSend, replyTo);
       }
     }
 
@@ -261,9 +285,12 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         const text = body.trim();
         const filesToSend = attachments.length > 0 ? [...attachments] : undefined;
         if (!text && !filesToSend) return;
+        // Capture reply state before clearing
+        const currentReply = useUIStore.getState().replyingTo;
         // Clear compose state immediately
         setBody('');
         setAttachments([]);
+        setReplyingTo(null);
         saveDraft(conversationId, '', []);
         document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -271,7 +298,14 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         if (ta) ta.blur();
         setComposeActive(false);
         // Atomic send+archive — archives first, then sends in background
-        sendAndArchive(conversationId, text, filesToSend);
+        const replyToData = currentReply ? {
+          messageUrn: currentReply.id,
+          senderUrn: currentReply.senderUrn,
+          senderName: currentReply.senderName,
+          sentAt: currentReply.createdAt,
+          body: currentReply.body,
+        } : undefined;
+        sendAndArchive(conversationId, text, filesToSend, replyToData);
       }
       document.addEventListener('inflow:send', onSend);
       document.addEventListener('inflow:send-and-archive', onSendAndArchive);
@@ -329,6 +363,38 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
           </div>
         )}
 
+        {/* Reply preview banner */}
+        {replyingTo && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border-l-2 border-blue-400 bg-surface-raised px-2.5 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-medium text-fg-secondary">
+                Reply to {replyingTo.senderName}
+              </p>
+              <p className="truncate text-xs text-fg-muted opacity-70">
+                {replyingTo.body || (replyingTo.attachments?.length ? 'Attachment' : '')}
+              </p>
+            </div>
+            {/* Image thumbnail if original has image attachments */}
+            {replyingTo.attachments?.find(a => a.type === 'image' && a.imageUrl) && (
+              <img
+                src={replyingTo.attachments.find(a => a.type === 'image' && a.imageUrl)!.imageUrl}
+                alt=""
+                className="h-8 w-8 shrink-0 rounded object-cover"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              className="shrink-0 cursor-pointer text-fg-faint hover:text-fg-secondary"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
           <div className="relative flex flex-1 items-end">
           <textarea
@@ -351,6 +417,13 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
               }
             }}
             onKeyDown={(e) => {
+              // Escape dismisses reply preview
+              if (e.key === 'Escape' && useUIStore.getState().replyingTo) {
+                e.preventDefault();
+                e.stopPropagation();
+                setReplyingTo(null);
+                return;
+              }
               // All Enter variants are handled by the global keyboard hook
               // (useKeyboard.ts) which dispatches custom events. Prevent
               // default here to stop the textarea from inserting a newline

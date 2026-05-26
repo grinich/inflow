@@ -121,6 +121,16 @@
   animation: message-in 250ms ease-out;
 }
 
+/* Scroll-to-original highlight flash */
+@keyframes highlight-flash {
+  0% { background-color: rgb(250 204 21 / 0.3); }
+  100% { background-color: transparent; }
+}
+
+.animate-highlight {
+  animation: highlight-flash 1.5s ease-out;
+}
+
 /* cmdk styles */
 [cmdk-root] {
   width: 100%;

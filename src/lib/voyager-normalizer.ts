@@ -362,6 +362,7 @@ function extractRepliedMessage(
 
     // Resolve sender name from participant reference
     let senderName = 'Unknown';
+    let senderUrn: string | undefined;
     const senderRef = replied['*originalSender'];
     if (senderRef) {
       const sender = participantMap.get(senderRef);
@@ -369,9 +370,22 @@ function extractRepliedMessage(
       if (member) {
         senderName = `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim() || 'Unknown';
       }
+      // Extract sender URN from participant's hostIdentityUrn
+      const profileId = extractProfileId(sender?.hostIdentityUrn || senderRef);
+      senderUrn = `urn:li:fsd_profile:${profileId}`;
+    }
+    // Also check for direct sender URN field
+    if (!senderUrn && replied.originalSenderUrn) {
+      senderUrn = replied.originalSenderUrn;
     }
 
-    return { senderName, body };
+    // Extract original message URN
+    const messageId = replied.originalMessageUrn || replied['*originalMessage'] || undefined;
+
+    // Extract original sent timestamp
+    const sentAt = replied.originalSendAt || undefined;
+
+    return { senderName, body, messageId, senderUrn, sentAt };
   }
 
   return undefined;

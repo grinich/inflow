@@ -169,7 +169,8 @@ async function uploadFile(attachment: BridgeAttachment): Promise<string> {
 export async function sendMessage(
   conversationId: string,
   body: string,
-  attachments?: BridgeAttachment[]
+  attachments?: BridgeAttachment[],
+  replyTo?: { messageUrn: string; senderUrn: string; sentAt: number; body: string }
 ): Promise<void> {
   const memberUrn = await getMemberUrn();
   const conversationUrn = `urn:li:msg_conversation:(${memberUrn},${conversationId})`;
@@ -183,6 +184,25 @@ export async function sendMessage(
 
   // Upload any attachments and build renderContentUnions
   const renderContentUnions: any[] = [];
+  if (replyTo) {
+    // LinkedIn expects the sender URN in msg_messagingParticipant format
+    const senderParticipantUrn = replyTo.senderUrn.startsWith('urn:li:msg_messagingParticipant:')
+      ? replyTo.senderUrn
+      : `urn:li:msg_messagingParticipant:${replyTo.senderUrn}`;
+    renderContentUnions.push({
+      repliedMessageContent: {
+        originalSenderUrn: senderParticipantUrn,
+        originalSendAt: replyTo.sentAt,
+        originalMessageUrn: replyTo.messageUrn,
+        messageBody: {
+          _type: 'com.linkedin.pemberly.text.AttributedText',
+          _recipeType: 'com.linkedin.1ea7e24db829a1347b841f2dd496da36',
+          attributes: [],
+          text: replyTo.body,
+        },
+      },
+    });
+  }
   if (attachments?.length) {
     for (const att of attachments) {
       const assetUrn = await uploadFile(att);
@@ -212,7 +232,7 @@ export async function sendMessage(
     dedupeByClientGeneratedToken: false,
   };
 
-  debugLog('info', `sendMessage: conv=${conversationId.substring(0, 20)}... (${renderContentUnions.length} attachments)`);
+  debugLog('info', `sendMessage: conv=${conversationId.substring(0, 20)}... (${renderContentUnions.length} content unions, replyTo=${!!replyTo})`);
 
   const res = await voyagerFetch(
     `/voyagerMessagingDashMessengerMessages?action=createMessage`,

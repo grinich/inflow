@@ -10,7 +10,7 @@ export type BridgeMessage =
   | { type: 'SYNC_CONVERSATIONS' }
   | { type: 'SYNC_CATEGORY'; category: string }
   | { type: 'FETCH_MESSAGES'; conversationId: string }
-  | { type: 'SEND_MESSAGE'; conversationId: string; body: string; attachments?: BridgeAttachment[] }
+  | { type: 'SEND_MESSAGE'; conversationId: string; body: string; attachments?: BridgeAttachment[]; replyTo?: { messageUrn: string; senderUrn: string; sentAt: number; body: string } }
   | { type: 'ARCHIVE'; conversationId: string }
   | { type: 'UNARCHIVE'; conversationId: string }
   | { type: 'MOVE_TO_OTHER'; conversationId: string }

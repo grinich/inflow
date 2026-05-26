@@ -130,7 +130,7 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
       return { success: true };
     }
     case 'SEND_MESSAGE': {
-      await sendMessage(msg.conversationId, msg.body, msg.attachments);
+      await sendMessage(msg.conversationId, msg.body, msg.attachments, msg.replyTo);
       return { success: true };
     }
     case 'ARCHIVE': {

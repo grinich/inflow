@@ -44,6 +44,7 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
     : null;
   const canEdit = isMe && message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued'
     && Date.now() - message.createdAt < 60 * 60 * 1000;
+  const canReply = message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued';
 
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body);
@@ -70,9 +71,21 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
   const isNew = message.status === 'sending' || message.status === 'queued';
 
   return (
-    <div className={`group/msg flex items-center gap-2 ${isMe ? 'flex-row-reverse' : ''} ${isNew ? 'animate-message-in' : ''}`}>
-      {/* Hover timestamp + edit button — appears to the side */}
+    <div data-message-id={message.id} className={`group/msg flex items-center gap-2 ${isMe ? 'flex-row-reverse' : ''} ${isNew ? 'animate-message-in' : ''}`}>
+      {/* Hover timestamp + edit/reply buttons — appears to the side */}
       <span className={`shrink-0 w-24 text-[10px] text-fg-faint opacity-0 transition-opacity group-hover/msg:opacity-100 order-last flex items-center gap-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+        {canReply && !editing && (
+          <button
+            onClick={() => useUIStore.getState().setReplyingTo(message)}
+            className="cursor-pointer text-fg-faint hover:text-fg-secondary"
+            title="Reply"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 17 4 12 9 7" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+            </svg>
+          </button>
+        )}
         {canEdit && !editing && (
           <button
             onClick={() => { setEditBody(message.body); setEditing(true); }}
@@ -163,14 +176,34 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
           ) : (
             <>
               {message.repliedMessage && (
-                <div className={`mb-1.5 rounded-lg border-l-2 px-2.5 py-1.5 text-xs ${
-                  isMe
-                    ? 'border-blue-300/50 bg-blue-700/40 text-blue-100'
-                    : 'border-fg-faint/30 bg-surface-hover text-fg-muted'
-                }`}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const mid = message.repliedMessage?.messageId;
+                    if (!mid) {
+                      useUIStore.getState().showToast({ message: 'Original message not available' });
+                      return;
+                    }
+                    const el = document.querySelector(`[data-message-id="${CSS.escape(mid)}"]`);
+                    if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      el.classList.remove('animate-highlight');
+                      // Force reflow to restart animation
+                      void (el as HTMLElement).offsetWidth;
+                      el.classList.add('animate-highlight');
+                    } else {
+                      useUIStore.getState().showToast({ message: 'Original message not loaded' });
+                    }
+                  }}
+                  className={`mb-1.5 w-full cursor-pointer rounded-lg border-l-2 px-2.5 py-1.5 text-left text-xs transition-opacity hover:opacity-80 ${
+                    isMe
+                      ? 'border-blue-300/50 bg-blue-700/40 text-blue-100'
+                      : 'border-fg-faint/30 bg-surface-hover text-fg-muted'
+                  }`}
+                >
                   <span className="font-medium">{message.repliedMessage.senderName || 'Unknown'}</span>
                   <p className="mt-0.5 line-clamp-2 opacity-80">{message.repliedMessage.body}</p>
-                </div>
+                </button>
               )}
               {hasBody && <p className="whitespace-pre-wrap"><Linkify text={message.body} isMe={isMe} /></p>}
               {hasAttachments && (
