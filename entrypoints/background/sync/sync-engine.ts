@@ -178,7 +178,13 @@ async function storeConversationPage(
       const existing = await db.conversations.get(conv.id);
       if (existing) {
         await db.conversations.update(conv.id, {
-          ...conv,
+          participantUrns: conv.participantUrns.length > 0 ? conv.participantUrns : existing.participantUrns,
+          participantNames: conv.participantNames.length > 0 ? conv.participantNames : existing.participantNames,
+          participantPictures: conv.participantPictures.length > 0 ? conv.participantPictures : existing.participantPictures,
+          lastMessage: conv.lastMessage || existing.lastMessage,
+          lastActivityAt: Math.max(conv.lastActivityAt, existing.lastActivityAt),
+          category: conv.category,
+          archived: conv.archived,
           starred: existing.starred,
           read: existing.read,
         });

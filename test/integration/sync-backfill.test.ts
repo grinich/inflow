@@ -628,6 +628,75 @@ describe('sync-backfill', () => {
       expect(fetchAllMessages).toHaveBeenCalledTimes(1);
       expect(fetchAllMessages).toHaveBeenCalledWith('conv-pending');
     });
+
+    it('handles fetchAllMessages returning empty array (no pages)', async () => {
+      const { fetchAllMessages } = await import(
+        '../../entrypoints/background/api/messages'
+      );
+      const { backfillBatch } = await import(
+        '../../entrypoints/background/sync/sync-backfill'
+      );
+
+      await testDb.syncQueue.put(makeSyncQueueItem({ conversationId: 'conv-empty-pages' }));
+
+      // Return an empty array (no pages at all)
+      vi.mocked(fetchAllMessages).mockResolvedValue([]);
+
+      const count = await backfillBatch(1);
+      expect(count).toBe(1);
+
+      // Item should be marked as done even with zero pages
+      const item = await testDb.syncQueue.get('conv-empty-pages');
+      expect(item.status).toBe('done');
+      expect(item.messagesSyncedAt).toBeGreaterThan(0);
+
+      // No messages should be stored
+      const msgs = await testDb.messages
+        .where('conversationId')
+        .equals('conv-empty-pages')
+        .toArray();
+      expect(msgs).toHaveLength(0);
+    });
+
+    it('does not process items with status done', async () => {
+      const { fetchAllMessages } = await import(
+        '../../entrypoints/background/api/messages'
+      );
+      const { backfillBatch } = await import(
+        '../../entrypoints/background/sync/sync-backfill'
+      );
+
+      vi.mocked(fetchAllMessages).mockClear();
+
+      // Only insert a done item
+      await testDb.syncQueue.put(
+        makeSyncQueueItem({ conversationId: 'conv-only-done', status: 'done', priority: 1 })
+      );
+
+      const count = await backfillBatch(10);
+      expect(count).toBe(0);
+      expect(fetchAllMessages).not.toHaveBeenCalled();
+    });
+
+    it('does not process items with status failed', async () => {
+      const { fetchAllMessages } = await import(
+        '../../entrypoints/background/api/messages'
+      );
+      const { backfillBatch } = await import(
+        '../../entrypoints/background/sync/sync-backfill'
+      );
+
+      vi.mocked(fetchAllMessages).mockClear();
+
+      // Only insert a failed item
+      await testDb.syncQueue.put(
+        makeSyncQueueItem({ conversationId: 'conv-only-failed', status: 'failed', failCount: 3, priority: 1 })
+      );
+
+      const count = await backfillBatch(10);
+      expect(count).toBe(0);
+      expect(fetchAllMessages).not.toHaveBeenCalled();
+    });
   });
 
   describe('recoverStuckItems', () => {
