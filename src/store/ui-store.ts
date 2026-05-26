@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { Message } from '@/types/message';
 
 export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system';
@@ -33,6 +34,7 @@ interface UIState {
   lightboxImageUrl: string | null;
   deleteConfirmId: string | null;
   spamConfirmId: string | null;
+  replyingTo: Message | null;
   tabMemory: Partial<Record<InboxTab, TabMemory>>;
   _pendingRestore: TabMemory | null;
 
@@ -54,6 +56,7 @@ interface UIState {
   closeLightbox: () => void;
   setDeleteConfirmId: (id: string | null) => void;
   setSpamConfirmId: (id: string | null) => void;
+  setReplyingTo: (msg: Message | null) => void;
   openThread: (conversationId: string, index: number) => void;
   closeThread: () => void;
   setTheme: (theme: Theme) => void;
@@ -137,6 +140,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   lightboxImageUrl: null,
   deleteConfirmId: null,
   spamConfirmId: null,
+  replyingTo: null,
   tabMemory: {},
   _pendingRestore: null,
 
@@ -174,6 +178,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   closeLightbox: () => set({ lightboxImageUrl: null }),
   setDeleteConfirmId: (id) => set({ deleteConfirmId: id }),
   setSpamConfirmId: (id) => set({ spamConfirmId: id }),
+  setReplyingTo: (msg) => set({ replyingTo: msg }),
 
   showToast: (toast) => {
     if (toastTimeout) clearTimeout(toastTimeout);

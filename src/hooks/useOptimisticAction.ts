@@ -157,7 +157,7 @@ export function useOptimisticAction() {
     });
   }
 
-  async function sendMessage(conversationId: string, body: string, files?: File[]): Promise<boolean> {
+  async function sendMessage(conversationId: string, body: string, files?: File[], replyTo?: { messageUrn: string; senderUrn: string; senderName: string; sentAt: number; body: string }): Promise<boolean> {
     const tempId = `temp-${nanoid()}`;
 
     // Build display attachments from files so the bubble renders them immediately
@@ -191,6 +191,7 @@ export function useOptimisticAction() {
       isFromMe: true,
       status: initialStatus,
       attachments: displayAttachments,
+      ...(replyTo ? { repliedMessage: { senderName: replyTo.senderName, body: replyTo.body, messageId: replyTo.messageUrn, senderUrn: replyTo.senderUrn, sentAt: replyTo.sentAt } } : {}),
     });
 
     // Stash files in IndexedDB so retry/drainer can recover them
@@ -210,12 +211,15 @@ export function useOptimisticAction() {
       read: 1,
     });
 
+    // Build bridge-compatible replyTo (without senderName which is UI-only)
+    const bridgeReplyTo = replyTo ? { messageUrn: replyTo.messageUrn, senderUrn: replyTo.senderUrn, sentAt: replyTo.sentAt, body: replyTo.body } : undefined;
+
     // If offline, queue the action (without base64 — drainer reads from draftAttachments)
     if (!navigator.onLine) {
       await createQueuedAction({
         type: 'send',
         conversationId,
-        bridgeMessage: { type: 'SEND_MESSAGE', conversationId, body },
+        bridgeMessage: { type: 'SEND_MESSAGE', conversationId, body, ...(bridgeReplyTo ? { replyTo: bridgeReplyTo } : {}) },
         tempMessageId: tempId,
       });
       return true; // optimistic success
@@ -246,6 +250,7 @@ export function useOptimisticAction() {
         conversationId,
         body,
         attachments,
+        ...(bridgeReplyTo ? { replyTo: bridgeReplyTo } : {}),
       });
 
       if (res.success) {
@@ -267,7 +272,7 @@ export function useOptimisticAction() {
         await createQueuedAction({
           type: 'send',
           conversationId,
-          bridgeMessage: { type: 'SEND_MESSAGE', conversationId, body },
+          bridgeMessage: { type: 'SEND_MESSAGE', conversationId, body, ...(bridgeReplyTo ? { replyTo: bridgeReplyTo } : {}) },
           tempMessageId: tempId,
         });
         return true; // optimistic success
@@ -284,7 +289,8 @@ export function useOptimisticAction() {
   async function sendAndArchive(
     conversationId: string,
     body: string,
-    files?: File[]
+    files?: File[],
+    replyTo?: { messageUrn: string; senderUrn: string; senderName: string; sentAt: number; body: string }
   ): Promise<void> {
     const conv = await db.conversations.get(conversationId);
     if (!conv) return;
@@ -318,7 +324,7 @@ export function useOptimisticAction() {
     });
 
     // 3. Send message in background
-    sendMessage(conversationId, body, files).then((ok) => {
+    sendMessage(conversationId, body, files, replyTo).then((ok) => {
       if (!ok) showToast({ message: 'Failed to send message' });
     });
 

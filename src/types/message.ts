@@ -24,6 +24,9 @@ export interface MessageAttachment {
 export interface RepliedMessage {
   senderName: string;
   body: string;
+  messageId?: string;    // original message entityUrn (for scroll-to-original)
+  senderUrn?: string;    // original sender URN (for API payload)
+  sentAt?: number;       // original message timestamp (for API payload)
 }
 
 export interface Message {

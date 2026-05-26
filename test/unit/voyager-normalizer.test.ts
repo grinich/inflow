@@ -1042,6 +1042,9 @@ describe('normalizeMessages()', () => {
       expect(messages[0].repliedMessage).toEqual({
         senderName: 'Bob Jones',
         body: 'What do you think?',
+        messageId: undefined,
+        senderUrn: 'urn:li:fsd_profile:BOB',
+        sentAt: undefined,
       });
     });
 
