@@ -74,7 +74,7 @@ type InflowDatabase = Dexie & {
   draftAttachments: EntityTable<DraftAttachment, 'conversationId'>;
 };
 
-function applySchema(database: Dexie): void {
+export function applySchema(database: Dexie): void {
   database.version(1).stores({
     conversations: 'id, lastActivityAt, archived, read, [archived+lastActivityAt]',
     messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
