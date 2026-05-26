@@ -12,7 +12,7 @@ import {
   unstarConversation,
   searchConversations,
 } from './api/conversations';
-import { fetchMessages, fetchAllMessages, sendMessage, editMessage, createConversation } from './api/messages';
+import { fetchMessages, fetchAllMessages, sendMessage, editMessage, createConversation, reactWithEmoji, recallMessage } from './api/messages';
 import { searchTypeahead } from './api/typeahead';
 import { fetchProfileByUrn } from './api/profiles';
 import { getSession, getMemberUrn } from './auth/session';
@@ -122,6 +122,27 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
           canonicalKeys.has(`${m.body}|${m.senderUrn}|${m.createdAt}`))
       );
       if (staleMessages.length > 0) {
+        // Preserve editedAt and reactions from SSE-delivered entries onto canonical versions.
+        // The Messenger API doesn't return editedAt — it only comes via SSE Voyager events
+        // on the fsd_message entry, which gets deleted here as a duplicate.
+        for (const stale of staleMessages) {
+          if (!stale.editedAt && !stale.reactions?.length) continue;
+          if (!stale.id.startsWith('urn:li:fsd_message:') && !stale.id.startsWith('urn:li:fs_event:')) continue;
+          const canonical = allConvMessages.find(m =>
+            m.id.startsWith('urn:li:msg_message:') &&
+            m.body === stale.body &&
+            m.senderUrn === stale.senderUrn &&
+            m.createdAt === stale.createdAt
+          );
+          if (canonical) {
+            const updates: Record<string, any> = {};
+            if (stale.editedAt && !canonical.editedAt) updates.editedAt = stale.editedAt;
+            if (stale.reactions?.length && !canonical.reactions?.length) updates.reactions = stale.reactions;
+            if (Object.keys(updates).length > 0) {
+              await db.messages.update(canonical.id, updates);
+            }
+          }
+        }
         await db.messages.bulkDelete(staleMessages.map((m) => m.id));
       }
       if (hasAttachments) {
@@ -178,6 +199,16 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
       await editMessage(msg.conversationId, msg.messageId, msg.body);
       // Update message in DB
       await db.messages.update(msg.messageId, { body: msg.body, editedAt: Date.now() });
+      return { success: true };
+    }
+    case 'REACT_EMOJI': {
+      await reactWithEmoji(msg.messageId, msg.emoji);
+      return { success: true };
+    }
+    case 'RECALL_MESSAGE': {
+      await recallMessage(msg.messageId);
+      // Remove message from DB
+      await db.messages.delete(msg.messageId);
       return { success: true };
     }
     case 'TYPEAHEAD_SEARCH': {

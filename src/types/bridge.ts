@@ -36,7 +36,9 @@ export type BridgeMessage =
   | { type: 'CREATE_CONVERSATION'; recipientUrns: string[]; body: string; attachments?: BridgeAttachment[] }
   | { type: 'TOGGLE_SYNC_PAUSE' }
   | { type: 'REEVAL_BACKFILL_WINDOW' }
-  | { type: 'PREFETCH_MESSAGES'; conversationIds: string[] };
+  | { type: 'PREFETCH_MESSAGES'; conversationIds: string[] }
+  | { type: 'REACT_EMOJI'; conversationId: string; messageId: string; emoji: string }
+  | { type: 'RECALL_MESSAGE'; conversationId: string; messageId: string };
 
 export type BridgeResponse = {
   success: boolean;

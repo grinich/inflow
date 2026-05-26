@@ -18,7 +18,7 @@ import {
   starConversation,
   unstarConversation,
 } from './api/conversations';
-import { sendMessage, editMessage } from './api/messages';
+import { sendMessage, editMessage, reactWithEmoji, recallMessage } from './api/messages';
 import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
 import type { PendingAction } from '@/db/database';
@@ -136,6 +136,20 @@ async function replayAction(action: PendingAction): Promise<void> {
         );
       }
       break;
+    case 'react_emoji':
+      if (action.bridgeMessage) {
+        await reactWithEmoji(
+          action.bridgeMessage.messageId,
+          action.bridgeMessage.emoji
+        );
+      }
+      break;
+    case 'recall_message':
+      if (action.bridgeMessage) {
+        await recallMessage(action.bridgeMessage.messageId);
+        await db.messages.delete(action.bridgeMessage.messageId).catch(() => {});
+      }
+      break;
     default:
       debugLog('warn', `[ACTION-QUEUE] Unknown action type: ${action.type}`);
   }
@@ -222,6 +236,20 @@ async function rollbackAction(action: PendingAction): Promise<void> {
           body: data.body,
           editedAt: data.editedAt,
         }).catch(() => {});
+      }
+      break;
+    case 'react_emoji':
+      // rollbackData is { messageId, reactions }
+      if (data.messageId) {
+        await db.messages.update(data.messageId, {
+          reactions: data.reactions,
+        }).catch(() => {});
+      }
+      break;
+    case 'recall_message':
+      // rollbackData is { message } — restore the deleted message
+      if (data.message) {
+        await db.messages.put(data.message).catch(() => {});
       }
       break;
   }

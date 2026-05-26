@@ -5,7 +5,7 @@ import type { Profile } from '@/types/profile';
 
 export interface PendingAction {
   id: string;
-  type: 'archive' | 'unarchive' | 'markRead' | 'markUnread' | 'send' | 'move_to_focused' | 'move_to_other' | 'move_to_spam' | 'star' | 'unstar' | 'delete' | 'edit_message';
+  type: 'archive' | 'unarchive' | 'markRead' | 'markUnread' | 'send' | 'move_to_focused' | 'move_to_other' | 'move_to_spam' | 'star' | 'unstar' | 'delete' | 'edit_message' | 'react_emoji' | 'recall_message';
   conversationId: string;
   status: 'pending' | 'confirmed' | 'failed' | 'queued';
   timestamp: number;

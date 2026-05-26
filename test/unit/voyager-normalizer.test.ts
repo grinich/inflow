@@ -1251,6 +1251,131 @@ describe('normalizeMessages()', () => {
     });
   });
 
+  describe('reaction extraction', () => {
+    it('extracts reactions when reactionSummaries is present', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          {
+            ...makeMessage({
+              entityUrn: 'urn:li:msg_message:(2-conv,100)',
+              senderRef: participantAlice.entityUrn,
+              body: 'Nice!',
+              deliveredAt: 1700000001000,
+            }),
+            reactionSummaries: [
+              { emoji: '👍', count: 3, firstReactedAt: 1700000002000, viewerReacted: true },
+              { emoji: '❤️', count: 1, firstReactedAt: 1700000003000, viewerReacted: false },
+            ],
+          },
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect(messages[0].reactions).toHaveLength(2);
+      expect(messages[0].reactions![0]).toEqual({
+        emoji: '👍',
+        count: 3,
+        firstReactedAt: 1700000002000,
+        viewerReacted: true,
+      });
+      expect(messages[0].reactions![1]).toEqual({
+        emoji: '❤️',
+        count: 1,
+        firstReactedAt: 1700000003000,
+        viewerReacted: false,
+      });
+    });
+
+    it('omits reactions when reactionSummaries is empty', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          {
+            ...makeMessage({
+              entityUrn: 'urn:li:msg_message:(2-conv,100)',
+              senderRef: participantAlice.entityUrn,
+              body: 'Hello',
+              deliveredAt: 1700000001000,
+            }),
+            reactionSummaries: [],
+          },
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect(messages[0].reactions).toBeUndefined();
+    });
+
+    it('omits reactions when reactionSummaries is missing', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          makeMessage({
+            entityUrn: 'urn:li:msg_message:(2-conv,100)',
+            senderRef: participantAlice.entityUrn,
+            body: 'No reactions',
+            deliveredAt: 1700000001000,
+          }),
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect(messages[0].reactions).toBeUndefined();
+    });
+
+    it('filters out entries without emoji', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          {
+            ...makeMessage({
+              entityUrn: 'urn:li:msg_message:(2-conv,100)',
+              senderRef: participantAlice.entityUrn,
+              body: 'Mixed',
+              deliveredAt: 1700000001000,
+            }),
+            reactionSummaries: [
+              { emoji: '🔥', count: 2, firstReactedAt: 1700000002000, viewerReacted: false },
+              { count: 1, firstReactedAt: 1700000003000, viewerReacted: true }, // missing emoji
+            ],
+          },
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect(messages[0].reactions).toHaveLength(1);
+      expect(messages[0].reactions![0].emoji).toBe('🔥');
+    });
+
+    it('defaults count to 1 when missing', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          {
+            ...makeMessage({
+              entityUrn: 'urn:li:msg_message:(2-conv,100)',
+              senderRef: participantAlice.entityUrn,
+              body: 'Defaults',
+              deliveredAt: 1700000001000,
+            }),
+            reactionSummaries: [
+              { emoji: '👍', firstReactedAt: 1700000002000, viewerReacted: true },
+            ],
+          },
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect(messages[0].reactions![0].count).toBe(1);
+    });
+  });
+
   it('returns empty array when included has no Message entities', () => {
     const response: VoyagerResponse = {
       data: {},

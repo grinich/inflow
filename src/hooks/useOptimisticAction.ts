@@ -3,6 +3,7 @@ import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { useUIStore } from '@/store/ui-store';
 import type { Conversation } from '@/types/conversation';
+import type { Message, ReactionSummary } from '@/types/message';
 import type { PendingAction } from '@/db/database';
 
 /**
@@ -695,5 +696,112 @@ export function useOptimisticAction() {
     }
   }
 
-  return { archiveConversation, sendAndArchive, moveToFocused, moveToOther, moveToSpam, markRead, markUnread, sendMessage, deleteConversation, starConversation, editMessage };
+  async function reactToMessage(conversationId: string, messageId: string, emoji: string): Promise<void> {
+    const msg = await db.messages.get(messageId);
+    if (!msg) return;
+
+    const oldReactions = msg.reactions || [];
+    const existingIdx = oldReactions.findIndex(r => r.emoji === emoji);
+    let newReactions: ReactionSummary[];
+
+    if (existingIdx >= 0 && oldReactions[existingIdx].viewerReacted) {
+      // Toggle off — decrement count or remove pill
+      const existing = oldReactions[existingIdx];
+      if (existing.count <= 1) {
+        newReactions = oldReactions.filter((_, i) => i !== existingIdx);
+      } else {
+        newReactions = oldReactions.map((r, i) =>
+          i === existingIdx ? { ...r, count: r.count - 1, viewerReacted: false } : r
+        );
+      }
+    } else if (existingIdx >= 0) {
+      // Emoji exists but viewer hasn't reacted — increment
+      newReactions = oldReactions.map((r, i) =>
+        i === existingIdx ? { ...r, count: r.count + 1, viewerReacted: true } : r
+      );
+    } else {
+      // New reaction
+      newReactions = [...oldReactions, { emoji, count: 1, firstReactedAt: Date.now(), viewerReacted: true }];
+    }
+
+    // Optimistic DB update
+    await db.messages.update(messageId, { reactions: newReactions.length > 0 ? newReactions : undefined });
+
+    const bridgeMsg = { type: 'REACT_EMOJI' as const, conversationId, messageId, emoji };
+
+    if (!navigator.onLine) {
+      await createQueuedAction({
+        type: 'react_emoji',
+        conversationId,
+        rollbackData: { messageId, reactions: oldReactions.length > 0 ? oldReactions : undefined },
+        bridgeMessage: bridgeMsg,
+      });
+      return;
+    }
+
+    sendBridgeMessage(bridgeMsg)
+      .then(async (res) => {
+        if (!res.success) {
+          await db.messages.update(messageId, { reactions: oldReactions.length > 0 ? oldReactions : undefined });
+          showToast({ message: 'Failed to react' });
+        }
+      })
+      .catch(async () => {
+        if (!navigator.onLine) {
+          await createQueuedAction({
+            type: 'react_emoji',
+            conversationId,
+            rollbackData: { messageId, reactions: oldReactions.length > 0 ? oldReactions : undefined },
+            bridgeMessage: bridgeMsg,
+          });
+          return;
+        }
+        await db.messages.update(messageId, { reactions: oldReactions.length > 0 ? oldReactions : undefined });
+        showToast({ message: 'Failed to react' });
+      });
+  }
+
+  async function recallMessage(conversationId: string, messageId: string): Promise<void> {
+    const msg = await db.messages.get(messageId);
+    if (!msg) return;
+
+    // Optimistic delete
+    await db.messages.delete(messageId);
+    showToast({ message: 'Message unsent' });
+
+    const bridgeMsg = { type: 'RECALL_MESSAGE' as const, conversationId, messageId };
+
+    if (!navigator.onLine) {
+      await createQueuedAction({
+        type: 'recall_message',
+        conversationId,
+        rollbackData: { message: msg },
+        bridgeMessage: bridgeMsg,
+      });
+      return;
+    }
+
+    sendBridgeMessage(bridgeMsg)
+      .then(async (res) => {
+        if (!res.success) {
+          await db.messages.put(msg);
+          showToast({ message: res.error || 'Failed to unsend — message restored' });
+        }
+      })
+      .catch(async () => {
+        if (!navigator.onLine) {
+          await createQueuedAction({
+            type: 'recall_message',
+            conversationId,
+            rollbackData: { message: msg },
+            bridgeMessage: bridgeMsg,
+          });
+          return;
+        }
+        await db.messages.put(msg);
+        showToast({ message: 'Failed to unsend — message restored' });
+      });
+  }
+
+  return { archiveConversation, sendAndArchive, moveToFocused, moveToOther, moveToSpam, markRead, markUnread, sendMessage, deleteConversation, starConversation, editMessage, reactToMessage, recallMessage };
 }

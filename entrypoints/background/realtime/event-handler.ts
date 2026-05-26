@@ -19,7 +19,7 @@ import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { shouldSuppressConversationUpdate } from './mark-read-suppression';
-import type { Message, MessageAttachment } from '@/types/message';
+import type { Message, MessageAttachment, ReactionSummary } from '@/types/message';
 
 /** Enrich a single profile if it's missing company data. Non-blocking, fire-and-forget. */
 function enrichProfileIfNeeded(urn: string): void {
@@ -35,6 +35,51 @@ function enrichProfileIfNeeded(urn: string): void {
     if (data.locationName && !p.location) updates.location = data.locationName;
     if (Object.keys(updates).length > 0) {
       await db.profiles.update(urn, updates);
+    }
+  }).catch(() => {});
+}
+
+/**
+ * Fetch participant data for a conversation and update it in IndexedDB.
+ * Used when a minimal conversation is created from an outbound-only SSE message
+ * and we don't have the other party's profile data from the event itself.
+ * Fire-and-forget — called async, errors are swallowed.
+ */
+function backfillConversationParticipants(conversationId: string, memberUrn: string): void {
+  fetchMessages(conversationId, 1, 0, { skipJitter: true }).then(async (raw) => {
+    const included = raw.included || [];
+    const participantUrns: string[] = [];
+    const participantNames: string[] = [];
+    const participantPictures: string[] = [];
+
+    for (const entity of included) {
+      if (entity.$type !== 'com.linkedin.messenger.MessagingParticipant') continue;
+      const member = entity.participantType?.member;
+      if (!member) continue;
+      const profileId = extractProfileId(entity.hostIdentityUrn || entity.entityUrn);
+      const urn = `urn:li:fsd_profile:${profileId}`;
+
+      // Skip the current user
+      if (urn === memberUrn) continue;
+
+      participantUrns.push(urn);
+      participantNames.push(
+        `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim() || 'Unknown'
+      );
+      participantPictures.push(getParticipantPicture(entity));
+    }
+
+    if (participantUrns.length === 0) return;
+
+    // Only update if the conversation still has empty participants
+    const conv = await db.conversations.get(conversationId);
+    if (conv && conv.participantUrns.length === 0) {
+      await db.conversations.update(conversationId, {
+        participantUrns,
+        participantNames,
+        participantPictures,
+      });
+      debugLog('info', `[RT] Backfilled participants for ${conversationId.substring(0, 20)}...: ${participantNames.join(', ')}`);
     }
   }).catch(() => {});
 }
@@ -117,6 +162,18 @@ export async function handleRealtimeEvent(
         );
         if (realtimeConv) {
           await handleConversationUpdate(realtimeConv, included, await getMemberUrn());
+          return;
+        }
+      }
+
+      // Dash-format conversation update (new Messenger API).
+      // Unlike old Voyager events, these have empty included[] and carry
+      // a full com.linkedin.messenger.Conversation entity as the ActionResponse result.
+      // This is how per-conversation read/unread status is communicated via SSE.
+      if (topic.includes('conversationsTopic')) {
+        const convEntity = extractDashConversationResult(payload);
+        if (convEntity) {
+          await handleDashConversationUpdate(convEntity);
           return;
         }
       }
@@ -325,6 +382,7 @@ async function handleVoyagerEvent(
     const ec = entity.eventContent || {};
     const body = ec.attributedBody?.text || ec.body || '';
 
+
     // Typing indicators arrive as Voyager Events with empty body.
     // Skip them — don't store as messages.
     if (!body && !ec.attachments?.length) {
@@ -362,6 +420,9 @@ async function handleVoyagerEvent(
 
     const isFromMe = senderUrn === memberUrn;
 
+    // Extract editedAt — Voyager events carry it inside eventContent, not on the entity
+    const editedAt = ec.editedAt || ec.lastEditedAt || entity.editedAt || entity.lastEditedAt || undefined;
+
     // Use dashEntityUrn (urn:li:fsd_message:...) as the ID so it matches
     // the poller's Messenger API format and avoids duplicate entries.
     const messageId = entity.dashEntityUrn || entity.entityUrn;
@@ -375,6 +436,7 @@ async function handleVoyagerEvent(
       body,
       createdAt: entity.createdAt || Date.now(),
       isFromMe,
+      ...(editedAt ? { editedAt } : {}),
     });
   }
 
@@ -420,23 +482,31 @@ async function handleVoyagerEvent(
       }
       await db.conversations.update(convId, updates);
     } else {
-      // Create a minimal conversation so it appears in the list immediately
+      // Create a minimal conversation so it appears in the list immediately.
+      // Use the other party's info (non-self messages). If all messages are
+      // from us (e.g. we just sent a new outbound message), immediately
+      // backfill participant data from the messages API.
       const senders = convMessages.filter((m) => !m.isFromMe);
-      const sender = senders[0] || latest;
+      const sender = senders[0];
       await db.conversations.put({
         id: convId,
-        participantUrns: [sender.senderUrn],
-        participantNames: [sender.senderName],
-        participantPictures: [sender.senderPicture],
+        participantUrns: sender ? [sender.senderUrn] : [],
+        participantNames: sender ? [sender.senderName] : [],
+        participantPictures: sender ? [sender.senderPicture] : [],
         lastMessage: latest.body || 'New message',
         lastActivityAt: latest.createdAt,
-        read: 0,
+        read: senders.length > 0 ? 0 : 1,
         archived: 0,
         category: 'PRIMARY_INBOX',
         hasAttachments: convMessages.some((m) => m.attachments?.length) ? 1 : 0,
         starred: 0,
       });
       debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
+
+      // If we don't have participant data (outbound-only), fetch it immediately
+      if (!sender) {
+        backfillConversationParticipants(convId, memberUrn);
+      }
     }
   }
 
@@ -464,6 +534,60 @@ async function handleVoyagerEvent(
 // ---------------------------------------------------------------------------
 // Conversation update handler (RealtimeConversation events)
 // ---------------------------------------------------------------------------
+// Dash-format conversation update handler (new Messenger API)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a com.linkedin.messenger.Conversation entity from a Dash-format
+ * SSE payload. The Dash format wraps the entity in an ActionResponse under
+ * a dynamic key (often base64-encoded), not in `included[]`.
+ */
+function extractDashConversationResult(payload: any): any | null {
+  const data = payload?.data;
+  if (!data) return null;
+  for (const key of Object.keys(data)) {
+    if (key.startsWith('_')) continue;
+    const val = data[key];
+    if (val?.result?._type === 'com.linkedin.messenger.Conversation') {
+      return val.result;
+    }
+  }
+  return null;
+}
+
+/**
+ * Handle a Dash-format conversation update with per-conversation read status.
+ * These events carry a full Conversation entity with `read`, `unreadCount`,
+ * and `lastReadAt` fields — unlike the old Voyager RealtimeConversation events
+ * which only have the inbox-wide `unreadConversationsCount`.
+ */
+async function handleDashConversationUpdate(convEntity: any): Promise<void> {
+  const convId = extractConversationId(convEntity.entityUrn || '');
+  if (!convId) return;
+
+  const isRead = convEntity.read === true;
+  const suppressed = shouldSuppressConversationUpdate(convId);
+
+  debugLog(
+    'info',
+    `[RT] Dash conversation update: ${convId.substring(0, 20)}... read=${convEntity.read} unreadCount=${convEntity.unreadCount} lastReadAt=${convEntity.lastReadAt}${suppressed ? ' (suppressed)' : ''}`
+  );
+
+  if (suppressed) return;
+
+  const existing = await db.conversations.get(convId);
+  if (!existing) return;
+
+  const newRead = isRead ? 1 : 0;
+  if (existing.read !== newRead) {
+    await db.conversations.update(convId, { read: newRead });
+    debugLog('info', `[RT] Updated conversation ${convId.substring(0, 20)}... read=${newRead} (from another client)`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Conversation update handler (RealtimeConversation events — old Voyager format)
+// ---------------------------------------------------------------------------
 
 /**
  * Handle a RealtimeConversation event — triggered when a conversation is
@@ -489,9 +613,6 @@ async function handleConversationUpdate(
 
   const unreadCount = realtimeConv.unreadConversationsCount ?? 0;
 
-  // Skip events with no unread messages — these are echoes from our own
-  // actions (mark-as-read, archive, etc.) and would cause a feedback loop.
-  if (unreadCount === 0) return;
 
   // Suppress echoes from our own mark-as-read calls.
   // LinkedIn sends RealtimeConversation events ~0.1-1s after our PATCH with
@@ -501,6 +622,19 @@ async function handleConversationUpdate(
   const suppressed = shouldSuppressConversationUpdate(conversationId);
   if (suppressed) {
     debugLog('info', `[RT] Suppressed read-change echo for ${conversationId.substring(0, 20)}... (recently marked read)`);
+  }
+
+  // When unreadCount is 0, the conversation was read (possibly from another
+  // client like LinkedIn web). Update the local read state unless suppressed.
+  if (unreadCount === 0) {
+    if (!suppressed) {
+      const conv = await db.conversations.get(conversationId);
+      if (conv && conv.read === 0) {
+        await db.conversations.update(conversationId, { read: 1 });
+        debugLog('info', `[RT] Marked conversation ${conversationId.substring(0, 20)}... as read (read on another client)`);
+      }
+    }
+    return;
   }
 
   // Skip fetching for archived conversations — these are echoes from our own
@@ -585,6 +719,11 @@ async function _doFetchLatest(
       );
       if (hasNewInbound) {
         updates.read = 0;
+      } else if (existing.read === 0) {
+        // No new inbound messages but we got a non-suppressed conversation
+        // update event — this was likely a read-status change from another
+        // client (e.g. LinkedIn web). Mark the conversation as read.
+        updates.read = 1;
       }
     }
     await db.conversations.update(conversationId, updates);
@@ -633,6 +772,9 @@ async function handleIncludedMessage(
 
     const attachments = extractAttachments(entity.renderContent, included);
     const repliedMessage = extractRepliedMessage(entity.renderContent);
+    const reactions = extractReactionSummaries(entity.reactionSummaries);
+
+
 
     messages.push({
       id: entity.entityUrn,
@@ -648,6 +790,7 @@ async function handleIncludedMessage(
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(repliedMessage ? { repliedMessage } : {}),
       ...(entity.editedAt ? { editedAt: entity.editedAt } : {}),
+      ...(reactions.length > 0 ? { reactions } : {}),
     });
   }
 
@@ -680,23 +823,30 @@ async function handleIncludedMessage(
       }
       await db.conversations.update(convId, updates);
     } else {
-      // Create a minimal conversation so it appears in the list immediately
+      // Create a minimal conversation so it appears in the list immediately.
+      // Use the other party's info (non-self messages). If all messages are
+      // from us, immediately backfill participant data from the messages API.
       const senders = convMessages.filter((m) => !m.isFromMe);
-      const sender = senders[0] || latest;
+      const sender = senders[0];
       await db.conversations.put({
         id: convId,
-        participantUrns: [sender.senderUrn],
-        participantNames: [sender.senderName],
-        participantPictures: [sender.senderPicture],
+        participantUrns: sender ? [sender.senderUrn] : [],
+        participantNames: sender ? [sender.senderName] : [],
+        participantPictures: sender ? [sender.senderPicture] : [],
         lastMessage: latest.body || 'New message',
         lastActivityAt: latest.createdAt,
-        read: 0,
+        read: senders.length > 0 ? 0 : 1,
         archived: 0,
         category: 'PRIMARY_INBOX',
         hasAttachments: convMessages.some((m) => m.attachments?.length) ? 1 : 0,
         starred: 0,
       });
       debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
+
+      // If we don't have participant data (outbound-only), fetch it immediately
+      if (!sender) {
+        backfillConversationParticipants(convId, memberUrn);
+      }
     }
   }
 
@@ -748,6 +898,12 @@ async function handleSingleMessageEntity(
 
   const attachments = extractAttachments(entity.renderContent);
   const repliedMessage = extractRepliedMessage(entity.renderContent);
+  const reactions = extractReactionSummaries(entity.reactionSummaries);
+
+  // DEBUG: log edit/reaction fields from raw entity
+  if (entity.editedAt || entity.lastEditedAt || entity.reactionSummaries) {
+    debugLog('info', `[RT][EDIT-DEBUG] urn=${entity.entityUrn} editedAt=${entity.editedAt} lastEditedAt=${entity.lastEditedAt} reactionSummaries=${JSON.stringify(entity.reactionSummaries)}`);
+  }
 
   const message: Message = {
     id: entity.entityUrn,
@@ -761,6 +917,7 @@ async function handleSingleMessageEntity(
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(repliedMessage ? { repliedMessage } : {}),
     ...(entity.editedAt ? { editedAt: entity.editedAt } : {}),
+    ...(reactions.length > 0 ? { reactions } : {}),
   };
 
   debugLog(
@@ -983,6 +1140,22 @@ function extractRepliedMessage(
   }
 
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Reaction summary extraction
+// ---------------------------------------------------------------------------
+
+function extractReactionSummaries(reactionSummaries: any[] | undefined): ReactionSummary[] {
+  if (!reactionSummaries || !Array.isArray(reactionSummaries)) return [];
+  return reactionSummaries
+    .filter((r: any) => r.emoji)
+    .map((r: any) => ({
+      emoji: r.emoji,
+      count: r.count || 1,
+      firstReactedAt: r.firstReactedAt || 0,
+      viewerReacted: !!r.viewerReacted,
+    }));
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import type { Conversation } from '@/types/conversation';
-import type { Message, MessageAttachment, RepliedMessage } from '@/types/message';
+import type { Message, MessageAttachment, RepliedMessage, ReactionSummary } from '@/types/message';
 import type { Profile } from '@/types/profile';
 import type { VoyagerResponse, VoyagerEntity } from '@/types/voyager';
 
@@ -170,6 +170,9 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
       // References to separate SeenReceipt entities — resolve below
     }
 
+    // Extract reaction summaries
+    const reactions = extractReactions(entity.reactionSummaries);
+
     messages.push({
       id: entity.entityUrn,
       conversationId,
@@ -185,6 +188,7 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
       ...(repliedMessage ? { repliedMessage } : {}),
       ...(editedAt ? { editedAt } : {}),
       ...(seenAt ? { seenAt } : {}),
+      ...(reactions.length > 0 ? { reactions } : {}),
     });
   }
 
@@ -344,6 +348,21 @@ function extractAttachments(renderContent: any[] | undefined, included?: any[]):
   }
 
   return attachments;
+}
+
+/**
+ * Extract reaction summaries from a message entity's reactionSummaries field.
+ */
+function extractReactions(reactionSummaries: any[] | undefined): ReactionSummary[] {
+  if (!reactionSummaries || !Array.isArray(reactionSummaries)) return [];
+  return reactionSummaries
+    .filter((r: any) => r.emoji)
+    .map((r: any) => ({
+      emoji: r.emoji,
+      count: r.count || 1,
+      firstReactedAt: r.firstReactedAt || 0,
+      viewerReacted: !!r.viewerReacted,
+    }));
 }
 
 /**
