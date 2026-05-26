@@ -848,4 +848,175 @@ describe('sync-engine', () => {
       expect(syncingCall.message).toBe('Syncing Spam...');
     });
   });
+
+  describe('storeConversationPage selective field merge (regression)', () => {
+    it('does NOT overwrite existing participantUrns with empty array from API', async () => {
+      const { fetchConversationsPage } = await import(
+        '../../entrypoints/background/api/conversations'
+      );
+      const { syncConversations } = await import(
+        '../../entrypoints/background/sync/sync-engine'
+      );
+
+      // Pre-insert a conversation with populated participantUrns
+      await testDb.conversations.put({
+        id: 'conv-merge',
+        participantUrns: ['urn:li:fsd_profile:ABC'],
+        participantNames: ['Alice Bob'],
+        participantPictures: ['https://photo.url/abc.jpg'],
+        lastMessage: 'Hello',
+        lastActivityAt: 1000,
+        read: 1,
+        archived: 0,
+        category: 'PRIMARY_INBOX',
+      });
+
+      // API returns the same conversation but with empty participants
+      // (e.g. the participant data was not included in this page)
+      const pageData = buildConversationsPage([
+        {
+          id: 'conv-merge',
+          participants: [], // no participants in this response
+          lastMessage: 'Updated msg',
+          lastActivityAt: 2000,
+        },
+      ]);
+
+      vi.mocked(fetchConversationsPage).mockResolvedValue({
+        response: pageData,
+        nextCursor: null,
+      });
+
+      await syncConversations();
+
+      const conv = await testDb.conversations.get('conv-merge');
+      // participantUrns should be preserved from existing record, NOT overwritten with []
+      expect(conv.participantUrns).toEqual(['urn:li:fsd_profile:ABC']);
+    });
+
+    it('does NOT overwrite existing participantNames with empty array from API', async () => {
+      const { fetchConversationsPage } = await import(
+        '../../entrypoints/background/api/conversations'
+      );
+      const { syncConversations } = await import(
+        '../../entrypoints/background/sync/sync-engine'
+      );
+
+      await testDb.conversations.put({
+        id: 'conv-names',
+        participantUrns: ['urn:li:fsd_profile:DEF'],
+        participantNames: ['Dave Grohl'],
+        participantPictures: ['https://photo.url/def.jpg'],
+        lastMessage: 'Hi',
+        lastActivityAt: 1000,
+        read: 1,
+        archived: 0,
+        category: 'PRIMARY_INBOX',
+      });
+
+      const pageData = buildConversationsPage([
+        {
+          id: 'conv-names',
+          participants: [],
+          lastMessage: 'Updated',
+          lastActivityAt: 2000,
+        },
+      ]);
+
+      vi.mocked(fetchConversationsPage).mockResolvedValue({
+        response: pageData,
+        nextCursor: null,
+      });
+
+      await syncConversations();
+
+      const conv = await testDb.conversations.get('conv-names');
+      expect(conv.participantNames).toEqual(['Dave Grohl']);
+    });
+
+    it('does NOT overwrite existing lastMessage with empty string from API', async () => {
+      const { fetchConversationsPage } = await import(
+        '../../entrypoints/background/api/conversations'
+      );
+      const { syncConversations } = await import(
+        '../../entrypoints/background/sync/sync-engine'
+      );
+
+      await testDb.conversations.put({
+        id: 'conv-lm',
+        participantUrns: ['urn:li:fsd_profile:GHI'],
+        participantNames: ['Grace Hopper'],
+        participantPictures: [''],
+        lastMessage: 'Important message',
+        lastActivityAt: 1000,
+        read: 1,
+        archived: 0,
+        category: 'PRIMARY_INBOX',
+      });
+
+      // API returns conversation with no message entity -> lastMessage will be ''
+      const pageData = buildConversationsPage([
+        {
+          id: 'conv-lm',
+          participants: [{ profileId: 'GHI', firstName: 'Grace', lastName: 'Hopper' }],
+          // no lastMessage provided -> normalizer yields ''
+          lastActivityAt: 2000,
+        },
+      ]);
+
+      vi.mocked(fetchConversationsPage).mockResolvedValue({
+        response: pageData,
+        nextCursor: null,
+      });
+
+      await syncConversations();
+
+      const conv = await testDb.conversations.get('conv-lm');
+      // lastMessage should be preserved from existing, not overwritten with ''
+      expect(conv.lastMessage).toBe('Important message');
+    });
+
+    it('uses max of existing and incoming lastActivityAt', async () => {
+      const { fetchConversationsPage } = await import(
+        '../../entrypoints/background/api/conversations'
+      );
+      const { syncConversations } = await import(
+        '../../entrypoints/background/sync/sync-engine'
+      );
+
+      // Existing has a NEWER lastActivityAt than what the API will return
+      await testDb.conversations.put({
+        id: 'conv-time',
+        participantUrns: ['urn:li:fsd_profile:JKL'],
+        participantNames: ['John Doe'],
+        participantPictures: [''],
+        lastMessage: 'Recent',
+        lastActivityAt: 5000,
+        read: 1,
+        archived: 0,
+        category: 'PRIMARY_INBOX',
+      });
+
+      // API returns an older lastActivityAt
+      const pageData = buildConversationsPage([
+        {
+          id: 'conv-time',
+          participants: [{ profileId: 'JKL', firstName: 'John', lastName: 'Doe' }],
+          lastMessage: 'Older update',
+          lastActivityAt: 3000,
+        },
+      ]);
+
+      vi.mocked(fetchConversationsPage).mockResolvedValue({
+        response: pageData,
+        nextCursor: null,
+      });
+
+      await syncConversations();
+
+      const conv = await testDb.conversations.get('conv-time');
+      // Should keep the max of existing (5000) and incoming (3000)
+      expect(conv.lastActivityAt).toBe(5000);
+    });
+  });
 });

@@ -1284,4 +1284,121 @@ describe('normalizeMessages()', () => {
     expect(messages[0].senderName).toBe('Alice Smith');
     expect(messages[1].senderName).toBe('Bob Jones');
   });
+
+  it('handles message with both body and attachments', () => {
+    const response: VoyagerResponse = {
+      data: {},
+      included: [
+        participantAlice,
+        {
+          ...makeMessage({
+            entityUrn: 'urn:li:msg_message:(2-conv,100)',
+            senderRef: participantAlice.entityUrn,
+            body: 'Here is the file',
+            deliveredAt: 1700000001000,
+          }),
+          renderContent: [{
+            file: {
+              name: 'report.pdf',
+              url: 'https://media.linkedin.com/report.pdf',
+              byteSize: 50000,
+              mediaType: 'application/pdf',
+            },
+          }],
+        },
+      ],
+    };
+
+    const messages = normalizeMessages(response, '2-conv');
+    expect(messages).toHaveLength(1);
+    // Body text should be present
+    expect(messages[0].body).toBe('Here is the file');
+    // Attachment should also be extracted
+    expect(messages[0].attachments).toHaveLength(1);
+    expect(messages[0].attachments![0]).toMatchObject({
+      type: 'file',
+      fileName: 'report.pdf',
+    });
+  });
+});
+
+// ============================================================================
+// normalizeConversations edge cases
+// ============================================================================
+describe('normalizeConversations() edge cases', () => {
+  const MY_URN = 'urn:li:fsd_profile:ME123';
+
+  it('uses latest message by deliveredAt when multiple messages exist for same conversation', () => {
+    const convUrn = 'urn:li:msg_conversation:(urn:li:fsd_profile:X,2-multi-msg)';
+    const participantAlice = makeParticipant({
+      entityUrn: 'urn:li:msg_messagingParticipant:urn:li:fsd_profile:ALICE',
+      hostIdentityUrn: 'urn:li:fsd_profile:ALICE',
+      firstName: 'Alice',
+      lastName: 'Smith',
+    });
+
+    const response: VoyagerResponse = {
+      data: {},
+      included: [
+        participantAlice,
+        makeConversation({
+          entityUrn: convUrn,
+          participantRefs: [participantAlice.entityUrn],
+          lastActivityAt: 1700000005000,
+        }),
+        // Older message
+        makeMessage({
+          entityUrn: 'urn:li:msg_message:(2-multi-msg,100)',
+          conversationUrn: convUrn,
+          senderRef: participantAlice.entityUrn,
+          body: 'First message',
+          deliveredAt: 1700000001000,
+        }),
+        // Newer message — should be selected
+        makeMessage({
+          entityUrn: 'urn:li:msg_message:(2-multi-msg,200)',
+          conversationUrn: convUrn,
+          senderRef: participantAlice.entityUrn,
+          body: 'Latest message',
+          deliveredAt: 1700000005000,
+        }),
+        // Middle message
+        makeMessage({
+          entityUrn: 'urn:li:msg_message:(2-multi-msg,150)',
+          conversationUrn: convUrn,
+          senderRef: participantAlice.entityUrn,
+          body: 'Middle message',
+          deliveredAt: 1700000003000,
+        }),
+      ],
+    };
+
+    const { conversations } = normalizeConversations(response, MY_URN);
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0].lastMessage).toBe('Latest message');
+  });
+
+  it('handles conversation with no *conversationParticipants field', () => {
+    const response: VoyagerResponse = {
+      data: {},
+      included: [
+        {
+          $type: 'com.linkedin.messenger.Conversation' as const,
+          entityUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:X,2-no-participants)',
+          lastActivityAt: 1700000000000,
+          unreadCount: 0,
+          categories: ['INBOX', 'PRIMARY_INBOX'],
+          // '*conversationParticipants' is intentionally missing
+        },
+      ],
+    };
+
+    const { conversations } = normalizeConversations(response, MY_URN);
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0].id).toBe('2-no-participants');
+    // Should have empty participant arrays since no refs exist
+    expect(conversations[0].participantUrns).toEqual([]);
+    expect(conversations[0].participantNames).toEqual([]);
+    expect(conversations[0].participantPictures).toEqual([]);
+  });
 });

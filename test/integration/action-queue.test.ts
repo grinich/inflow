@@ -789,6 +789,101 @@ describe('drainActionQueue', () => {
     });
   });
 
+  describe('draining flag edge cases', () => {
+    it('empty queue still resets draining flag (can drain again after)', async () => {
+      // Drain with an empty queue — should be a no-op but still reset the flag
+      await drainActionQueue();
+
+      // Now add a real action and drain again — if flag wasn't reset, this would be skipped
+      await testDb.pendingActions.put(
+        makePendingAction({ id: 'a-after-empty', type: 'archive', conversationId: 'c-ae', status: 'queued', timestamp: 1 })
+      );
+
+      await drainActionQueue();
+
+      expect(mockArchive).toHaveBeenCalledWith('c-ae');
+      const action = await testDb.pendingActions.get('a-after-empty');
+      expect(action.status).toBe('confirmed');
+    });
+
+    it('outer try/catch error (e.g., db.pendingActions.where throws) still resets draining flag', async () => {
+      // Simulate the outer try block throwing by temporarily breaking testDb
+      const originalWhere = testDb.pendingActions.where.bind(testDb.pendingActions);
+      testDb.pendingActions.where = () => {
+        throw new Error('DB exploded');
+      };
+
+      // The error propagates (the local mirror lacks the outer catch of the real impl),
+      // but the finally block must still reset the draining flag
+      await expect(drainActionQueue()).rejects.toThrow('DB exploded');
+
+      // Restore the DB method
+      testDb.pendingActions.where = originalWhere;
+
+      // Now a normal drain should work — proving draining flag was reset in finally
+      await testDb.pendingActions.put(
+        makePendingAction({ id: 'a-after-boom', type: 'star', conversationId: 'c-boom', status: 'queued', timestamp: 1 })
+      );
+
+      await drainActionQueue();
+
+      expect(mockStar).toHaveBeenCalledWith('c-boom');
+    });
+  });
+
+  describe('send replay edge cases', () => {
+    it('sends without attachments when draftAttachments not found', async () => {
+      const tempMsgId = 'temp-no-draft';
+
+      await testDb.messages.put(
+        makeMessage({ id: tempMsgId, conversationId: 'conv-nd', body: 'no attachments', status: 'queued' })
+      );
+
+      // No draftAttachments entry for this tempMsgId
+      await testDb.pendingActions.put(
+        makePendingAction({
+          id: 'act-no-draft',
+          type: 'send',
+          conversationId: 'conv-nd',
+          status: 'queued',
+          timestamp: 1,
+          tempMessageId: tempMsgId,
+          bridgeMessage: { body: 'no attachments' },
+        })
+      );
+
+      await drainActionQueue();
+
+      expect(mockSendMessage).toHaveBeenCalledWith('conv-nd', 'no attachments', undefined);
+    });
+
+    it('uses message body as fallback when bridgeMessage.body is missing', async () => {
+      const tempMsgId = 'temp-fallback-body';
+
+      await testDb.messages.put(
+        makeMessage({ id: tempMsgId, conversationId: 'conv-fb', body: 'fallback body text', status: 'queued' })
+      );
+
+      // bridgeMessage exists but has no body property
+      await testDb.pendingActions.put(
+        makePendingAction({
+          id: 'act-fallback-body',
+          type: 'send',
+          conversationId: 'conv-fb',
+          status: 'queued',
+          timestamp: 1,
+          tempMessageId: tempMsgId,
+          bridgeMessage: {},
+        })
+      );
+
+      await drainActionQueue();
+
+      // Should fall back to msg.body since bridgeMessage.body is undefined
+      expect(mockSendMessage).toHaveBeenCalledWith('conv-fb', 'fallback body text', undefined);
+    });
+  });
+
   describe('rollback for delete', () => {
     it('restores conversation and messages on non-404 failure', async () => {
       mockDelete.mockRejectedValue(new Error('Server error 500'));
