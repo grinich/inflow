@@ -9,13 +9,15 @@ import type { BridgeAttachment } from '@/types/bridge';
 const MESSAGE_PAGE_SIZE = 20;
 
 /** Try to extract a user-visible error message from LinkedIn's JSON error response. */
-function tryParseLinkedInError(body: string): string | null {
+function tryParseLinkedInError(body: string, status: number): string | null {
   try {
     const data = JSON.parse(body);
-    return data.message || null;
-  } catch {
-    return null;
+    if (data.message) return data.message;
+  } catch {}
+  if (status === 400) {
+    return 'Unable to send — you may not be connected to this person';
   }
+  return null;
 }
 
 // In-flight deduplication: concurrent callers for the same conversation share one fetch chain
@@ -24,11 +26,13 @@ const inflightFetches = new Map<string, Promise<VoyagerResponse[]>>();
 /**
  * Fetch a single page of messages for a conversation.
  * Supports pagination via count/start parameters.
+ * Pass skipJitter=true for user-initiated fetches to avoid the anti-detection delay.
  */
 export async function fetchMessages(
   conversationId: string,
   count = MESSAGE_PAGE_SIZE,
-  start = 0
+  start = 0,
+  { skipJitter = false } = {}
 ): Promise<VoyagerResponse> {
   const memberUrn = await getMemberUrn();
   const conversationUrn = `urn:li:msg_conversation:(${memberUrn},${conversationId})`;
@@ -38,7 +42,8 @@ export async function fetchMessages(
     start,
   });
   const res = await voyagerFetch(
-    `/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.5846eeb71c981f11e0134cb6626cc314&variables=${variables}`
+    `/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.5846eeb71c981f11e0134cb6626cc314&variables=${variables}`,
+    { skipJitter }
   );
   if (!res.ok) {
     throw new Error(`Failed to fetch messages: ${res.status}`);
@@ -54,7 +59,8 @@ export async function fetchMessages(
  */
 export async function fetchAllMessages(
   conversationId: string,
-  maxPages = 10
+  maxPages = 10,
+  { skipJitter = false } = {}
 ): Promise<VoyagerResponse[]> {
   const existing = inflightFetches.get(conversationId);
   if (existing) {
@@ -65,7 +71,8 @@ export async function fetchAllMessages(
   const promise = (async () => {
     const pages: VoyagerResponse[] = [];
     for (let page = 0; page < maxPages; page++) {
-      const res = await fetchMessages(conversationId, MESSAGE_PAGE_SIZE, page * MESSAGE_PAGE_SIZE);
+      // Only skip jitter on the first page — subsequent pages use normal jitter
+      const res = await fetchMessages(conversationId, MESSAGE_PAGE_SIZE, page * MESSAGE_PAGE_SIZE, { skipJitter: skipJitter && page === 0 });
       pages.push(res);
 
       // LinkedIn often returns fewer items than requested even when more exist.
@@ -222,7 +229,7 @@ export async function sendMessage(
   if (!res.ok) {
     const errBody = await res.clone().text().catch(() => '');
     debugLog('error', `sendMessage failed ${res.status}: ${errBody.substring(0, 300)}`);
-    const parsed = tryParseLinkedInError(errBody);
+    const parsed = tryParseLinkedInError(errBody, res.status);
     throw new Error(parsed || `Failed to send message: ${res.status}`);
   }
 
@@ -337,7 +344,7 @@ export async function createConversation(
   if (!res.ok) {
     const errBody = await res.clone().text().catch(() => '');
     debugLog('error', `createConversation failed ${res.status}: ${errBody.substring(0, 300)}`);
-    const parsed = tryParseLinkedInError(errBody);
+    const parsed = tryParseLinkedInError(errBody, res.status);
     throw new Error(parsed || `Failed to create conversation: ${res.status}`);
   }
 

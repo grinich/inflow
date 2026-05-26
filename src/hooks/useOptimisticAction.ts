@@ -3,6 +3,39 @@ import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { useUIStore } from '@/store/ui-store';
 import type { Conversation } from '@/types/conversation';
+import type { PendingAction } from '@/db/database';
+
+/**
+ * Queue a pending action for later replay instead of rolling back.
+ * Writes the bridgeMessage payload so the background drainer can replay it.
+ */
+async function queueAction(actionId: string, bridgeMessage: any): Promise<void> {
+  await db.pendingActions.update(actionId, {
+    status: 'queued' as const,
+    bridgeMessage,
+  });
+}
+
+/**
+ * Create a pending action record with 'queued' status for actions that
+ * don't normally create pendingActions (markRead, star, delete, editMessage).
+ */
+async function createQueuedAction(
+  opts: Pick<PendingAction, 'type' | 'conversationId' | 'rollbackData' | 'bridgeMessage' | 'tempMessageId'>
+): Promise<string> {
+  const id = nanoid();
+  await db.pendingActions.put({
+    id,
+    type: opts.type,
+    conversationId: opts.conversationId,
+    status: 'queued',
+    timestamp: Date.now(),
+    rollbackData: opts.rollbackData,
+    bridgeMessage: opts.bridgeMessage,
+    tempMessageId: opts.tempMessageId,
+  });
+  return id;
+}
 
 export function useOptimisticAction() {
   const showToast = useUIStore((s) => s.showToast);
@@ -10,6 +43,7 @@ export function useOptimisticAction() {
   async function archiveConversation(conversation: Conversation) {
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
+    const bridgeMsg = { type: 'ARCHIVE', conversationId: conversation.id };
 
     // Optimistically update IndexedDB
     await db.conversations.update(conversation.id, { archived: 1, category: 'ARCHIVE' });
@@ -29,13 +63,20 @@ export function useOptimisticAction() {
       undoAction: async () => {
         await db.conversations.update(conversation.id, { archived: 0, category: previousCategory });
         await db.pendingActions.delete(actionId);
-        // Call unarchive API to move it back
-        sendBridgeMessage({ type: 'UNARCHIVE', conversationId: conversation.id }).catch(() => {});
+        if (navigator.onLine) {
+          sendBridgeMessage({ type: 'UNARCHIVE', conversationId: conversation.id }).catch(() => {});
+        }
       },
     });
 
+    // If offline, queue for later
+    if (!navigator.onLine) {
+      await queueAction(actionId, bridgeMsg);
+      return;
+    }
+
     // Fire and forget to API
-    sendBridgeMessage({ type: 'ARCHIVE', conversationId: conversation.id })
+    sendBridgeMessage(bridgeMsg)
       .then(async (res) => {
         if (res.success) {
           await db.pendingActions.update(actionId, { status: 'confirmed' });
@@ -47,6 +88,11 @@ export function useOptimisticAction() {
         }
       })
       .catch(async () => {
+        // If we went offline during the call, queue instead of rolling back
+        if (!navigator.onLine) {
+          await queueAction(actionId, bridgeMsg);
+          return;
+        }
         await db.conversations.update(conversation.id, { archived: 0, category: previousCategory });
         await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to archive — rolled back' });
@@ -55,13 +101,57 @@ export function useOptimisticAction() {
 
   async function markRead(conversationId: string) {
     await db.conversations.update(conversationId, { read: 1 });
-    sendBridgeMessage({ type: 'MARK_READ', conversationId }).catch(() => {});
+
+    const bridgeMsg = { type: 'MARK_READ' as const, conversationId };
+
+    if (!navigator.onLine) {
+      await createQueuedAction({
+        type: 'markRead',
+        conversationId,
+        rollbackData: { read: 0 },
+        bridgeMessage: bridgeMsg,
+      });
+      return;
+    }
+
+    sendBridgeMessage(bridgeMsg).catch(async () => {
+      if (!navigator.onLine) {
+        await createQueuedAction({
+          type: 'markRead',
+          conversationId,
+          rollbackData: { read: 0 },
+          bridgeMessage: bridgeMsg,
+        });
+      }
+      // markRead is idempotent — don't rollback on failure
+    });
   }
 
   async function markUnread(conversationId: string) {
     await db.conversations.update(conversationId, { read: 0 });
 
-    sendBridgeMessage({ type: 'MARK_UNREAD', conversationId }).catch(async () => {
+    const bridgeMsg = { type: 'MARK_UNREAD' as const, conversationId };
+
+    if (!navigator.onLine) {
+      await createQueuedAction({
+        type: 'markUnread',
+        conversationId,
+        rollbackData: { read: 1 },
+        bridgeMessage: bridgeMsg,
+      });
+      return;
+    }
+
+    sendBridgeMessage(bridgeMsg).catch(async () => {
+      if (!navigator.onLine) {
+        await createQueuedAction({
+          type: 'markUnread',
+          conversationId,
+          rollbackData: { read: 1 },
+          bridgeMessage: bridgeMsg,
+        });
+        return;
+      }
       await db.conversations.update(conversationId, { read: 1 });
       showToast({ message: 'Failed to mark unread — rolled back' });
     });
@@ -71,10 +161,13 @@ export function useOptimisticAction() {
     const tempId = `temp-${nanoid()}`;
 
     // Build display attachments from files so the bubble renders them immediately
+    const objectUrls: string[] = [];
     const displayAttachments = files?.length
       ? files.map((f) => {
           if (f.type.startsWith('image/')) {
-            return { type: 'image' as const, imageUrl: URL.createObjectURL(f) };
+            const url = URL.createObjectURL(f);
+            objectUrls.push(url);
+            return { type: 'image' as const, imageUrl: url };
           }
           return {
             type: 'file' as const,
@@ -85,7 +178,8 @@ export function useOptimisticAction() {
         })
       : undefined;
 
-    // Optimistic insert
+    // Optimistic insert — use 'queued' status if offline, 'sending' if online
+    const initialStatus = navigator.onLine ? 'sending' : 'queued';
     await db.messages.put({
       id: tempId,
       conversationId,
@@ -95,11 +189,11 @@ export function useOptimisticAction() {
       body,
       createdAt: Date.now(),
       isFromMe: true,
-      status: 'sending',
+      status: initialStatus,
       attachments: displayAttachments,
     });
 
-    // Stash files in IndexedDB so retry can recover them if sending fails
+    // Stash files in IndexedDB so retry/drainer can recover them
     if (files?.length) {
       await db.draftAttachments.put({
         conversationId: tempId,  // keyed by temp message ID, not conversation
@@ -115,6 +209,17 @@ export function useOptimisticAction() {
       lastActivityAt: Date.now(),
       read: 1,
     });
+
+    // If offline, queue the action (without base64 — drainer reads from draftAttachments)
+    if (!navigator.onLine) {
+      await createQueuedAction({
+        type: 'send',
+        conversationId,
+        bridgeMessage: { type: 'SEND_MESSAGE', conversationId, body },
+        tempMessageId: tempId,
+      });
+      return true; // optimistic success
+    }
 
     try {
       // Convert File objects to base64 for bridge serialization
@@ -145,8 +250,9 @@ export function useOptimisticAction() {
 
       if (res.success) {
         await db.messages.update(tempId, { status: 'sent' });
-        // Clean up stashed files on success
+        // Clean up stashed files and revoke object URLs on success
         await db.draftAttachments.delete(tempId).catch(() => {});
+        for (const url of objectUrls) URL.revokeObjectURL(url);
         return true;
       } else {
         const failReason = res.error || undefined;
@@ -155,17 +261,157 @@ export function useOptimisticAction() {
         return false;
       }
     } catch {
+      // If we went offline during the call, queue instead of failing
+      if (!navigator.onLine) {
+        await db.messages.update(tempId, { status: 'queued' });
+        await createQueuedAction({
+          type: 'send',
+          conversationId,
+          bridgeMessage: { type: 'SEND_MESSAGE', conversationId, body },
+          tempMessageId: tempId,
+        });
+        return true; // optimistic success
+      }
       await db.messages.update(tempId, { status: 'failed' });
       document.dispatchEvent(new CustomEvent('inflow:failed-change', { detail: conversationId }));
       return false;
     }
   }
 
+  /**
+   * Send a message and archive the conversation in one atomic UI action.
+   */
+  async function sendAndArchive(
+    conversationId: string,
+    body: string,
+    files?: File[]
+  ): Promise<void> {
+    const conv = await db.conversations.get(conversationId);
+    if (!conv) return;
+
+    const actionId = nanoid();
+    const previousCategory = conv.category || 'PRIMARY_INBOX';
+    const archiveBridgeMsg = { type: 'ARCHIVE' as const, conversationId };
+
+    // 1. Archive optimistically FIRST
+    await db.conversations.update(conversationId, { archived: 1, category: 'ARCHIVE' });
+    await db.pendingActions.put({
+      id: actionId,
+      type: 'archive',
+      conversationId,
+      status: 'pending',
+      timestamp: Date.now(),
+      rollbackData: { archived: 0, category: previousCategory },
+    });
+
+    // 2. Show undo toast
+    showToast({
+      message: 'Message sent & archived',
+      undoConversationId: conversationId,
+      undoAction: async () => {
+        await db.conversations.update(conversationId, { archived: 0, category: previousCategory });
+        await db.pendingActions.delete(actionId);
+        if (navigator.onLine) {
+          sendBridgeMessage({ type: 'UNARCHIVE', conversationId }).catch(() => {});
+        }
+      },
+    });
+
+    // 3. Send message in background
+    sendMessage(conversationId, body, files).then((ok) => {
+      if (!ok) showToast({ message: 'Failed to send message' });
+    });
+
+    // 4. Archive via API (or queue)
+    if (!navigator.onLine) {
+      await queueAction(actionId, archiveBridgeMsg);
+      return;
+    }
+
+    sendBridgeMessage(archiveBridgeMsg)
+      .then(async (res) => {
+        if (res.success) {
+          await db.pendingActions.update(actionId, { status: 'confirmed' });
+        } else {
+          await db.conversations.update(conversationId, { archived: 0, category: previousCategory });
+          await db.pendingActions.update(actionId, { status: 'failed' });
+          showToast({ message: 'Failed to archive — rolled back' });
+        }
+      })
+      .catch(async () => {
+        if (!navigator.onLine) {
+          await queueAction(actionId, archiveBridgeMsg);
+          return;
+        }
+        await db.conversations.update(conversationId, { archived: 0, category: previousCategory });
+        await db.pendingActions.update(actionId, { status: 'failed' });
+        showToast({ message: 'Failed to archive — rolled back' });
+      });
+  }
+
+  async function moveToFocused(conversation: Conversation) {
+    const actionId = nanoid();
+    const previousCategory = conversation.category || 'PRIMARY_INBOX';
+    const bridgeMsg = { type: 'MOVE_TO_FOCUSED' as const, conversationId: conversation.id };
+
+    await db.conversations.update(conversation.id, { archived: 0, category: 'PRIMARY_INBOX' });
+    await db.pendingActions.put({
+      id: actionId,
+      type: 'move_to_focused',
+      conversationId: conversation.id,
+      status: 'pending',
+      timestamp: Date.now(),
+      rollbackData: { archived: conversation.archived, category: previousCategory },
+    });
+
+    showToast({
+      message: 'Moved to Focused',
+      undoConversationId: conversation.id,
+      undoAction: async () => {
+        await db.conversations.update(conversation.id, { archived: conversation.archived, category: previousCategory });
+        await db.pendingActions.delete(actionId);
+        if (!navigator.onLine) return;
+        if (previousCategory === 'ARCHIVE') {
+          sendBridgeMessage({ type: 'ARCHIVE', conversationId: conversation.id }).catch(() => {});
+        } else if (previousCategory === 'SECONDARY_INBOX') {
+          sendBridgeMessage({ type: 'MOVE_TO_OTHER', conversationId: conversation.id }).catch(() => {});
+        } else if (previousCategory === 'SPAM') {
+          sendBridgeMessage({ type: 'MOVE_TO_SPAM', conversationId: conversation.id }).catch(() => {});
+        }
+      },
+    });
+
+    if (!navigator.onLine) {
+      await queueAction(actionId, bridgeMsg);
+      return;
+    }
+
+    sendBridgeMessage(bridgeMsg)
+      .then(async (res) => {
+        if (res.success) {
+          await db.pendingActions.update(actionId, { status: 'confirmed' });
+        } else {
+          await db.conversations.update(conversation.id, { archived: conversation.archived, category: previousCategory });
+          await db.pendingActions.update(actionId, { status: 'failed' });
+          showToast({ message: 'Failed to move — rolled back' });
+        }
+      })
+      .catch(async () => {
+        if (!navigator.onLine) {
+          await queueAction(actionId, bridgeMsg);
+          return;
+        }
+        await db.conversations.update(conversation.id, { archived: conversation.archived, category: previousCategory });
+        await db.pendingActions.update(actionId, { status: 'failed' });
+        showToast({ message: 'Failed to move — rolled back' });
+      });
+  }
+
   async function moveToOther(conversation: Conversation) {
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
+    const bridgeMsg = { type: 'MOVE_TO_OTHER' as const, conversationId: conversation.id };
 
-    // Optimistically update IndexedDB
     await db.conversations.update(conversation.id, { category: 'SECONDARY_INBOX' });
     await db.pendingActions.put({
       id: actionId,
@@ -176,19 +422,29 @@ export function useOptimisticAction() {
       rollbackData: { category: previousCategory },
     });
 
-    // Show undo toast
     showToast({
       message: 'Moved to Other',
       undoConversationId: conversation.id,
       undoAction: async () => {
         await db.conversations.update(conversation.id, { category: previousCategory });
         await db.pendingActions.delete(actionId);
-        sendBridgeMessage({ type: 'MOVE_TO_FOCUSED', conversationId: conversation.id }).catch(() => {});
+        if (!navigator.onLine) return;
+        if (previousCategory === 'ARCHIVE') {
+          sendBridgeMessage({ type: 'ARCHIVE', conversationId: conversation.id }).catch(() => {});
+        } else if (previousCategory === 'SPAM') {
+          sendBridgeMessage({ type: 'MOVE_TO_SPAM', conversationId: conversation.id }).catch(() => {});
+        } else {
+          sendBridgeMessage({ type: 'MOVE_TO_FOCUSED', conversationId: conversation.id }).catch(() => {});
+        }
       },
     });
 
-    // Fire and forget to API
-    sendBridgeMessage({ type: 'MOVE_TO_OTHER', conversationId: conversation.id })
+    if (!navigator.onLine) {
+      await queueAction(actionId, bridgeMsg);
+      return;
+    }
+
+    sendBridgeMessage(bridgeMsg)
       .then(async (res) => {
         if (res.success) {
           await db.pendingActions.update(actionId, { status: 'confirmed' });
@@ -199,6 +455,10 @@ export function useOptimisticAction() {
         }
       })
       .catch(async () => {
+        if (!navigator.onLine) {
+          await queueAction(actionId, bridgeMsg);
+          return;
+        }
         await db.conversations.update(conversation.id, { category: previousCategory });
         await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to move — rolled back' });
@@ -208,6 +468,7 @@ export function useOptimisticAction() {
   async function moveToSpam(conversation: Conversation) {
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
+    const bridgeMsg = { type: 'MOVE_TO_SPAM' as const, conversationId: conversation.id };
 
     await db.conversations.update(conversation.id, { category: 'SPAM' });
     await db.pendingActions.put({
@@ -225,11 +486,23 @@ export function useOptimisticAction() {
       undoAction: async () => {
         await db.conversations.update(conversation.id, { category: previousCategory });
         await db.pendingActions.delete(actionId);
-        sendBridgeMessage({ type: 'MOVE_TO_FOCUSED', conversationId: conversation.id }).catch(() => {});
+        if (!navigator.onLine) return;
+        if (previousCategory === 'ARCHIVE') {
+          sendBridgeMessage({ type: 'ARCHIVE', conversationId: conversation.id }).catch(() => {});
+        } else if (previousCategory === 'SECONDARY_INBOX') {
+          sendBridgeMessage({ type: 'MOVE_TO_OTHER', conversationId: conversation.id }).catch(() => {});
+        } else {
+          sendBridgeMessage({ type: 'MOVE_TO_FOCUSED', conversationId: conversation.id }).catch(() => {});
+        }
       },
     });
 
-    sendBridgeMessage({ type: 'MOVE_TO_SPAM', conversationId: conversation.id })
+    if (!navigator.onLine) {
+      await queueAction(actionId, bridgeMsg);
+      return;
+    }
+
+    sendBridgeMessage(bridgeMsg)
       .then(async (res) => {
         if (res.success) {
           await db.pendingActions.update(actionId, { status: 'confirmed' });
@@ -240,6 +513,10 @@ export function useOptimisticAction() {
         }
       })
       .catch(async () => {
+        if (!navigator.onLine) {
+          await queueAction(actionId, bridgeMsg);
+          return;
+        }
         await db.conversations.update(conversation.id, { category: previousCategory });
         await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to mark as spam — rolled back' });
@@ -247,22 +524,45 @@ export function useOptimisticAction() {
   }
 
   async function deleteConversation(conversation: Conversation) {
+    // Save messages for rollback before deleting
+    const savedMessages = await db.messages.where('conversationId').equals(conversation.id).toArray();
+    const bridgeMsg = { type: 'DELETE_CONVERSATION' as const, conversationId: conversation.id };
+
     // Remove from IndexedDB immediately
     await db.conversations.delete(conversation.id);
     await db.messages.where('conversationId').equals(conversation.id).delete();
     await db.syncQueue.delete(conversation.id).catch(() => {});
 
-    // Fire and forget to API
-    sendBridgeMessage({ type: 'DELETE_CONVERSATION', conversationId: conversation.id })
+    if (!navigator.onLine) {
+      await createQueuedAction({
+        type: 'delete',
+        conversationId: conversation.id,
+        rollbackData: { conversation, messages: savedMessages },
+        bridgeMessage: bridgeMsg,
+      });
+      return;
+    }
+
+    sendBridgeMessage(bridgeMsg)
       .then(async (res) => {
         if (!res.success) {
-          // Restore conversation on failure
           await db.conversations.put(conversation);
+          if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
           showToast({ message: 'Failed to delete — restored' });
         }
       })
       .catch(async () => {
+        if (!navigator.onLine) {
+          await createQueuedAction({
+            type: 'delete',
+            conversationId: conversation.id,
+            rollbackData: { conversation, messages: savedMessages },
+            bridgeMessage: bridgeMsg,
+          });
+          return;
+        }
         await db.conversations.put(conversation);
+        if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
         showToast({ message: 'Failed to delete — restored' });
       });
   }
@@ -273,7 +573,19 @@ export function useOptimisticAction() {
       await db.conversations.update(conversation.id, { starred: 0 });
       showToast({ message: 'Star removed' });
 
-      sendBridgeMessage({ type: 'UNSTAR', conversationId: conversation.id })
+      const bridgeMsg = { type: 'UNSTAR' as const, conversationId: conversation.id };
+
+      if (!navigator.onLine) {
+        await createQueuedAction({
+          type: 'unstar',
+          conversationId: conversation.id,
+          rollbackData: { starred: 1 },
+          bridgeMessage: bridgeMsg,
+        });
+        return;
+      }
+
+      sendBridgeMessage(bridgeMsg)
         .then(async (res) => {
           if (!res.success) {
             await db.conversations.update(conversation.id, { starred: 1 });
@@ -281,6 +593,15 @@ export function useOptimisticAction() {
           }
         })
         .catch(async () => {
+          if (!navigator.onLine) {
+            await createQueuedAction({
+              type: 'unstar',
+              conversationId: conversation.id,
+              rollbackData: { starred: 1 },
+              bridgeMessage: bridgeMsg,
+            });
+            return;
+          }
           await db.conversations.update(conversation.id, { starred: 1 });
           showToast({ message: 'Failed to unstar — rolled back' });
         });
@@ -289,7 +610,19 @@ export function useOptimisticAction() {
       await db.conversations.update(conversation.id, { starred: 1 });
       showToast({ message: 'Conversation starred' });
 
-      sendBridgeMessage({ type: 'STAR', conversationId: conversation.id })
+      const bridgeMsg = { type: 'STAR' as const, conversationId: conversation.id };
+
+      if (!navigator.onLine) {
+        await createQueuedAction({
+          type: 'star',
+          conversationId: conversation.id,
+          rollbackData: { starred: 0 },
+          bridgeMessage: bridgeMsg,
+        });
+        return;
+      }
+
+      sendBridgeMessage(bridgeMsg)
         .then(async (res) => {
           if (!res.success) {
             await db.conversations.update(conversation.id, { starred: 0 });
@@ -297,6 +630,15 @@ export function useOptimisticAction() {
           }
         })
         .catch(async () => {
+          if (!navigator.onLine) {
+            await createQueuedAction({
+              type: 'star',
+              conversationId: conversation.id,
+              rollbackData: { starred: 0 },
+              bridgeMessage: bridgeMsg,
+            });
+            return;
+          }
           await db.conversations.update(conversation.id, { starred: 0 });
           showToast({ message: 'Failed to star — rolled back' });
         });
@@ -307,30 +649,45 @@ export function useOptimisticAction() {
     const oldMessage = await db.messages.get(messageId);
     if (!oldMessage) return false;
 
+    const bridgeMsg = { type: 'EDIT_MESSAGE' as const, conversationId, messageId, body: newBody };
+
     // Optimistically update local DB
     await db.messages.update(messageId, { body: newBody, editedAt: Date.now() });
 
-    try {
-      const res = await sendBridgeMessage({
-        type: 'EDIT_MESSAGE',
+    if (!navigator.onLine) {
+      await createQueuedAction({
+        type: 'edit_message',
         conversationId,
-        messageId,
-        body: newBody,
+        rollbackData: { messageId, body: oldMessage.body, editedAt: oldMessage.editedAt },
+        bridgeMessage: bridgeMsg,
       });
+      return true;
+    }
+
+    try {
+      const res = await sendBridgeMessage(bridgeMsg);
 
       if (!res.success) {
-        // Rollback
         await db.messages.update(messageId, { body: oldMessage.body, editedAt: oldMessage.editedAt });
         showToast({ message: res.error || 'Failed to edit message' });
         return false;
       }
       return true;
     } catch {
+      if (!navigator.onLine) {
+        await createQueuedAction({
+          type: 'edit_message',
+          conversationId,
+          rollbackData: { messageId, body: oldMessage.body, editedAt: oldMessage.editedAt },
+          bridgeMessage: bridgeMsg,
+        });
+        return true;
+      }
       await db.messages.update(messageId, { body: oldMessage.body, editedAt: oldMessage.editedAt });
       showToast({ message: 'Failed to edit message' });
       return false;
     }
   }
 
-  return { archiveConversation, moveToOther, moveToSpam, markRead, markUnread, sendMessage, deleteConversation, starConversation, editMessage };
+  return { archiveConversation, sendAndArchive, moveToFocused, moveToOther, moveToSpam, markRead, markUnread, sendMessage, deleteConversation, starConversation, editMessage };
 }

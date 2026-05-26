@@ -35,7 +35,7 @@ export interface Message {
   body: string;
   createdAt: number;
   isFromMe: boolean;
-  status?: 'sending' | 'sent' | 'failed';
+  status?: 'sending' | 'sent' | 'failed' | 'queued';
   failReason?: string; // user-visible reason when status is 'failed'
   attachments?: MessageAttachment[];
   repliedMessage?: RepliedMessage;

@@ -3,6 +3,7 @@ import { syncConversations } from './sync-engine';
 import { discoverPage, enqueueConversations } from './sync-discovery';
 import { backfillBatch, recoverStuckItems } from './sync-backfill';
 import { isRealtimeConnected } from '../realtime/sse-client';
+import { drainActionQueue } from '../action-queue';
 import { debugLog } from '@/lib/debug-log';
 import { db, type SyncState } from '@/db/database';
 import type { Conversation } from '@/types/conversation';
@@ -12,6 +13,9 @@ const POLL_INTERVAL_MINUTES = 0.5; // 30 seconds
 const STALENESS_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
 const BACKFILL_BATCH_SIZE = 3;
 const BURST_MAX_PAGES = 5;
+
+/** Categories currently being discovered — prevents concurrent discovery for the same category. */
+const _discoveringCategories = new Set<string>();
 
 /** Random delay between discovery pages to look more human (1.5–3s). */
 function discoveryDelay(): Promise<void> {
@@ -27,10 +31,6 @@ const CATEGORIES: InboxCategory[] = [
 
 /** In-memory pause flag — not persisted across service worker restarts. */
 let paused = false;
-
-export function isSyncPaused(): boolean {
-  return paused;
-}
 
 export function toggleSyncPause(): boolean {
   paused = !paused;
@@ -82,6 +82,11 @@ async function onSyncTick(): Promise<void> {
     return;
   }
   debugLog('info', '[COORDINATOR] Tick started');
+
+  // Drain any queued offline actions before syncing
+  await drainActionQueue().catch((err) => {
+    debugLog('error', `[COORDINATOR] Action queue drain failed: ${err}`);
+  });
 
   // Ensure sync state is initialized
   await initializeSync();
@@ -149,7 +154,12 @@ async function onSyncTick(): Promise<void> {
     const state = stateMap.get(cat);
     if (!state || state.phase !== 'discovering') continue;
     if (paused) break;
+    if (_discoveringCategories.has(cat)) {
+      debugLog('info', `[COORDINATOR] Skipping ${cat} — discovery already in progress`);
+      continue;
+    }
 
+    _discoveringCategories.add(cat);
     let cursor: string | null = state.cursor || null;
     let totalDiscovered = state.totalDiscovered;
 
@@ -187,6 +197,8 @@ async function onSyncTick(): Promise<void> {
       }
     } catch (err) {
       debugLog('error', `[COORDINATOR] Discovery failed for ${cat}: ${err}`);
+    } finally {
+      _discoveringCategories.delete(cat);
     }
   }
 
@@ -237,6 +249,7 @@ async function onSyncTick(): Promise<void> {
     if (
       state &&
       state.phase === 'complete' &&
+      state.discoveryCompletedAt > 0 &&
       now - state.discoveryCompletedAt > STALENESS_THRESHOLD_MS
     ) {
       debugLog(
@@ -266,10 +279,17 @@ export async function burstDiscover(
   category: InboxCategory,
   maxPages = BURST_MAX_PAGES
 ): Promise<void> {
+  if (_discoveringCategories.has(category)) {
+    debugLog('info', `[COORDINATOR] Burst skipped for ${category} — discovery already in progress`);
+    return;
+  }
+
+  _discoveringCategories.add(category);
   debugLog('info', `[COORDINATOR] Burst discovery started for ${category}`);
 
   const state = await db.syncState.get(category);
   if (!state) {
+    _discoveringCategories.delete(category);
     debugLog('warn', `[COORDINATOR] No sync state for ${category}, skipping burst`);
     return;
   }
@@ -278,6 +298,7 @@ export async function burstDiscover(
   if (state.phase === 'complete' || state.phase === 'backfilling') {
     const age = Date.now() - state.discoveryCompletedAt;
     if (age < STALENESS_THRESHOLD_MS) {
+      _discoveringCategories.delete(category);
       debugLog('info', `[COORDINATOR] ${category} is fresh (${Math.round(age / 1000)}s old), skipping burst`);
       return;
     }
@@ -330,6 +351,8 @@ export async function burstDiscover(
     }
   } catch (err) {
     debugLog('error', `[COORDINATOR] Burst discovery failed for ${category}: ${err}`);
+  } finally {
+    _discoveringCategories.delete(category);
   }
 
   // Run a backfill pass for any newly-discovered items

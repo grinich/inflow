@@ -102,7 +102,7 @@
 }
 
 .animate-reverse-spin {
-  animation: reverse-spin 1s linear infinite;
+  animation: reverse-spin 2s linear infinite;
 }
 
 /* Message send animation */

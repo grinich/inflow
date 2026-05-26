@@ -5,11 +5,15 @@ import type { Profile } from '@/types/profile';
 
 export interface PendingAction {
   id: string;
-  type: 'archive' | 'unarchive' | 'markRead' | 'markUnread' | 'send';
+  type: 'archive' | 'unarchive' | 'markRead' | 'markUnread' | 'send' | 'move_to_focused' | 'move_to_other' | 'move_to_spam' | 'star' | 'unstar' | 'delete' | 'edit_message';
   conversationId: string;
-  status: 'pending' | 'confirmed' | 'failed';
+  status: 'pending' | 'confirmed' | 'failed' | 'queued';
   timestamp: number;
   rollbackData?: any;
+  /** Exact bridge payload to replay when draining the queue. */
+  bridgeMessage?: any;
+  /** For send actions — links to the temp-* message ID. */
+  tempMessageId?: string;
 }
 
 export interface CachedImage {
@@ -41,6 +45,7 @@ export interface SyncState {
 
 export interface DraftAttachment {
   conversationId: string;
+  text?: string;     // draft message text
   files: Blob[];     // stored as native blobs — no base64 overhead
   names: string[];
   types: string[];
@@ -57,7 +62,7 @@ export interface SyncQueueItem {
   priority: number;
 }
 
-const database = new Dexie('InflowDB') as Dexie & {
+type InflowDatabase = Dexie & {
   conversations: EntityTable<Conversation, 'id'>;
   messages: EntityTable<Message, 'id'>;
   profiles: EntityTable<Profile, 'urn'>;
@@ -69,140 +74,249 @@ const database = new Dexie('InflowDB') as Dexie & {
   draftAttachments: EntityTable<DraftAttachment, 'conversationId'>;
 };
 
-database.version(1).stores({
-  conversations: 'id, lastActivityAt, archived, read, [archived+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-});
-
-// v2: archived and read changed from boolean to number (0/1) for IndexedDB key compat
-database.version(2).stores({
-  conversations: 'id, lastActivityAt, archived, read, [archived+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-}).upgrade(tx => {
-  return tx.table('conversations').toCollection().modify(conv => {
-    conv.archived = conv.archived ? 1 : 0;
-    conv.read = conv.read ? 1 : 0;
+function applySchema(database: Dexie): void {
+  database.version(1).stores({
+    conversations: 'id, lastActivityAt, archived, read, [archived+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
   });
-});
 
-// v3: add image cache table
-database.version(3).stores({
-  conversations: 'id, lastActivityAt, archived, read, [archived+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-  imageCache: 'url, cachedAt',
-});
+  // v2: archived and read changed from boolean to number (0/1) for IndexedDB key compat
+  database.version(2).stores({
+    conversations: 'id, lastActivityAt, archived, read, [archived+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+  }).upgrade(tx => {
+    return tx.table('conversations').toCollection().modify(conv => {
+      conv.archived = conv.archived ? 1 : 0;
+      conv.read = conv.read ? 1 : 0;
+    });
+  });
 
-// v4: add category index for inbox filtering
-database.version(4).stores({
-  conversations: 'id, lastActivityAt, archived, read, category, [archived+lastActivityAt], [category+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-  imageCache: 'url, cachedAt',
-}).upgrade(tx => {
-  return tx.table('conversations').toCollection().modify(conv => {
-    if (!conv.category) {
-      conv.category = conv.archived ? 'ARCHIVE' : 'PRIMARY_INBOX';
+  // v3: add image cache table
+  database.version(3).stores({
+    conversations: 'id, lastActivityAt, archived, read, [archived+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+  });
+
+  // v4: add category index for inbox filtering
+  database.version(4).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+  }).upgrade(tx => {
+    return tx.table('conversations').toCollection().modify(conv => {
+      if (!conv.category) {
+        conv.category = conv.archived ? 'ARCHIVE' : 'PRIMARY_INBOX';
+      }
+    });
+  });
+
+  // v5: add hasAttachments index for search filtering
+  database.version(5).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+  }).upgrade(async (tx) => {
+    const messages = await tx.table('messages').toArray();
+    const convsWithAttachments = new Set<string>();
+    for (const msg of messages) {
+      if (msg.attachments && msg.attachments.length > 0) {
+        convsWithAttachments.add(msg.conversationId);
+      }
     }
+    await tx.table('conversations').toCollection().modify((conv) => {
+      conv.hasAttachments = convsWithAttachments.has(conv.id) ? 1 : 0;
+    });
   });
-});
 
-// v5: add hasAttachments index for search filtering
-database.version(5).stores({
-  conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-  imageCache: 'url, cachedAt',
-}).upgrade(async (tx) => {
-  // Backfill: scan messages to find conversations with attachments
-  const messages = await tx.table('messages').toArray();
-  const convsWithAttachments = new Set<string>();
-  for (const msg of messages) {
-    if (msg.attachments && msg.attachments.length > 0) {
-      convsWithAttachments.add(msg.conversationId);
+  // v6: add postCache table for pre-fetched shared post data
+  database.version(6).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+  });
+
+  // v7: add syncState + syncQueue tables for comprehensive sync engine
+  database.version(7).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+  });
+
+  // v8: cursor changed from number to string for real LinkedIn pagination
+  database.version(8).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+  }).upgrade(tx => {
+    return tx.table('syncState').clear();
+  });
+
+  // v9: add draftAttachments table for persisting file drafts
+  database.version(9).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+    draftAttachments: 'conversationId',
+  });
+
+  // v10: add starred index for star/unstar conversations
+  database.version(10).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, starred, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+    draftAttachments: 'conversationId',
+  }).upgrade(tx => {
+    return tx.table('conversations').toCollection().modify(conv => {
+      if (conv.starred === undefined) conv.starred = 0;
+    });
+  });
+
+  // v11: migrate text drafts from localStorage into draftAttachments table
+  database.version(11).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, starred, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+    draftAttachments: 'conversationId',
+  }).upgrade(async tx => {
+    // Migrate text drafts from localStorage into the draftAttachments table
+    try {
+      const raw = localStorage.getItem('inflow-drafts');
+      if (!raw) return;
+      const textDrafts: Record<string, string> = JSON.parse(raw);
+      const table = tx.table('draftAttachments');
+      for (const [convId, text] of Object.entries(textDrafts)) {
+        if (!text) continue;
+        const existing = await table.get(convId);
+        if (existing) {
+          await table.update(convId, { text });
+        } else {
+          await table.put({ conversationId: convId, text, files: [], names: [], types: [] });
+        }
+      }
+      localStorage.removeItem('inflow-drafts');
+    } catch {}
+  });
+}
+
+function createDatabase(name: string): InflowDatabase {
+  const database = new Dexie(name) as InflowDatabase;
+  applySchema(database);
+  return database;
+}
+
+// ---------------------------------------------------------------------------
+// Simple per-account database: InflowDB_<memberId>
+//
+// The active account ID is persisted via chrome.storage.session so it
+// survives service worker restarts and hot reloads. On module init we
+// synchronously check for a cached value; if not available the DB starts
+// as 'InflowDB' and is swapped once switchDatabase() is called.
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY = 'inflow-active-member-id';
+
+/** In-memory cache — synced to/from chrome.storage.session. */
+let activeMemberId: string | null = null;
+
+// No default DB — created lazily by switchDatabase() or the storage init below.
+let _db: InflowDatabase = null as any;
+export let db: InflowDatabase = null as any;
+
+// Eagerly restore the persisted account ID on module init.
+// Opens the correct DB before any switchDatabase() call arrives.
+(async () => {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+      const result = await chrome.storage.session.get(STORAGE_KEY);
+      const stored = result[STORAGE_KEY] as string | undefined;
+      if (stored && !activeMemberId) {
+        activeMemberId = stored;
+        _db = createDatabase(`InflowDB_${stored}`);
+        db = _db;
+        await _db.open();
+      }
     }
-  }
-  await tx.table('conversations').toCollection().modify((conv) => {
-    conv.hasAttachments = convsWithAttachments.has(conv.id) ? 1 : 0;
-  });
-});
+  } catch {}
+})();
 
-// v6: add postCache table for pre-fetched shared post data
-database.version(6).stores({
-  conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-  imageCache: 'url, cachedAt',
-  postCache: 'urn, cachedAt',
-});
+export function getActiveAccountId(): string | null {
+  return activeMemberId;
+}
 
-// v7: add syncState + syncQueue tables for comprehensive sync engine
-database.version(7).stores({
-  conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-  imageCache: 'url, cachedAt',
-  postCache: 'urn, cachedAt',
-  syncState: 'category',
-  syncQueue: 'conversationId, status, priority, [status+priority]',
-});
+/**
+ * Switch to the database for a specific member.
+ * Each account gets its own IndexedDB: InflowDB_<memberId>
+ * Persists the choice to chrome.storage.session so it survives restarts.
+ */
+export async function switchDatabase(memberId: string): Promise<void> {
+  const newName = `InflowDB_${memberId}`;
 
-// v8: cursor changed from number to string for real LinkedIn pagination —
-// clear syncState so discovery restarts with string cursors.
-database.version(8).stores({
-  conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-  imageCache: 'url, cachedAt',
-  postCache: 'urn, cachedAt',
-  syncState: 'category',
-  syncQueue: 'conversationId, status, priority, [status+priority]',
-}).upgrade(tx => {
-  // Clear sync state so it re-initializes with string cursors
-  return tx.table('syncState').clear();
-});
+  // Already on the right DB
+  if (activeMemberId === memberId && _db?.name === newName) return;
 
-// v9: add draftAttachments table for persisting file drafts (blobs in IndexedDB, not localStorage)
-database.version(9).stores({
-  conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, [archived+lastActivityAt], [category+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-  imageCache: 'url, cachedAt',
-  postCache: 'urn, cachedAt',
-  syncState: 'category',
-  syncQueue: 'conversationId, status, priority, [status+priority]',
-  draftAttachments: 'conversationId',
-});
+  if (_db) _db.close();
+  _db = createDatabase(newName);
+  db = _db;
+  activeMemberId = memberId;
+  persistAccountId(memberId);
+  await _db.open();
+}
 
-// v10: add starred index for star/unstar conversations
-database.version(10).stores({
-  conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, starred, [archived+lastActivityAt], [category+lastActivityAt]',
-  messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
-  profiles: 'urn, publicId',
-  pendingActions: 'id, type, status, timestamp',
-  imageCache: 'url, cachedAt',
-  postCache: 'urn, cachedAt',
-  syncState: 'category',
-  syncQueue: 'conversationId, status, priority, [status+priority]',
-  draftAttachments: 'conversationId',
-}).upgrade(tx => {
-  return tx.table('conversations').toCollection().modify(conv => {
-    if (conv.starred === undefined) conv.starred = 0;
-  });
-});
+/** Persist account ID to chrome.storage.session (fire-and-forget). */
+function persistAccountId(memberId: string): void {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage?.session) {
+      chrome.storage.session.set({ [STORAGE_KEY]: memberId }).catch(() => {});
+    }
+  } catch {}
+}
 
-export const db = database;
+/**
+ * Extract the short member ID from a memberUrn.
+ * e.g. "urn:li:fsd_profile:ACoAAA..." -> "ACoAAA..."
+ */
+export function memberIdFromUrn(memberUrn: string): string {
+  return memberUrn.split(':').pop() || '';
+}
 
 /**
  * Upsert profiles while preserving enriched fields (company, title, location)

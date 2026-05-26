@@ -75,13 +75,13 @@ export async function backfillBatch(batchSize = 5, onProgress?: () => void): Pro
       const canonicalKeys = new Set<string>();
       for (const m of allMsgs) {
         if (m.id.startsWith('urn:li:msg_message:')) {
-          canonicalKeys.add(`${m.body}|${m.senderUrn}`);
+          canonicalKeys.add(`${m.body}|${m.senderUrn}|${m.createdAt}`);
         }
       }
       const sseOrphans = allMsgs
         .filter((m) =>
           (m.id.startsWith('urn:li:fsd_message:') || m.id.startsWith('urn:li:fs_event:')) &&
-          canonicalKeys.has(`${m.body}|${m.senderUrn}`)
+          canonicalKeys.has(`${m.body}|${m.senderUrn}|${m.createdAt}`)
         )
         .map((m) => m.id);
       if (sseOrphans.length > 0) {

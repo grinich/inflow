@@ -152,7 +152,7 @@ export function SharedPostCard({ attachment, isMe }: SharedPostCardProps) {
             <img
               src={post.imageUrl}
               alt=""
-              className="w-full rounded object-cover"
+              className="max-w-full rounded object-contain"
               style={{ maxHeight: '200px' }}
               onClick={(e) => {
                 e.preventDefault();

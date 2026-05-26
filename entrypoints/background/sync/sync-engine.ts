@@ -30,11 +30,12 @@ async function cacheProfilePhotos(urls: string[]): Promise<void> {
         const res = await fetch(url);
         if (!res.ok) return;
         const blob = await res.blob();
-        return new Promise<{ url: string; dataUrl: string }>((resolve) => {
+        return new Promise<{ url: string; dataUrl: string }>((resolve, reject) => {
           const reader = new FileReader();
-          reader.onloadend = () => {
+          reader.onload = () => {
             resolve({ url, dataUrl: reader.result as string });
           };
+          reader.onerror = () => reject(reader.error);
           reader.readAsDataURL(blob);
         });
       } catch {
@@ -59,7 +60,8 @@ function broadcastSyncStatus(state: 'syncing' | 'idle' | 'error', message?: stri
   chrome.runtime.sendMessage({ type: 'SYNC_STATUS', state, message }).catch(() => {});
 }
 
-let isSyncing = false;
+/** Per-category lock — prevents concurrent syncs for the same category. */
+const _syncingCategories = new Set<string>();
 
 /**
  * Quick poll: sync most recent Focused inbox conversations.
@@ -70,8 +72,8 @@ let isSyncing = false;
  * Full discovery/pagination is handled by the coordinator's discovery phase.
  */
 export async function syncConversations(): Promise<void> {
-  if (isSyncing) return;
-  isSyncing = true;
+  if (_syncingCategories.has('PRIMARY_INBOX')) return;
+  _syncingCategories.add('PRIMARY_INBOX');
 
   try {
     broadcastSyncStatus('syncing', 'Syncing conversations...');
@@ -93,7 +95,7 @@ export async function syncConversations(): Promise<void> {
     debugLog('error', `Sync failed: ${err}`);
     throw err;
   } finally {
-    isSyncing = false;
+    _syncingCategories.delete('PRIMARY_INBOX');
   }
 }
 
@@ -103,12 +105,15 @@ export async function syncConversations(): Promise<void> {
  * Fetches first page only — burst discovery handles full pagination.
  */
 export async function syncCategory(category: InboxCategory): Promise<void> {
-  try {
-    if (category === 'PRIMARY_INBOX') {
-      await syncConversations();
-      return;
-    }
+  if (category === 'PRIMARY_INBOX') {
+    await syncConversations();
+    return;
+  }
 
+  if (_syncingCategories.has(category)) return;
+  _syncingCategories.add(category);
+
+  try {
     const label = category === 'SECONDARY_INBOX' ? 'Other' : category === 'ARCHIVE' ? 'Archived' : category === 'SPAM' ? 'Spam' : category;
     broadcastSyncStatus('syncing', `Syncing ${label}...`);
     const memberUrn = await getMemberUrn();
@@ -125,6 +130,8 @@ export async function syncCategory(category: InboxCategory): Promise<void> {
     broadcastSyncStatus('error', 'Sync failed');
     debugLog('error', `Category sync failed (${category}): ${err}`);
     throw err;
+  } finally {
+    _syncingCategories.delete(category);
   }
 }
 
@@ -173,6 +180,7 @@ async function storeConversationPage(
         await db.conversations.update(conv.id, {
           ...conv,
           starred: existing.starred,
+          read: existing.read,
         });
       } else {
         await db.conversations.put(conv);

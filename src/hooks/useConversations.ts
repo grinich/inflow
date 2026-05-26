@@ -65,10 +65,17 @@ export function useConversations() {
       let requireStarred = false;
       let requireRead = false;
       let requireGroup = false;
+      let requireDraft = false;
       let fromName: string | null = null;
       let companyFilter: string | null = null;
       let afterTs: number | null = null;
       let beforeTs: number | null = null;
+
+      // Parse has:draft filter (case-insensitive)
+      if (/has:draft/i.test(q)) {
+        requireDraft = true;
+        q = q.replace(/has:draft/gi, '').trim();
+      }
 
       // Parse has:attachment filter (case-insensitive)
       if (/has:attachment/i.test(q)) {
@@ -144,6 +151,16 @@ export function useConversations() {
 
       if (requireAttachments) {
         results = results.filter((c) => c.hasAttachments === 1);
+      }
+
+      if (requireDraft) {
+        const allDrafts = await db.draftAttachments.toArray();
+        const draftIds = new Set(
+          allDrafts
+            .filter((d) => (d.text && d.text.length > 0) || (d.files && d.files.length > 0))
+            .map((d) => d.conversationId)
+        );
+        results = results.filter((c) => draftIds.has(c.id));
       }
 
       if (requireUnread) {
@@ -224,5 +241,10 @@ export function useConversations() {
     return state?.phase === 'discovering';
   }, [category]);
 
-  return { conversations: conversations ?? [], isDiscovering: isDiscovering ?? false, category };
+  return {
+    conversations: conversations ?? [],
+    isLoading: conversations === undefined,
+    isDiscovering: isDiscovering ?? false,
+    category,
+  };
 }

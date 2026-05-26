@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
+import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { useUIStore } from '@/store/ui-store';
 import { useCachedImage } from '@/hooks/useCachedImage';
@@ -30,7 +31,9 @@ interface ThreadHeaderProps {
 }
 
 export function ThreadHeader({ conversation }: ThreadHeaderProps) {
-  const { archiveConversation, moveToOther, moveToSpam, markUnread, starConversation: starConv } = useOptimisticAction();
+  const { archiveConversation, moveToFocused, moveToOther, moveToSpam, markUnread, starConversation: starConv } = useOptimisticAction();
+  const inboxTab = useUIStore((s) => s.inboxTab);
+  const isInArchive = inboxTab === 'archived';
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -54,23 +57,26 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
     [firstUrn]
   ) ?? null;
 
-  // Always refresh profile data when opening a thread (catches changes + fills gaps)
+  // Refresh profile data after staying on a thread for 2s (avoids spam during quick scrolling)
   useEffect(() => {
+    if (!ENABLE_PROFILE_ENRICHMENT) return;
     if (!firstUrn) return;
     let stale = false;
-    sendBridgeMessage({ type: 'FETCH_PROFILE_BY_URN', urn: firstUrn }).then(async (res) => {
-      if (stale || !res?.success || !res.data) return;
-      const d = res.data;
-      const updates: Record<string, string> = {};
-      if (d.locationName) updates.location = d.locationName;
-      if (d.company) updates.company = d.company;
-      if (d.title) updates.title = d.title;
-      if (d.companyLogoUrl) updates.companyLogoUrl = d.companyLogoUrl;
-      if (Object.keys(updates).length > 0) {
-        await db.profiles.update(firstUrn, updates);
-      }
-    }).catch(() => {});
-    return () => { stale = true; };
+    const timer = setTimeout(() => {
+      sendBridgeMessage({ type: 'FETCH_PROFILE_BY_URN', urn: firstUrn }).then(async (res) => {
+        if (stale || !res?.success || !res.data) return;
+        const d = res.data;
+        const updates: Record<string, string> = {};
+        if (d.locationName) updates.location = d.locationName;
+        if (d.company) updates.company = d.company;
+        if (d.title) updates.title = d.title;
+        if (d.companyLogoUrl) updates.companyLogoUrl = d.companyLogoUrl;
+        if (Object.keys(updates).length > 0) {
+          await db.profiles.update(firstUrn, updates);
+        }
+      }).catch(() => {});
+    }, 2000);
+    return () => { stale = true; clearTimeout(timer); };
   }, [firstUrn]);
 
   const profileUrl = profile?.publicId
@@ -81,14 +87,25 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
     <div className="min-w-0 border-b border-edge px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
         {/* Avatar with company logo overlay */}
-        <div className="relative shrink-0">
-          <GroupAvatar
-            names={conversation.participantNames}
-            pictures={conversation.participantPictures}
-            size={36}
-          />
-          <CompanyLogoBadge url={profile?.companyLogoUrl} />
-        </div>
+        {profileUrl ? (
+          <a href={profileUrl} target="_blank" rel="noopener noreferrer" className="relative shrink-0 cursor-pointer">
+            <GroupAvatar
+              names={conversation.participantNames}
+              pictures={conversation.participantPictures}
+              size={36}
+            />
+            <CompanyLogoBadge url={profile?.companyLogoUrl} />
+          </a>
+        ) : (
+          <div className="relative shrink-0">
+            <GroupAvatar
+              names={conversation.participantNames}
+              pictures={conversation.participantPictures}
+              size={36}
+            />
+            <CompanyLogoBadge url={profile?.companyLogoUrl} />
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             {profileUrl ? (
@@ -133,10 +150,10 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
             </svg>
           </button>
           <button
-            onClick={() => archiveConversation(conversation)}
+            onClick={() => isInArchive ? moveToFocused(conversation) : archiveConversation(conversation)}
             className="flex cursor-pointer items-center gap-1.5 border border-l-0 border-edge px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"
           >
-            archive
+            {isInArchive ? 'move to focused' : 'archive'}
             <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">E</kbd>
           </button>
           <button

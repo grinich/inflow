@@ -18,52 +18,34 @@ function fileIcon(file: File): string {
   return FILE_ICONS[major] || '📎';
 }
 
-const DRAFT_KEY = 'inflow-drafts';
 const SAVE_INTERVAL = 1000;
 
-function loadDraft(conversationId: string): string {
-  try {
-    const drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
-    return drafts[conversationId] || '';
-  } catch { return ''; }
-}
-
-function saveDraft(conversationId: string, text: string) {
-  try {
-    const drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
-    if (text) {
-      drafts[conversationId] = text;
-    } else {
-      delete drafts[conversationId];
-    }
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
-  } catch {}
-}
-
-/** Save attachment files to IndexedDB (blobs stored natively, no base64/quota issues). */
-function saveDraftAttachments(conversationId: string, files: File[]) {
-  if (files.length === 0) {
+/** Save draft text and/or attachments to IndexedDB in a single row. */
+function saveDraft(conversationId: string, text: string, files: File[]) {
+  if (!text && files.length === 0) {
     db.draftAttachments.delete(conversationId).catch(() => {});
   } else {
     db.draftAttachments.put({
       conversationId,
+      text: text || undefined,
       files: files as Blob[],
       names: files.map((f) => f.name),
       types: files.map((f) => f.type),
-    }).catch((e) => console.warn('[inflow] Failed to save draft attachments:', e));
+    }).catch((e) => console.warn('[inflow] Failed to save draft:', e));
   }
 }
 
-/** Load attachment files from IndexedDB. */
-async function loadDraftAttachments(conversationId: string): Promise<File[]> {
+/** Load draft text and attachment files from IndexedDB. */
+async function loadDraft(conversationId: string): Promise<{ text: string; files: File[] }> {
   try {
     const row = await db.draftAttachments.get(conversationId);
-    if (!row?.files?.length) return [];
-    return row.files.map((blob, i) =>
-      new File([blob], row.names[i] || 'file', { type: row.types[i] || '' })
-    );
+    if (!row) return { text: '', files: [] };
+    const files = (row.files?.length)
+      ? row.files.map((blob, i) => new File([blob], row.names[i] || 'file', { type: row.types[i] || '' }))
+      : [];
+    return { text: row.text || '', files };
   } catch {
-    return [];
+    return { text: '', files: [] };
   }
 }
 
@@ -73,12 +55,30 @@ interface ComposeBoxProps {
 
 export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
   ({ conversationId }, ref) => {
-    const [body, setBody] = useState(() => loadDraft(conversationId));
+    const [body, setBody] = useState('');
     const [attachments, setAttachments] = useState<File[]>([]);
-    const { sendMessage } = useOptimisticAction();
+    const { sendMessage, sendAndArchive, archiveConversation } = useOptimisticAction();
     const setComposeActive = useUIStore((s) => s.setComposeActive);
+    const [cmdHeld, setCmdHeld] = useState(false);
+
+    useEffect(() => {
+      const isFocused = () => document.activeElement === textareaRef.current;
+      const down = (e: KeyboardEvent) => { if ((e.key === 'Meta' || e.key === 'Control') && isFocused()) setCmdHeld(true); };
+      const up = (e: KeyboardEvent) => { if (e.key === 'Meta' || e.key === 'Control') setCmdHeld(false); };
+      const blur = () => setCmdHeld(false);
+      window.addEventListener('keydown', down);
+      window.addEventListener('keyup', up);
+      window.addEventListener('blur', blur);
+      return () => {
+        window.removeEventListener('keydown', down);
+        window.removeEventListener('keyup', up);
+        window.removeEventListener('blur', blur);
+      };
+    }, []);
     const bodyRef = useReactRef(body);
     bodyRef.current = body;
+    const attachmentsRef = useReactRef(attachments);
+    attachmentsRef.current = attachments;
     const textareaRef = useReactRef<HTMLTextAreaElement | null>(null);
 
     // Sync forwarded ref + local ref
@@ -117,13 +117,15 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       prevUrls.current = previewUrls;
     }, [previewUrls]);
 
-    // Restore draft when switching conversations (text is sync, attachments are async)
+    // Restore draft when switching conversations
     useEffect(() => {
       let cancelled = false;
-      setBody(loadDraft(conversationId));
-      setAttachments([]); // clear stale data immediately
-      loadDraftAttachments(conversationId).then((files) => {
-        if (!cancelled) setAttachments(files);
+      setBody('');
+      setAttachments([]);
+      loadDraft(conversationId).then((draft) => {
+        if (cancelled) return;
+        setBody(draft.text);
+        setAttachments(draft.files);
       });
       return () => { cancelled = true; };
     }, [conversationId]);
@@ -140,7 +142,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
 
         setAttachments((prev) => {
           const next = [...prev, ...newFiles];
-          saveDraftAttachments(conversationId, next);
+          saveDraft(conversationId, bodyRef.current, next);
           document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
           return next;
         });
@@ -149,14 +151,14 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       return () => document.removeEventListener('inflow:attach-files', onAttach);
     }, [conversationId]);
 
-    // Periodically save text draft to localStorage and notify ConversationRow
+    // Periodically save draft to IndexedDB and notify ConversationRow
     useEffect(() => {
       const timer = setInterval(() => {
-        saveDraft(conversationId, bodyRef.current);
+        saveDraft(conversationId, bodyRef.current, attachmentsRef.current);
         document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
       }, SAVE_INTERVAL);
       return () => {
-        saveDraft(conversationId, bodyRef.current);
+        saveDraft(conversationId, bodyRef.current, attachmentsRef.current);
         document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
         clearInterval(timer);
       };
@@ -165,7 +167,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     function removeAttachment(index: number) {
       setAttachments((prev) => {
         const next = prev.filter((_, j) => j !== index);
-        saveDraftAttachments(conversationId, next);
+        saveDraft(conversationId, bodyRef.current, next);
         document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
         return next;
       });
@@ -177,8 +179,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       if (!text && !filesToSend) return;
       setBody('');
       setAttachments([]);
-      saveDraft(conversationId, '');
-      saveDraftAttachments(conversationId, []);
+      saveDraft(conversationId, '', []);
       document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
       // Reset textarea height
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -251,13 +252,33 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       }
     }
 
-    // Listen for Cmd+Enter dispatch from keyboard manager
+    // Listen for send (Enter) and send+archive (Cmd+Enter) from keyboard manager
     useEffect(() => {
       function onSend() {
         handleSend();
       }
+      function onSendAndArchive() {
+        const text = body.trim();
+        const filesToSend = attachments.length > 0 ? [...attachments] : undefined;
+        if (!text && !filesToSend) return;
+        // Clear compose state immediately
+        setBody('');
+        setAttachments([]);
+        saveDraft(conversationId, '', []);
+        document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
+        const ta = textareaRef.current;
+        if (ta) ta.blur();
+        setComposeActive(false);
+        // Atomic send+archive — archives first, then sends in background
+        sendAndArchive(conversationId, text, filesToSend);
+      }
       document.addEventListener('inflow:send', onSend);
-      return () => document.removeEventListener('inflow:send', onSend);
+      document.addEventListener('inflow:send-and-archive', onSendAndArchive);
+      return () => {
+        document.removeEventListener('inflow:send', onSend);
+        document.removeEventListener('inflow:send-and-archive', onSendAndArchive);
+      };
     }, [conversationId, body, attachments]);
 
     return (
@@ -309,6 +330,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         )}
 
         <div className="flex items-end gap-2">
+          <div className="relative flex flex-1 items-end">
           <textarea
             ref={setRefs}
             value={body}
@@ -318,9 +340,9 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             }}
             onFocus={() => setComposeActive(true)}
             onBlur={() => setComposeActive(false)}
-            placeholder="Write a reply... (R to focus)"
+            placeholder="Reply..."
             rows={1}
-            className="max-h-40 flex-1 resize-none rounded-lg bg-surface-input px-3 py-2 text-sm text-fg placeholder-fg-faint outline-none ring-1 ring-ring-muted transition-colors focus:ring-blue-500/50"
+            className="max-h-40 w-full resize-none rounded-lg bg-surface-input px-3 py-2 text-sm text-fg placeholder-fg-faint outline-none ring-1 ring-ring-muted transition-colors focus:ring-blue-500/50"
             onPaste={(e) => {
               const files = Array.from(e.clipboardData?.files || []);
               if (files.length) {
@@ -329,22 +351,36 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
               }
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              // All Enter variants are handled by the global keyboard hook
+              // (useKeyboard.ts) which dispatches custom events. Prevent
+              // default here to stop the textarea from inserting a newline
+              // on plain Enter and Cmd+Enter. Shift+Enter is left alone.
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                // Don't call handleSend() here — the global keyboard hook
-                // dispatches 'inflow:send' which we already listen for.
-                // Calling it here too would double-send.
               }
             }}
           />
+          {!body && (
+            <kbd className="pointer-events-none absolute left-[4.25rem] top-1/2 -translate-y-1/2 rounded border border-ring-muted bg-surface px-1.5 py-0.5 font-mono text-[10px] leading-none text-fg-faint">
+              R
+            </kbd>
+          )}
+          </div>
           <button
-            onClick={handleSend}
+            onClick={() => {
+              if (cmdHeld) {
+                // Trigger send+archive via the same path as Cmd+Enter
+                document.dispatchEvent(new CustomEvent('inflow:send-and-archive'));
+              } else {
+                handleSend();
+              }
+            }}
             disabled={!body.trim() && attachments.length === 0}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Send
+            {cmdHeld ? 'Send+Archive' : 'Send'}
             <span className="flex items-center gap-0.5 opacity-60">
-              <kbd className="rounded border border-white/30 bg-white/10 px-1 py-0.5 font-mono text-[10px] leading-none">⌘</kbd>
+              {cmdHeld && <kbd className="rounded border border-white/30 bg-white/10 px-1 py-0.5 font-mono text-[10px] leading-none">⌘</kbd>}
               <kbd className="rounded border border-white/30 bg-white/10 px-1 py-0.5 font-mono text-[10px] leading-none">↵</kbd>
             </span>
           </button>

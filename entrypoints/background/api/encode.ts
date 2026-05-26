@@ -11,21 +11,12 @@
  */
 function encodeUrnChars(s: string): string {
   return s
-    .replace(/%/g, '%25')
     .replace(/:/g, '%3A')
     .replace(/\(/g, '%28')
     .replace(/\)/g, '%29')
     .replace(/,/g, '%2C')
     .replace(/=/g, '%3D')
     .replace(/ /g, '%20');
-}
-
-/**
- * Build a LinkedIn GraphQL variables string with a single key-value pair.
- * Outer parens are literal; inner value is manually encoded.
- */
-export function linkedInVariable(key: string, value: string): string {
-  return `(${key}:${encodeUrnChars(value)})`;
 }
 
 /**

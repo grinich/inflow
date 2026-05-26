@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from './useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
+import { db } from '@/db/database';
 import type { Conversation } from '@/types/conversation';
 
 export function useKeyboard(conversations: Conversation[], composeRef: React.RefObject<HTMLTextAreaElement | null>) {
@@ -11,6 +12,10 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
   const actions = useOptimisticAction();
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+
+  // "g" chord: pressing "g" then another key within 500ms triggers a "go to" action
+  const gPendingRef = useRef(false);
+  const gTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Delayed mark-as-read: only mark read after viewing a thread for 1+ second
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -22,10 +27,11 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
     }, 1000);
   };
 
-  // Clean up timer on unmount
+  // Clean up timers on unmount
   useEffect(() => {
     return () => {
       if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+      if (gTimerRef.current) clearTimeout(gTimerRef.current);
     };
   }, []);
 
@@ -37,9 +43,9 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       const convs = conversationsRef.current;
       const act = actionsRef.current;
 
-      // Don't handle any shortcuts when the debug panel or delete modal is open
+      // Don't handle any shortcuts when the debug panel or confirm modal is open
       if (document.querySelector('[data-debug-panel]')) return;
-      if (store.deleteConfirmId) return;
+      if (store.deleteConfirmId || store.spamConfirmId) return;
 
       // Cmd+K — Command palette (works in any context)
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -55,15 +61,28 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // Cmd+Enter — Send message (only in compose)
+      // Cmd+Enter — Send + archive (only in compose)
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && isInput) {
+        e.preventDefault();
+        document.dispatchEvent(new CustomEvent('inflow:send-and-archive'));
+        return;
+      }
+
+      // Enter (no modifier) — Send message (only in compose textarea)
+      // Shift+Enter inserts a newline (default browser behavior)
+      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && isInput && target instanceof HTMLTextAreaElement) {
         e.preventDefault();
         document.dispatchEvent(new CustomEvent('inflow:send'));
         return;
       }
 
-      // Escape — close palette, clear search + blur input, exit compose, or close thread
+      // Escape — close overlays, clear search + blur input, exit compose, or close thread
       if (e.key === 'Escape') {
+        if (store.shortcutOverlayOpen) {
+          e.preventDefault();
+          store.setShortcutOverlayOpen(false);
+          return;
+        }
         if (store.paletteOpen) {
           e.preventDefault();
           store.setPaletteOpen(false);
@@ -100,11 +119,47 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // Arrow keys in search input: blur and navigate the conversation list
+      // BUT only if the filter dropdown is NOT active (dropdown handles its own arrows)
       if (isInput && (target as HTMLElement).hasAttribute('data-search-input') && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        const dropdown = document.querySelector('[data-filter-dropdown]');
+        if (dropdown) {
+          // Dropdown is open — let it handle arrow keys, don't blur
+          return;
+        }
         e.preventDefault();
         (target as HTMLElement).blur();
         // Fall through to j/k/arrow handler below
       } else if (isInput) {
+        return;
+      }
+
+      // "g" chord — second key: "g s" → go to starred, "g u" → go to unread
+      if (gPendingRef.current) {
+        gPendingRef.current = false;
+        if (gTimerRef.current) { clearTimeout(gTimerRef.current); gTimerRef.current = null; }
+        if (e.key === 's') {
+          e.preventDefault();
+          store.setSearchQuery('is:starred ');
+          const input = document.querySelector<HTMLInputElement>('[data-search-input]');
+          input?.focus();
+          return;
+        }
+        if (e.key === 'u') {
+          e.preventDefault();
+          store.setSearchQuery('is:unread ');
+          const input = document.querySelector<HTMLInputElement>('[data-search-input]');
+          input?.focus();
+          return;
+        }
+        // Unknown second key — fall through to normal handling
+      }
+
+      // "g" chord — first key: start the chord timer
+      if (e.key === 'g' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        gPendingRef.current = true;
+        if (gTimerRef.current) clearTimeout(gTimerRef.current);
+        gTimerRef.current = setTimeout(() => { gPendingRef.current = false; }, 500);
         return;
       }
 
@@ -210,13 +265,15 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // Shift+! — Move to Spam
+      // Shift+! — Mark as Spam (with confirmation)
       if (e.key === '!' && e.shiftKey) {
         e.preventDefault();
         const conv = store.selectedConversationId
           ? convs.find((c) => c.id === store.selectedConversationId)
           : convs[store.selectedIndex];
-        if (conv) act.moveToSpam(conv);
+        if (conv) {
+          store.setSpamConfirmId(conv.id);
+        }
         return;
       }
 
@@ -230,13 +287,19 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // E — Archive current conversation
+      // E — Archive (or Move to Focused if already in Archive tab)
       if (e.key === 'e') {
         e.preventDefault();
         const conv = store.selectedConversationId
           ? convs.find((c) => c.id === store.selectedConversationId)
           : convs[store.selectedIndex];
-        if (conv) act.archiveConversation(conv);
+        if (conv) {
+          if (store.inboxTab === 'archived') {
+            act.moveToFocused(conv);
+          } else {
+            act.archiveConversation(conv);
+          }
+        }
         return;
       }
 
@@ -271,13 +334,30 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // R / Enter — Focus compose reply (immediately mark read since user is engaging)
-      if (((e.key === 'r' && !e.shiftKey) || e.key === 'Enter') && store.selectedConversationId) {
+      // R — Focus compose reply (immediately mark read since user is engaging)
+      if (e.key === 'r' && !e.shiftKey && store.selectedConversationId) {
         e.preventDefault();
         if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
         act.markRead(store.selectedConversationId);
         store.setComposeActive(true);
         setTimeout(() => composeRef.current?.focus(), 0);
+        return;
+      }
+
+      // P — Open participant's LinkedIn profile in a new tab
+      if (e.key === 'p' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        const conv = store.selectedConversationId
+          ? convs.find((c) => c.id === store.selectedConversationId)
+          : convs[store.selectedIndex];
+        if (conv && conv.participantUrns.length > 0) {
+          // Look up the first participant's profile for their publicId
+          db.profiles.get(conv.participantUrns[0]).then((profile) => {
+            if (profile?.publicId) {
+              window.open(`https://www.linkedin.com/in/${profile.publicId}`, '_blank');
+            }
+          });
+        }
         return;
       }
 

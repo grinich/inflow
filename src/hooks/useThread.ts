@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react';
 import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
 
-const REFETCH_INTERVAL = 30_000; // 30 seconds
 const DEBOUNCE_MS = 150; // debounce rapid thread switches
 
 export function useThread(conversationId: string | null) {
@@ -22,13 +21,13 @@ export function useThread(conversationId: string | null) {
       const canonicalKeys = new Set<string>();
       for (const msg of all) {
         if (msg.id.startsWith('urn:li:msg_message:')) {
-          canonicalKeys.add(`${msg.body}|${msg.senderUrn}`);
+          canonicalKeys.add(`${msg.body}|${msg.senderUrn}|${msg.createdAt}`);
         }
       }
       if (canonicalKeys.size === 0) return all;
       return all.filter((msg) => {
         if (msg.id.startsWith('urn:li:msg_message:') || msg.id.startsWith('temp-')) return true;
-        return !canonicalKeys.has(`${msg.body}|${msg.senderUrn}`);
+        return !canonicalKeys.has(`${msg.body}|${msg.senderUrn}|${msg.createdAt}`);
       });
     },
     [conversationId],
@@ -39,8 +38,9 @@ export function useThread(conversationId: string | null) {
   // not the initial navigation to a new conversation.
   const lastFetchedRef = useRef<string | null>(null);
 
-  // Ask the background to fetch and store messages (initial + periodic re-fetch).
-  // First switch to a conversation fires immediately; rapid A→B→C collapses via debounce.
+  // Ask the background to fetch and store messages on initial thread open.
+  // First switch fires immediately; rapid A→B→C collapses via debounce.
+  // No periodic polling — SSE handles realtime updates while connected.
   // useLiveQuery already renders cached messages instantly from IndexedDB.
   useEffect(() => {
     if (!conversationId) return;
@@ -52,14 +52,21 @@ export function useThread(conversationId: string | null) {
       sendBridgeMessage({ type: 'FETCH_MESSAGES', conversationId });
     }, isRapidSwitch ? DEBOUNCE_MS : 0);
 
-    const interval = setInterval(() => {
-      sendBridgeMessage({ type: 'FETCH_MESSAGES', conversationId });
-    }, REFETCH_INTERVAL);
-
     return () => {
       clearTimeout(timeout);
-      clearInterval(interval);
     };
+  }, [conversationId]);
+
+  // Re-fetch when tab becomes visible again (catches messages missed while backgrounded)
+  useEffect(() => {
+    if (!conversationId) return;
+    function onVisible() {
+      if (document.visibilityState === 'visible') {
+        sendBridgeMessage({ type: 'FETCH_MESSAGES', conversationId: conversationId! });
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [conversationId]);
 
   return messages;
