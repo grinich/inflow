@@ -295,6 +295,64 @@ export async function editMessage(
   debugLog('info', 'editMessage: success');
 }
 
+export async function reactWithEmoji(
+  messageId: string,
+  emoji: string
+): Promise<void> {
+  debugLog('info', `reactWithEmoji: msg=${messageId.substring(0, 40)}... emoji=${emoji}`);
+
+  const res = await voyagerFetch(
+    `/voyagerMessagingDashMessengerMessages?action=reactWithEmoji`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'accept': 'application/json',
+      },
+      body: JSON.stringify({
+        messageUrn: messageId,
+        emoji,
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const errBody = await res.clone().text().catch(() => '');
+    debugLog('error', `reactWithEmoji failed ${res.status}: ${errBody.substring(0, 300)}`);
+    throw new Error(`Failed to react: ${res.status}`);
+  }
+
+  debugLog('info', 'reactWithEmoji: success');
+}
+
+export async function recallMessage(
+  messageId: string
+): Promise<void> {
+  debugLog('info', `recallMessage: msg=${messageId.substring(0, 40)}...`);
+
+  const res = await voyagerFetch(
+    `/voyagerMessagingDashMessengerMessages?action=recall`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'accept': 'application/json',
+      },
+      body: JSON.stringify({
+        messageUrn: messageId,
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const errBody = await res.clone().text().catch(() => '');
+    debugLog('error', `recallMessage failed ${res.status}: ${errBody.substring(0, 300)}`);
+    throw new Error(`Failed to unsend message: ${res.status}`);
+  }
+
+  debugLog('info', 'recallMessage: success');
+}
+
 export async function createConversation(
   recipientUrns: string[],
   body: string,

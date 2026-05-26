@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
@@ -44,12 +44,18 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
     : null;
   const canEdit = isMe && message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued'
     && Date.now() - message.createdAt < 60 * 60 * 1000;
+  const canUnsend = canEdit;
   const canReply = message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued';
+  const canReact = message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued';
 
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState(message.body);
+  const [unsendConfirm, setUnsendConfirm] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
-  const { editMessage } = useOptimisticAction();
+  const unsendTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const { editMessage, reactToMessage, recallMessage } = useOptimisticAction();
 
   useEffect(() => {
     if (editing && editRef.current) {
@@ -67,20 +73,84 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
     if (ok) setEditing(false);
   };
 
+  const handleUnsend = useCallback(() => {
+    if (!unsendConfirm) {
+      setUnsendConfirm(true);
+      unsendTimerRef.current = setTimeout(() => setUnsendConfirm(false), 3000);
+      return;
+    }
+    clearTimeout(unsendTimerRef.current);
+    setUnsendConfirm(false);
+    recallMessage(message.conversationId, message.id);
+  }, [unsendConfirm, message.conversationId, message.id, recallMessage]);
+
+  const handleQuickReact = useCallback((emoji: string) => {
+    reactToMessage(message.conversationId, message.id, emoji);
+  }, [message.conversationId, message.id, reactToMessage]);
+
+  // Close emoji picker on click outside
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target as Node)) {
+        setEmojiPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [emojiPickerOpen]);
+
+  // Cleanup unsend timer on unmount
+  useEffect(() => () => clearTimeout(unsendTimerRef.current), []);
+
   // Animate only the optimistic message while it's being sent
   const isNew = message.status === 'sending' || message.status === 'queued';
 
   return (
     <div data-message-id={message.id} className={`group/msg flex items-center gap-2 ${isMe ? 'flex-row-reverse' : ''} ${isNew ? 'animate-message-in' : ''}`}>
-      {/* Hover timestamp + edit/reply buttons — appears to the side */}
-      <span className={`shrink-0 w-24 text-[10px] text-fg-faint opacity-0 transition-opacity group-hover/msg:opacity-100 order-last flex items-center gap-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+      {/* Hover timestamp + action buttons — appears to the side */}
+      <span className={`shrink-0 text-[10px] leading-normal text-fg-faint opacity-0 transition-opacity group-hover/msg:opacity-100 order-last flex items-center gap-1.5 ${isMe ? 'justify-end' : 'justify-start'}`}>
+        {canReact && !editing && (
+          <>
+            {['👍', '😊', '😎', '👋'].map(emoji => (
+              <button
+                key={emoji}
+                onClick={() => handleQuickReact(emoji)}
+                className="cursor-pointer text-lg opacity-60 hover:opacity-100 transition-opacity"
+                title={`React ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+            <div className="relative" ref={emojiPickerRef}>
+              <button
+                onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}
+                className="cursor-pointer text-fg-faint hover:text-fg-secondary"
+                title="More reactions"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                  <line x1="9" y1="9" x2="9.01" y2="9" />
+                  <line x1="15" y1="9" x2="15.01" y2="9" />
+                </svg>
+              </button>
+              {emojiPickerOpen && (
+                <EmojiPickerPopover
+                  onSelect={(emoji) => { handleQuickReact(emoji); setEmojiPickerOpen(false); }}
+                  isMe={isMe}
+                />
+              )}
+            </div>
+          </>
+        )}
         {canReply && !editing && (
           <button
             onClick={() => useUIStore.getState().setReplyingTo(message)}
             className="cursor-pointer text-fg-faint hover:text-fg-secondary"
             title="Reply"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="9 17 4 12 9 7" />
               <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
             </svg>
@@ -92,6 +162,14 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
             className="cursor-pointer text-fg-faint hover:text-fg-secondary"
           >
             edit
+          </button>
+        )}
+        {canUnsend && !editing && (
+          <button
+            onClick={handleUnsend}
+            className={`cursor-pointer ${unsendConfirm ? 'text-red-400 font-medium' : 'text-fg-faint hover:text-fg-secondary'}`}
+          >
+            {unsendConfirm ? 'sure?' : 'unsend'}
           </button>
         )}
         {formatHoverTime(message.createdAt)}
@@ -217,6 +295,25 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
             </>
           )}
         </div>
+        {/* Reaction pills */}
+        {message.reactions && message.reactions.length > 0 && (
+          <div className={`mt-1 flex flex-wrap gap-1 ${isMe ? 'justify-end' : ''}`}>
+            {message.reactions.map(r => (
+              <button
+                key={r.emoji}
+                onClick={() => handleQuickReact(r.emoji)}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-sm cursor-pointer transition-colors ${
+                  r.viewerReacted
+                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 ring-1 ring-blue-300 dark:ring-blue-700'
+                    : 'bg-surface-hover text-fg-secondary hover:bg-surface-muted'
+                }`}
+              >
+                <span>{r.emoji}</span>
+                {r.count > 1 && <span>{r.count}</span>}
+              </button>
+            ))}
+          </div>
+        )}
         {/* Edited indicator */}
         {message.editedAt && !editing && (
           <div className={`mt-0.5 text-[10px] text-fg-faint ${isMe ? 'text-right' : ''}`}>(edited)</div>
@@ -477,6 +574,46 @@ function Linkify({ text, isMe }: { text: string; isMe: boolean }) {
   }
 
   return <>{parts}</>;
+}
+
+const EMOJI_GRID = [
+  '👍', '👎', '❤️', '😊', '😂',
+  '😎', '🙏', '🔥', '👏', '💯',
+  '😍', '🎉', '👋', '🤔', '😮',
+  '😢', '✅', '⭐', '🚀', '💪',
+];
+
+function EmojiPickerPopover({ onSelect, isMe }: { onSelect: (emoji: string) => void; isMe: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<'above' | 'below' | null>(null);
+
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    // Find the scroll container to get the usable top boundary (below the header)
+    const scrollContainer = ref.current.closest('[data-scroll-container]');
+    const topBound = scrollContainer ? scrollContainer.getBoundingClientRect().top : 0;
+    setPlacement(rect.top < topBound ? 'below' : 'above');
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className={`absolute z-50 w-[200px] grid grid-cols-5 gap-0.5 rounded-lg border border-border bg-surface-raised p-1.5 shadow-lg ${
+        placement === null ? 'bottom-full mb-1 invisible' : placement === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'
+      } ${isMe ? 'right-0' : 'left-0'}`}
+    >
+      {EMOJI_GRID.map(emoji => (
+        <button
+          key={emoji}
+          onClick={() => onSelect(emoji)}
+          className="flex h-9 w-9 cursor-pointer items-center justify-center rounded text-lg hover:bg-surface-hover transition-colors"
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function formatFileSize(bytes: number): string {

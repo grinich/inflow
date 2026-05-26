@@ -25,6 +25,8 @@ const mockStar = vi.fn().mockResolvedValue(undefined);
 const mockUnstar = vi.fn().mockResolvedValue(undefined);
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 const mockEditMessage = vi.fn().mockResolvedValue(undefined);
+const mockReactWithEmoji = vi.fn().mockResolvedValue(undefined);
+const mockRecallMessage = vi.fn().mockResolvedValue(undefined);
 
 let testDb: any;
 
@@ -67,6 +69,8 @@ beforeEach(async () => {
   mockUnstar.mockReset().mockResolvedValue(undefined);
   mockSendMessage.mockReset().mockResolvedValue(undefined);
   mockEditMessage.mockReset().mockResolvedValue(undefined);
+  mockReactWithEmoji.mockReset().mockResolvedValue(undefined);
+  mockRecallMessage.mockReset().mockResolvedValue(undefined);
 
   Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
 });
@@ -113,6 +117,20 @@ const apiDispatch: Record<string, (...args: any[]) => Promise<void>> = {
         action.bridgeMessage.messageId,
         action.bridgeMessage.body
       );
+    }
+  },
+  react_emoji: async (_convId: string, action: any) => {
+    if (action.bridgeMessage) {
+      await mockReactWithEmoji(
+        action.bridgeMessage.messageId,
+        action.bridgeMessage.emoji
+      );
+    }
+  },
+  recall_message: async (_convId: string, action: any) => {
+    if (action.bridgeMessage) {
+      await mockRecallMessage(action.bridgeMessage.messageId);
+      await testDb.messages.delete(action.bridgeMessage.messageId).catch(() => {});
     }
   },
   send: async (_convId: string, action: any) => {
@@ -172,7 +190,7 @@ async function drainActionQueue(): Promise<void> {
       try {
         const handler = apiDispatch[action.type];
         if (handler) {
-          if (action.type === 'edit_message' || action.type === 'send') {
+          if (action.type === 'edit_message' || action.type === 'send' || action.type === 'react_emoji' || action.type === 'recall_message') {
             await handler(action.conversationId, action);
           } else {
             await handler(action.conversationId);
@@ -234,6 +252,18 @@ async function rollbackAction(action: any): Promise<void> {
           body: data.body,
           editedAt: data.editedAt,
         }).catch(() => {});
+      }
+      break;
+    case 'react_emoji':
+      if (data.messageId) {
+        await testDb.messages.update(data.messageId, {
+          reactions: data.reactions,
+        }).catch(() => {});
+      }
+      break;
+    case 'recall_message':
+      if (data.message) {
+        await testDb.messages.put(data.message).catch(() => {});
       }
       break;
   }
@@ -881,6 +911,124 @@ describe('drainActionQueue', () => {
 
       // Should fall back to msg.body since bridgeMessage.body is undefined
       expect(mockSendMessage).toHaveBeenCalledWith('conv-fb', 'fallback body text', undefined);
+    });
+  });
+
+  describe('react_emoji action', () => {
+    it('calls reactWithEmoji for react_emoji action', async () => {
+      await testDb.pendingActions.put(
+        makePendingAction({
+          id: 'act-react',
+          type: 'react_emoji',
+          conversationId: 'conv-react',
+          status: 'queued',
+          timestamp: 1,
+          bridgeMessage: { messageId: 'msg-react-1', emoji: '👍' },
+        })
+      );
+
+      await drainActionQueue();
+
+      expect(mockReactWithEmoji).toHaveBeenCalledWith('msg-react-1', '👍');
+      const action = await testDb.pendingActions.get('act-react');
+      expect(action.status).toBe('confirmed');
+    });
+
+    it('restores old reactions on failure', async () => {
+      mockReactWithEmoji.mockRejectedValue(new Error('React failed'));
+
+      const oldReactions = [
+        { emoji: '❤️', count: 2, firstReactedAt: 1000, viewerReacted: false },
+      ];
+
+      await testDb.messages.put(
+        makeMessage({
+          id: 'msg-react-rollback',
+          conversationId: 'conv-react-rb',
+          body: 'test',
+          reactions: [
+            { emoji: '❤️', count: 2, firstReactedAt: 1000, viewerReacted: false },
+            { emoji: '👍', count: 1, firstReactedAt: 2000, viewerReacted: true },
+          ],
+        })
+      );
+
+      await testDb.pendingActions.put(
+        makePendingAction({
+          id: 'act-react-fail',
+          type: 'react_emoji',
+          conversationId: 'conv-react-rb',
+          status: 'queued',
+          timestamp: 1,
+          bridgeMessage: { messageId: 'msg-react-rollback', emoji: '👍' },
+          rollbackData: { messageId: 'msg-react-rollback', reactions: oldReactions },
+        })
+      );
+
+      await drainActionQueue();
+
+      const msg = await testDb.messages.get('msg-react-rollback');
+      expect(msg.reactions).toEqual(oldReactions);
+    });
+  });
+
+  describe('recall_message action', () => {
+    it('calls recallMessage and deletes from DB', async () => {
+      await testDb.messages.put(
+        makeMessage({
+          id: 'msg-recall-1',
+          conversationId: 'conv-recall',
+          body: 'to be recalled',
+        })
+      );
+
+      await testDb.pendingActions.put(
+        makePendingAction({
+          id: 'act-recall',
+          type: 'recall_message',
+          conversationId: 'conv-recall',
+          status: 'queued',
+          timestamp: 1,
+          bridgeMessage: { messageId: 'msg-recall-1' },
+        })
+      );
+
+      await drainActionQueue();
+
+      expect(mockRecallMessage).toHaveBeenCalledWith('msg-recall-1');
+      const msg = await testDb.messages.get('msg-recall-1');
+      expect(msg).toBeUndefined();
+
+      const action = await testDb.pendingActions.get('act-recall');
+      expect(action.status).toBe('confirmed');
+    });
+
+    it('restores message on failure', async () => {
+      mockRecallMessage.mockRejectedValue(new Error('Recall failed'));
+
+      const savedMessage = makeMessage({
+        id: 'msg-recall-fail',
+        conversationId: 'conv-recall-fail',
+        body: 'should be restored',
+      });
+
+      await testDb.pendingActions.put(
+        makePendingAction({
+          id: 'act-recall-fail',
+          type: 'recall_message',
+          conversationId: 'conv-recall-fail',
+          status: 'queued',
+          timestamp: 1,
+          bridgeMessage: { messageId: 'msg-recall-fail' },
+          rollbackData: { message: savedMessage },
+        })
+      );
+
+      await drainActionQueue();
+
+      const msg = await testDb.messages.get('msg-recall-fail');
+      expect(msg).toBeDefined();
+      expect(msg.body).toBe('should be restored');
     });
   });
 

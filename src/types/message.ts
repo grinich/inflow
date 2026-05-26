@@ -29,6 +29,13 @@ export interface RepliedMessage {
   sentAt?: number;       // original message timestamp (for API payload)
 }
 
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  firstReactedAt: number;
+  viewerReacted: boolean;
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -44,4 +51,5 @@ export interface Message {
   repliedMessage?: RepliedMessage;
   editedAt?: number;  // timestamp of last edit
   seenAt?: number;    // timestamp when recipient read this message
+  reactions?: ReactionSummary[];
 }
