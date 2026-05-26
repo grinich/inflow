@@ -10,6 +10,7 @@ import type { Conversation } from '@/types/conversation';
 
 interface ConversationListProps {
   conversations: Conversation[];
+  isLoading?: boolean;
   isDiscovering?: boolean;
   category: string;
   isSearching?: boolean;
@@ -18,17 +19,20 @@ interface ConversationListProps {
   onOpenDebug?: () => void;
 }
 
-export function ConversationList({ conversations, isDiscovering, category, isSearching, hasMoreSearchResults, onLoadMoreSearch, onOpenDebug }: ConversationListProps) {
+export function ConversationList({ conversations, isLoading, isDiscovering, category, isSearching, hasMoreSearchResults, onLoadMoreSearch, onOpenDebug }: ConversationListProps) {
   const selectedConversationId = useUIStore((s) => s.selectedConversationId);
   const openThread = useUIStore((s) => s.openThread);
-  const theme = useUIStore((s) => s.theme);
-  const cycleTheme = useUIStore((s) => s.cycleTheme);
   const { markRead, archiveConversation } = useOptimisticAction();
-  const [errorCount, setErrorCount] = useState(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastTriggerRef = useRef(0);
   const prefetchedRef = useRef<Set<string>>(new Set());
+  const inboxTab = useUIStore((s) => s.inboxTab);
+
+  // Clear prefetch cache on tab change or DB reset
+  useEffect(() => {
+    prefetchedRef.current.clear();
+  }, [inboxTab]);
 
   // Scroll-triggered infinite loading: dual-mode sentinel
   // - Active search with more results → load more search results
@@ -55,20 +59,29 @@ export function ConversationList({ conversations, isDiscovering, category, isSea
     return () => observer.disconnect();
   }, [isDiscovering, category, hasMoreSearchResults, onLoadMoreSearch]);
 
-  // Poll for error count from background logs
+  // Prefetch next 2 conversations after the selected one so j/k navigation feels instant
   useEffect(() => {
-    const check = async () => {
-      try {
-        const res = await chrome.runtime.sendMessage({ type: 'GET_DEBUG_LOGS' });
-        if (res?.success) {
-          setErrorCount((res.data || []).filter((l: any) => l.level === 'error').length);
-        }
-      } catch {}
-    };
-    check();
-    const interval = setInterval(check, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!selectedConversationId) return;
+    const idx = conversations.findIndex((c) => c.id === selectedConversationId);
+    if (idx === -1) return;
+
+    const ahead = conversations.slice(idx + 1, idx + 3).map((c) => c.id);
+    if (ahead.length === 0) return;
+
+    const toCheck = ahead.filter((id) => !prefetchedRef.current.has(id));
+    if (toCheck.length === 0) return;
+
+    (async () => {
+      const uncached: string[] = [];
+      for (const id of toCheck) {
+        const count = await db.messages.where('conversationId').equals(id).count();
+        if (count === 0) uncached.push(id);
+      }
+      if (uncached.length === 0) return;
+      for (const id of uncached) prefetchedRef.current.add(id);
+      sendBridgeMessage({ type: 'PREFETCH_MESSAGES', conversationIds: uncached }).catch(() => {});
+    })();
+  }, [selectedConversationId, conversations]);
 
   // Scroll-idle prefetch: when scrolling stops, find visible unsynced conversations and prefetch messages
   const handleScrollIdle = useCallback(async () => {
@@ -140,19 +153,19 @@ export function ConversationList({ conversations, isDiscovering, category, isSea
     markRead(conv.id);
   }
 
-  const themeIcon = theme === 'dark' ? '\u263E' : theme === 'light' ? '\u2600' : '\u25D0';
-  const themeLabel = theme === 'dark' ? 'Dark' : theme === 'light' ? 'Light' : 'System';
+  const [accountName, setAccountName] = useState<string | undefined>();
+  useEffect(() => {
+    try {
+      setAccountName(localStorage.getItem('inflow-account-name') || undefined);
+    } catch {}
+  }, []);
+
 
   return (
     <div className="flex h-full flex-col">
       <ConversationListHeader conversationCount={conversations.length} />
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-fg-muted">
-            <p className="text-sm">No conversations</p>
-            <p className="mt-1 text-xs">Your LinkedIn messages will appear here</p>
-          </div>
-        ) : (
+        {conversations.length === 0 ? null : (
           <>
             {conversations.map((conv, i) => (
               <ConversationRow
@@ -176,33 +189,15 @@ export function ConversationList({ conversations, isDiscovering, category, isSea
         )}
       </div>
       <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">
-        <SyncStatusIndicator />
-        <div className="flex items-center gap-3">
-          <button
-            onClick={cycleTheme}
-            className="text-fg-faint transition-colors hover:text-fg-secondary"
-            title={`Theme: ${themeLabel}`}
-          >
-            {themeIcon} theme
-          </button>
-          {onOpenDebug && (
-            <button
-              onClick={onOpenDebug}
-              className={`flex items-center gap-1 transition-colors ${
-                errorCount > 0
-                  ? 'text-red-400 hover:text-red-300'
-                  : 'text-fg-faint hover:text-fg-secondary'
-              }`}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="8" cy="8" r="6.5" />
-                <path d="M8 5v3.5" />
-                <circle cx="8" cy="11" r="0.5" fill="currentColor" />
-              </svg>
-              {errorCount > 0 ? `${errorCount} error${errorCount !== 1 ? 's' : ''}` : 'debug'}
-            </button>
-          )}
-        </div>
+        <button
+          onClick={() => useUIStore.getState().toggleShortcutOverlay()}
+          className="flex items-center gap-1.5 text-fg-faint transition-colors hover:text-fg-muted"
+        >
+          Keyboard Shortcuts
+          <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px]">shift</kbd>
+          <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px]">?</kbd>
+        </button>
+        <SyncStatusIndicator accountName={accountName} onOpenDebug={onOpenDebug} />
       </div>
     </div>
   );

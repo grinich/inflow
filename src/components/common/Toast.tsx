@@ -34,12 +34,12 @@ export function Toast() {
   if (!current) return null;
 
   return (
-    <div className="fixed bottom-20 left-[calc(50%+192px)] -translate-x-1/2 z-50">
+    <div className="fixed top-4 left-[calc(50%+192px)] -translate-x-1/2 z-50">
       <div
         className={`flex items-center gap-3 rounded-lg bg-surface-raised px-4 py-2.5 text-sm text-fg shadow-xl ring-1 ring-ring transition-all duration-200 ease-out ${
           visible && !exiting
             ? 'translate-y-0 opacity-100'
-            : 'translate-y-2 opacity-0'
+            : '-translate-y-2 opacity-0'
         }`}
       >
         <span>{current.message}</span>

@@ -8,6 +8,7 @@ const FILTER_SUGGESTIONS = [
   { filter: 'is:starred', description: 'Starred conversations' },
   { filter: 'is:group', description: 'Group conversations' },
   { filter: 'has:attachment', description: 'Has attachments' },
+  { filter: 'has:draft', description: 'Has unsent draft' },
   { filter: 'from:', description: 'Filter by sender name' },
   { filter: 'company:', description: 'Filter by current company' },
   { filter: 'after:', description: 'Active after date (YYYY-MM-DD)' },
@@ -20,10 +21,10 @@ const FILTER_SUGGESTIONS = [
 const VALUE_PREFIXES = ['from:', 'company:', 'after:', 'before:', 'newer:', 'older:'];
 
 const TABS: { id: InboxTab; label: string; key: string }[] = [
-  { id: 'focused', label: 'focused', key: '1' },
-  { id: 'other', label: 'other', key: '2' },
-  { id: 'archived', label: 'archived', key: '3' },
-  { id: 'spam', label: 'spam', key: '4' },
+  { id: 'focused', label: 'Focused', key: '1' },
+  { id: 'other', label: 'Other', key: '2' },
+  { id: 'archived', label: 'Archive', key: '3' },
+  { id: 'spam', label: 'Spam', key: '4' },
 ];
 
 /** Map UI tab to LinkedIn API category for on-demand sync. */
@@ -141,7 +142,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
         <h1 className="shrink-0 text-base font-semibold text-fg-strong">
-          <span className="text-blue-400">in</span>ƒloⱳ
+          <span className="text-blue-400">in</span>ƒlow
         </h1>
 
         {/* Segmented control */}
@@ -150,14 +151,13 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
             <button
               key={tab.id}
               onClick={() => handleTabSelect(tab.id)}
-              className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
+              className={`cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                 inboxTab === tab.id
                   ? 'bg-surface text-fg-strong shadow-sm'
                   : 'text-fg-muted hover:text-fg-secondary'
               }`}
             >
               {tab.label}
-              <span className="ml-0.5 text-[10px] text-fg-faint">{tab.key}</span>
             </button>
           ))}
         </div>
@@ -181,7 +181,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
           ref={inputRef}
           data-search-input
           type="text"
-          placeholder={conversationCount ? `search ${conversationCount.toLocaleString()} conversations...` : 'search conversations...'}
+          placeholder={conversationCount ? `Search ${conversationCount.toLocaleString()} conversations...` : 'Search conversations...'}
           value={searchQuery}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
@@ -210,7 +210,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
 
         {/* Autocomplete dropdown */}
         {dropdownVisible && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-edge bg-surface shadow-lg">
+          <div data-filter-dropdown className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-edge bg-surface shadow-lg">
             {suggestions.map((s, i) => (
               <button
                 key={s.filter}

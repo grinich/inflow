@@ -7,18 +7,9 @@ import { db } from '@/db/database';
 import { preloadImages, useCachedImage } from '@/hooks/useCachedImage';
 import type { Conversation } from '@/types/conversation';
 
-const DRAFT_KEY = 'inflow-drafts';
-
 interface DraftInfo {
   text: string;
   attachmentCount: number;
-}
-
-function getTextDraft(conversationId: string): string {
-  try {
-    const drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
-    return drafts[conversationId] || '';
-  } catch { return ''; }
 }
 
 function useDraft(conversationId: string): DraftInfo {
@@ -26,11 +17,10 @@ function useDraft(conversationId: string): DraftInfo {
 
   useEffect(() => {
     function refresh() {
-      const text = getTextDraft(conversationId);
       db.draftAttachments.get(conversationId).then((row) => {
-        setDraft({ text, attachmentCount: row?.files?.length || 0 });
+        setDraft({ text: row?.text || '', attachmentCount: row?.files?.length || 0 });
       }).catch(() => {
-        setDraft({ text, attachmentCount: 0 });
+        setDraft({ text: '', attachmentCount: 0 });
       });
     }
     refresh(); // read once on mount
@@ -223,7 +213,7 @@ export function ConversationRow({ conversation, selected, onClick, onArchive }: 
 
 /** Highlight the first occurrence of `query` in a name string. */
 function highlightName(text: string, query: string): React.ReactNode {
-  const q = query.toLowerCase().replace(/has:attachment/gi, '').trim();
+  const q = query.toLowerCase().replace(/has:\S+/gi, '').trim();
   if (!q) return text;
 
   const idx = text.toLowerCase().indexOf(q);
@@ -245,7 +235,7 @@ function highlightName(text: string, query: string): React.ReactNode {
  */
 function highlightMatch(text: string, query: string): React.ReactNode {
   const lower = text.toLowerCase();
-  const q = query.toLowerCase().replace(/has:attachment/gi, '').trim();
+  const q = query.toLowerCase().replace(/has:\S+/gi, '').trim();
   if (!q) return text;
 
   const idx = lower.lastIndexOf(q);

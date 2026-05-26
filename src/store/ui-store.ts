@@ -32,6 +32,7 @@ interface UIState {
   inboxTab: InboxTab;
   lightboxImageUrl: string | null;
   deleteConfirmId: string | null;
+  spamConfirmId: string | null;
   tabMemory: Partial<Record<InboxTab, TabMemory>>;
   _pendingRestore: TabMemory | null;
 
@@ -52,6 +53,7 @@ interface UIState {
   openLightbox: (url: string) => void;
   closeLightbox: () => void;
   setDeleteConfirmId: (id: string | null) => void;
+  setSpamConfirmId: (id: string | null) => void;
   openThread: (conversationId: string, index: number) => void;
   closeThread: () => void;
   setTheme: (theme: Theme) => void;
@@ -134,6 +136,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   inboxTab: initialView.inboxTab,
   lightboxImageUrl: null,
   deleteConfirmId: null,
+  spamConfirmId: null,
   tabMemory: {},
   _pendingRestore: null,
 
@@ -170,14 +173,15 @@ export const useUIStore = create<UIState>((set, get) => ({
   openLightbox: (url) => set({ lightboxImageUrl: url }),
   closeLightbox: () => set({ lightboxImageUrl: null }),
   setDeleteConfirmId: (id) => set({ deleteConfirmId: id }),
+  setSpamConfirmId: (id) => set({ spamConfirmId: id }),
 
   showToast: (toast) => {
     if (toastTimeout) clearTimeout(toastTimeout);
     const id = Date.now().toString();
     set((s) => ({
       toast: { ...toast, id },
-      lastUndoAction: toast.undoAction ?? s.lastUndoAction,
-      lastUndoConversationId: toast.undoConversationId ?? (toast.undoAction ? null : s.lastUndoConversationId),
+      lastUndoAction: toast.undoAction ?? null,
+      lastUndoConversationId: toast.undoConversationId ?? null,
     }));
     toastTimeout = setTimeout(() => {
       set((s) => (s.toast?.id === id ? { toast: null } : {}));

@@ -1,6 +1,18 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db/database';
 import { useBackgroundMessage } from '@/hooks/useBackgroundMessage';
 import { sendBridgeMessage } from '@/lib/bridge';
+
+function subscribeOnline(cb: () => void) {
+  window.addEventListener('online', cb);
+  window.addEventListener('offline', cb);
+  return () => {
+    window.removeEventListener('online', cb);
+    window.removeEventListener('offline', cb);
+  };
+}
+function getOnline() { return navigator.onLine; }
 
 interface SyncState {
   state: 'idle' | 'syncing' | 'error';
@@ -12,12 +24,23 @@ interface SyncProgress {
   queue: { pending: number; syncing: number; done: number; failed: number; total: number };
 }
 
-export function SyncStatusIndicator() {
+interface SyncStatusIndicatorProps {
+  accountName?: string;
+  onOpenDebug?: () => void;
+}
+
+export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndicatorProps) {
+  const online = useSyncExternalStore(subscribeOnline, getOnline);
   const [sync, setSync] = useState<SyncState>({ state: 'idle' });
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [lastSynced, setLastSynced] = useState<number | null>(null);
-  const [paused, setPaused] = useState(false);
-  const [hovered, setHovered] = useState(false);
+
+  // Count queued actions for offline indicator
+  const queuedCount = useLiveQuery(
+    () => db.pendingActions.where('status').equals('queued').count(),
+    [],
+    0
+  );
 
   useBackgroundMessage(
     useCallback((msg: any) => {
@@ -57,33 +80,15 @@ export function SyncStatusIndicator() {
 
   // Build status text
   let statusText = '';
-  if (isBackfilling && progress) {
-    const { done, total } = progress.queue;
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    statusText = `syncing ${pct}%`;
-  } else if (isDiscovering && progress) {
-    const totalDiscovered = Object.values(progress.categories).reduce(
-      (sum, c) => sum + c.totalDiscovered,
-      0
-    );
-    statusText = `discovering... (${totalDiscovered})`;
-  } else if (isSyncing && sync.message) {
-    statusText = sync.message;
+  if (!online) {
+    statusText = queuedCount > 0 ? `Offline (${queuedCount} queued)` : 'Offline';
+  } else if (active) {
+    statusText = 'Syncing';
   } else if (lastSynced) {
     const ago = Math.round((Date.now() - lastSynced) / 1000);
-    if (ago < 5) statusText = 'synced just now';
-    else if (ago < 60) statusText = `synced ${ago}s ago`;
-    else statusText = `synced ${Math.round(ago / 60)}m ago`;
-  }
-
-  function handleClick() {
-    if (active || paused) {
-      sendBridgeMessage({ type: 'TOGGLE_SYNC_PAUSE' }).then((res) => {
-        if (res.success) setPaused(res.data.paused);
-      }).catch(() => {});
-      return;
-    }
-    sendBridgeMessage({ type: 'SYNC_CONVERSATIONS' }).catch(() => {});
+    if (ago < 5) statusText = 'Synced just now';
+    else if (ago < 60) statusText = `Synced ${ago}s ago`;
+    else statusText = `Synced ${Math.round(ago / 60)}m ago`;
   }
 
   const icon = (
@@ -105,77 +110,18 @@ export function SyncStatusIndicator() {
     </svg>
   );
 
-  const pauseIcon = (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <rect x="6" y="4" width="4" height="16" rx="1" />
-      <rect x="14" y="4" width="4" height="16" rx="1" />
-    </svg>
-  );
+  const tooltip = accountName ? `Signed in as ${accountName}` : undefined;
 
-  const staticIcon = (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-      <path d="M16 16h5v5" />
-    </svg>
-  );
-
-  // Paused state
-  if (paused) {
-    return (
-      <button
-        onClick={handleClick}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        className="flex cursor-pointer items-center gap-1.5 text-xs text-yellow-500 hover:text-yellow-400"
-      >
-        {hovered ? staticIcon : pauseIcon}
-        <span className="inline-grid text-left">
-          <span className={`col-start-1 row-start-1 ${hovered ? 'invisible' : ''}`}>sync paused</span>
-          <span className={`col-start-1 row-start-1 ${hovered ? '' : 'invisible'}`}>resume syncing</span>
-        </span>
-      </button>
-    );
-  }
-
-  // When actively syncing, show status text; on hover swap to "Pause syncing"
-  if (active) {
-    return (
-      <button
-        onClick={handleClick}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        className={`flex cursor-pointer items-center gap-1.5 text-xs ${
-          sync.state === 'error' ? 'text-red-400' : 'text-fg-faint hover:text-fg-muted'
-        }`}
-      >
-        {hovered ? pauseIcon : icon}
-        <span className="inline-grid text-left">
-          <span className={`col-start-1 row-start-1 ${hovered ? 'invisible' : ''}`}>{statusText}</span>
-          <span className={`col-start-1 row-start-1 ${hovered ? '' : 'invisible'}`}>pause syncing</span>
-        </span>
-      </button>
-    );
-  }
-
-  // When idle, show icon + "Sync idle"
   return (
     <button
-      onClick={handleClick}
-      className="flex cursor-pointer items-center gap-1.5 text-xs text-fg-faint hover:text-fg-muted"
+      onClick={onOpenDebug}
+      title={tooltip}
+      className={`flex cursor-pointer items-center gap-1.5 text-xs outline-none ${
+        sync.state === 'error' ? 'text-red-400' : 'text-fg-faint hover:text-fg-muted'
+      }`}
     >
       {icon}
-      <span>up to date</span>
+      <span>{statusText || 'Up to date'}</span>
     </button>
   );
 }

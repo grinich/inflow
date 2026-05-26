@@ -9,13 +9,23 @@ export interface FetchedProfile {
   vanitySlug?: string;
 }
 
+// In-flight dedup: if a fetch for the same URN is already pending, reuse it
+const inFlight = new Map<string, Promise<FetchedProfile | null>>();
+
 /**
  * Fetch enriched profile data by URN via the Voyager API.
  * Returns current position (company, title, logo).
- * No HTML scraping — all data comes from API endpoints.
+ * Deduplicates concurrent requests for the same URN.
  */
 export async function fetchProfileByUrn(urn: string): Promise<FetchedProfile | null> {
-  return fetchCurrentPosition(urn);
+  const existing = inFlight.get(urn);
+  if (existing) return existing;
+
+  const promise = fetchCurrentPosition(urn).finally(() => {
+    inFlight.delete(urn);
+  });
+  inFlight.set(urn, promise);
+  return promise;
 }
 
 /**

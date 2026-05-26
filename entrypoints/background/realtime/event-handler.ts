@@ -13,12 +13,17 @@
 
 import { getMemberUrn } from '../auth/session';
 import { fetchProfileByUrn } from '../api/profiles';
+import { fetchMessages } from '../api/messages';
+import { normalizeMessages } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
+import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
+import { shouldSuppressConversationUpdate } from './mark-read-suppression';
 import type { Message, MessageAttachment } from '@/types/message';
 
 /** Enrich a single profile if it's missing company data. Non-blocking, fire-and-forget. */
 function enrichProfileIfNeeded(urn: string): void {
+  if (!ENABLE_PROFILE_ENRICHMENT) return;
   db.profiles.get(urn).then(async (p) => {
     if (!p || p.company) return;
     const data = await fetchProfileByUrn(urn);
@@ -105,12 +110,21 @@ export async function handleRealtimeEvent(
           );
           return;
         }
+
+        // Conversation update events (new message arrived, read status changed, etc.)
+        const realtimeConv = included.find(
+          (e: any) => e.$type === 'com.linkedin.voyager.messaging.realtime.RealtimeConversation'
+        );
+        if (realtimeConv) {
+          await handleConversationUpdate(realtimeConv, included, await getMemberUrn());
+          return;
+        }
       }
 
       // Unrecognised DecoratedEvent — log for discovery
       debugLog(
         'info',
-        `[RT] Unhandled DecoratedEvent: topic=${topic.substring(0, 60)}`
+        `[RT] Unhandled DecoratedEvent: topic=${topic.substring(0, 60)} payload=${JSON.stringify(decorated.payload || decorated)}`
       );
       return;
     }
@@ -399,9 +413,9 @@ async function handleVoyagerEvent(
     if (existing) {
       const updates: Record<string, any> = {
         lastMessage: latest.body || 'New message',
-        lastActivityAt: latest.createdAt,
+        lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
       };
-      if (!latest.isFromMe) {
+      if (convMessages.some((m) => !m.isFromMe)) {
         updates.read = 0;
       }
       await db.conversations.update(convId, updates);
@@ -410,12 +424,162 @@ async function handleVoyagerEvent(
     }
   }
 
+  // Notify UI of inbound messages for toast notifications
+  const inbound = messages.filter((m) => !m.isFromMe);
+  if (inbound.length > 0) {
+    const latest = inbound.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+    chrome.runtime.sendMessage({
+      type: 'INCOMING_MESSAGE',
+      id: latest.id,
+      senderName: latest.senderName,
+      senderPicture: latest.senderPicture,
+      body: latest.body,
+      conversationId: latest.conversationId,
+    }).catch(() => {});
+  }
+
   // Enrich sender profiles for inbound messages (non-blocking)
-  const senderUrns = new Set(messages.filter((m) => !m.isFromMe).map((m) => m.senderUrn));
+  const senderUrns = new Set(inbound.map((m) => m.senderUrn));
   for (const urn of senderUrns) {
     enrichProfileIfNeeded(urn);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Conversation update handler (RealtimeConversation events)
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a RealtimeConversation event — triggered when a conversation is
+ * updated (new message, read status change, etc.).
+ *
+ * Extracts the conversation ID, updates metadata from the included
+ * MiniProfile/MessagingMember entities, and fetches the latest messages
+ * so the UI picks up the new content immediately.
+ */
+async function handleConversationUpdate(
+  realtimeConv: any,
+  included: any[],
+  memberUrn: string
+): Promise<void> {
+  const convEntityUrn = realtimeConv['*conversation'] || realtimeConv.entityUrn || '';
+  const convIdMatch = convEntityUrn.match(/(?:fs_conversation:|msg_conversation:.*,)([\w\-+=]+)\)?$/);
+  const conversationId = convIdMatch ? convIdMatch[1] : '';
+
+  if (!conversationId) {
+    debugLog('warn', `[RT] RealtimeConversation: no conversation ID from ${convEntityUrn}`);
+    return;
+  }
+
+  const unreadCount = realtimeConv.unreadConversationsCount ?? 0;
+
+  // Skip events with no unread messages — these are echoes from our own
+  // actions (mark-as-read, archive, etc.) and would cause a feedback loop.
+  if (unreadCount === 0) return;
+
+  // Suppress echoes from our own mark-as-read calls.
+  // LinkedIn sends RealtimeConversation events ~0.1-1s after our PATCH with
+  // unreadConversationsCount reflecting the inbox-wide count (not per-conversation).
+  // Without this, viewing an unread conversation creates an infinite loop:
+  // auto-mark-read → PATCH → SSE echo → set read:0 → auto-mark-read → ...
+  const suppressed = shouldSuppressConversationUpdate(conversationId);
+  if (suppressed) {
+    debugLog('info', `[RT] Suppressed read-change echo for ${conversationId.substring(0, 20)}... (recently marked read)`);
+  }
+
+  // Skip fetching for archived conversations — these are echoes from our own
+  // archive actions and would starve on-demand message loads for the conversation
+  // the user is actually viewing.
+  const conv = await db.conversations.get(conversationId);
+  if (conv?.archived === 1) {
+    debugLog('info', `[RT] Skipping fetch for archived conv ${conversationId.substring(0, 20)}...`);
+    return;
+  }
+
+  debugLog('info', `[RT] Conversation update: ${conversationId.substring(0, 20)}... unread=${unreadCount}`);
+
+  // Fetch latest messages so we don't miss genuine new messages.
+  // The suppressed flag is passed through so _doFetchLatest skips the
+  // read:0 update for mark-read echoes.
+  fetchLatestForConversation(conversationId, memberUrn, suppressed).catch((err) => {
+    debugLog('error', `[RT] Failed to fetch messages for ${conversationId.substring(0, 20)}...: ${err}`);
+  });
+}
+
+/** In-flight fetches — deduplicates concurrent fetchLatestForConversation calls for the same conversation. */
+const _inflightConvFetches = new Map<string, Promise<void>>();
+
+/**
+ * Fetch the latest page of messages for a conversation and store them.
+ * Used by the RealtimeConversation handler to pick up new messages
+ * that the SSE event itself doesn't include.
+ *
+ * Deduplicated: if a fetch is already in-flight for this conversation,
+ * the existing promise is returned instead of starting a new one.
+ */
+async function fetchLatestForConversation(
+  conversationId: string,
+  memberUrn: string,
+  suppressReadChange = false
+): Promise<void> {
+  const existing = _inflightConvFetches.get(conversationId);
+  if (existing) {
+    debugLog('info', `[RT] Dedup: reusing in-flight fetch for conv ${conversationId.substring(0, 20)}...`);
+    return existing;
+  }
+
+  const promise = _doFetchLatest(conversationId, memberUrn, suppressReadChange).finally(() => {
+    _inflightConvFetches.delete(conversationId);
+  });
+  _inflightConvFetches.set(conversationId, promise);
+  return promise;
+}
+
+async function _doFetchLatest(
+  conversationId: string,
+  memberUrn: string,
+  suppressReadChange = false
+): Promise<void> {
+  const rawPage = await fetchMessages(conversationId, 20, 0, { skipJitter: true });
+  const messages = normalizeMessages(rawPage, conversationId);
+
+  for (const m of messages) {
+    if (m.senderUrn === memberUrn) m.isFromMe = true;
+  }
+
+  if (messages.length === 0) return;
+
+  await db.messages.bulkPut(messages);
+
+  // Update conversation preview text, timestamp, and read status.
+  // Only mark as unread if there is a genuinely new inbound message
+  // (createdAt newer than what we had, and not from us).
+  const latest = messages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+  const existing = await db.conversations.get(conversationId);
+  if (existing) {
+    const updates: Record<string, any> = {
+      lastMessage: latest.body || 'New message',
+      lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
+    };
+    // Check if any fetched message is newer than what the conversation had
+    // and is from someone else — only then mark as unread.
+    if (!suppressReadChange) {
+      const hasNewInbound = messages.some(
+        (m) => !m.isFromMe && m.createdAt > existing.lastActivityAt
+      );
+      if (hasNewInbound) {
+        updates.read = 0;
+      }
+    }
+    await db.conversations.update(conversationId, updates);
+  }
+
+  debugLog('info', `[RT] Fetched ${messages.length} messages for conv ${conversationId.substring(0, 20)}...`);
+}
+
+// ---------------------------------------------------------------------------
+// Included message handler (new Messenger API format)
+// ---------------------------------------------------------------------------
 
 async function handleIncludedMessage(
   included: any[],
@@ -493,9 +657,9 @@ async function handleIncludedMessage(
     if (existing) {
       const updates: Record<string, any> = {
         lastMessage: latest.body || 'New message',
-        lastActivityAt: latest.createdAt,
+        lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
       };
-      if (!latest.isFromMe) {
+      if (convMessages.some((m) => !m.isFromMe)) {
         updates.read = 0;
       }
       await db.conversations.update(convId, updates);
@@ -513,8 +677,22 @@ async function handleIncludedMessage(
     }
   }
 
+  // Notify UI of inbound messages for toast notifications
+  const inboundMsgs = messages.filter((m) => !m.isFromMe);
+  if (inboundMsgs.length > 0) {
+    const latestInbound = inboundMsgs.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+    chrome.runtime.sendMessage({
+      type: 'INCOMING_MESSAGE',
+      id: latestInbound.id,
+      senderName: latestInbound.senderName,
+      senderPicture: latestInbound.senderPicture,
+      body: latestInbound.body,
+      conversationId: latestInbound.conversationId,
+    }).catch(() => {});
+  }
+
   // Enrich sender profiles for inbound messages (non-blocking)
-  const senderUrns = new Set(messages.filter((m) => !m.isFromMe).map((m) => m.senderUrn));
+  const senderUrns = new Set(inboundMsgs.map((m) => m.senderUrn));
   for (const urn of senderUrns) {
     enrichProfileIfNeeded(urn);
   }
@@ -565,7 +743,7 @@ async function handleSingleMessageEntity(
   if (existing) {
     const updates: Record<string, any> = {
       lastMessage: message.body || 'New message',
-      lastActivityAt: message.createdAt,
+      lastActivityAt: Math.max(message.createdAt, existing.lastActivityAt),
     };
     if (!message.isFromMe) {
       updates.read = 0;

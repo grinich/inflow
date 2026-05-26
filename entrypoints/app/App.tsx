@@ -3,10 +3,12 @@ import { AuthGate } from '@/components/common/AuthGate';
 import { ConversationList } from '@/components/conversations/ConversationList';
 import { ThreadView } from '@/components/thread/ThreadView';
 import { CommandPalette } from '@/components/command-palette/CommandPalette';
-import { ShortcutOverlay } from '@/components/common/ShortcutOverlay';
+import { ShortcutOverlay, SHORTCUT_PANEL_PADDING } from '@/components/common/ShortcutOverlay';
 import { ImageLightbox } from '@/components/common/ImageLightbox';
 import { ConfirmDeleteModal } from '@/components/common/ConfirmDeleteModal';
+import { ConfirmSpamModal } from '@/components/common/ConfirmSpamModal';
 import { Toast } from '@/components/common/Toast';
+import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
 import { DebugPanel } from '@/components/common/DebugPanel';
 import { NewMessageComposer } from '@/components/composer/NewMessageComposer';
 import { useConversations } from '@/hooks/useConversations';
@@ -17,13 +19,16 @@ import { useUIStore } from '@/store/ui-store';
 
 export function App() {
   const composeRef = useRef<HTMLTextAreaElement>(null);
-  const { conversations: localConversations, isDiscovering, category } = useConversations();
+  const { conversations: localConversations, isLoading, isDiscovering, category } = useConversations();
   const searchQuery = useUIStore((s) => s.searchQuery);
   const { remoteResults, isSearching, hasMore, loadMore } = useRemoteSearch();
   const selectedConversationId = useUIStore((s) => s.selectedConversationId);
   const composeNewActive = useUIStore((s) => s.composeNewActive);
+  const shortcutPanelOpen = useUIStore((s) => s.shortcutOverlayOpen);
   const deleteConfirmId = useUIStore((s) => s.deleteConfirmId);
   const setDeleteConfirmId = useUIStore((s) => s.setDeleteConfirmId);
+  const spamConfirmId = useUIStore((s) => s.spamConfirmId);
+  const setSpamConfirmId = useUIStore((s) => s.setSpamConfirmId);
   const actions = useOptimisticAction();
   const [debugOpen, setDebugOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -147,7 +152,7 @@ export function App() {
   const toggleDebug = useCallback(() => setDebugOpen(prev => !prev), []);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === '`' && !(e.target as HTMLElement).matches('input, textarea, [contenteditable]')) {
+      if (e.key === '.' && e.metaKey && !(e.target as HTMLElement).matches('input, textarea, [contenteditable]')) {
         e.preventDefault();
         toggleDebug();
       }
@@ -168,19 +173,28 @@ export function App() {
     ? conversations.find((c) => c.id === deleteConfirmId) || null
     : null;
 
+  const spamConversation = spamConfirmId
+    ? conversations.find((c) => c.id === spamConfirmId) || null
+    : null;
+
   const handleDeleteConfirm = useCallback(() => {
     if (!deleteConversation) return;
     actions.deleteConversation(deleteConversation);
     setDeleteConfirmId(null);
-    // Auto-selection effect handles picking the next conversation
   }, [deleteConversation, actions, setDeleteConfirmId]);
+
+  const handleSpamConfirm = useCallback(() => {
+    if (!spamConversation) return;
+    actions.moveToSpam(spamConversation);
+    setSpamConfirmId(null);
+  }, [spamConversation, actions, setSpamConfirmId]);
 
   return (
     <AuthGate>
-      <div className="flex h-screen bg-surface text-fg">
+      <div className={`flex h-full bg-surface text-fg transition-[padding-bottom] duration-200 ease-out ${shortcutPanelOpen ? SHORTCUT_PANEL_PADDING : 'pb-0'}`}>
         {/* Conversation List */}
         <div className="flex h-full w-96 shrink-0 flex-col border-r border-edge">
-          <ConversationList conversations={conversations} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} />
+          <ConversationList conversations={conversations} isLoading={isLoading} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} />
         </div>
 
         {/* Thread View or New Message Composer */}
@@ -193,14 +207,7 @@ export function App() {
             />
           ) : selectedConversation ? (
             <ThreadView conversation={selectedConversation} composeRef={composeRef} />
-          ) : (
-            <div className="flex h-full items-center justify-center text-fg-faint">
-              <div className="text-center">
-                <p className="text-sm">No conversations yet</p>
-                <p className="mt-1 text-xs">Waiting for sync...</p>
-              </div>
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -227,7 +234,15 @@ export function App() {
           onCancel={() => setDeleteConfirmId(null)}
         />
       )}
+      {spamConversation && (
+        <ConfirmSpamModal
+          participantNames={spamConversation.participantNames}
+          onConfirm={handleSpamConfirm}
+          onCancel={() => setSpamConfirmId(null)}
+        />
+      )}
       <Toast />
+      <IncomingMessageToast />
       <DebugPanel open={debugOpen} onClose={() => setDebugOpen(false)} />
     </AuthGate>
   );

@@ -1,10 +1,16 @@
 import { getLinkedInCookies } from '../auth/cookies';
+import { invalidateSessionCache } from '../auth/session';
 import { debugLog } from '@/lib/debug-log';
 
 const BASE_URL = 'https://www.linkedin.com/voyager/api';
 
 // Use declarativeNetRequest to attach cookies since fetch() forbids the Cookie header
 let lastCookieValue = '';
+
+/** Clear the cached cookie value so the next request re-installs the declarativeNetRequest rule. */
+export function invalidateCookieRule(): void {
+  lastCookieValue = '';
+}
 
 function randomHex(len: number): string {
   const arr = new Uint8Array(len);
@@ -120,9 +126,14 @@ async function jitter(): Promise<void> {
   return new Promise((r) => setTimeout(r, delay));
 }
 
+export interface VoyagerFetchOptions extends RequestInit {
+  /** Skip the anti-detection jitter delay (for user-initiated requests). */
+  skipJitter?: boolean;
+}
+
 export async function voyagerFetch(
   path: string,
-  options: RequestInit = {}
+  options: VoyagerFetchOptions = {}
 ): Promise<Response> {
   const cookies = await getLinkedInCookies();
   if (!cookies) {
@@ -133,7 +144,7 @@ export async function voyagerFetch(
   const url = `${BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
   await ensureCookieRule();
-  await jitter();
+  if (!options.skipJitter) await jitter();
 
   debugLog('info', `voyagerFetch: ${url}`);
 
@@ -153,6 +164,9 @@ export async function voyagerFetch(
 
   const shortPath = url.split('/voyager/api/')[1]?.substring(0, 120) || url;
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      invalidateSessionCache();
+    }
     const clone = res.clone();
     const body = await clone.text().catch(() => '');
     debugLog('error', `Voyager ${res.status} ${shortPath}: ${body.substring(0, 300)}`);

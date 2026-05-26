@@ -55,57 +55,6 @@ export async function findConversationByRecipients(
 // ---------------------------------------------------------------------------
 // Fetching conversations
 // ---------------------------------------------------------------------------
-// LinkedIn's Voyager GraphQL API uses three query endpoints:
-//
-// 1. Default (sync-token) query — returns 20 most recent conversations,
-//    ignores count/start. Good for quick polling.
-//
-// 2. Category-aware query — returns up to 20 conversations for a category.
-//    Respects `count` (max 20) but ignores `start`. No pagination.
-//
-// 3. Cursor-paginated query — the real pagination endpoint. Uses nextCursor
-//    from the response metadata to page through all conversations in a
-//    category. Returns 20 per page with a cursor for the next page.
-//    End condition: response has 0 conversations and no nextCursor.
-
-/**
- * Fetch conversations using the default (sync-token) query.
- * Always returns the 20 most recent conversations regardless of parameters.
- */
-export async function fetchConversationsDefault(): Promise<VoyagerResponse> {
-  const memberUrn = await getMemberUrn();
-  const variables = linkedInVariables({ mailboxUrn: memberUrn });
-  const path = `/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.0d5e6781bbee71c3e51c8843c6519f48&variables=${variables}`;
-
-  const res = await voyagerFetch(path);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch conversations (default): ${res.status}`);
-  }
-  return res.json();
-}
-
-/**
- * Fetch conversations for a specific category using the category-aware query.
- * Returns up to 20 conversations (the API hard-caps at 20). No pagination.
- */
-export async function fetchConversationsByCategory(
-  category: InboxCategory
-): Promise<VoyagerResponse> {
-  const memberUrn = await getMemberUrn();
-  const variables = linkedInVariables({
-    mailboxUrn: memberUrn,
-    count: 20,
-    start: 0,
-    categories: raw(`List(${category})`),
-  });
-  const path = `/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.737b27144cf922499202658a5345016f&variables=${variables}`;
-
-  const res = await voyagerFetch(path);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch conversations (${category}): ${res.status}`);
-  }
-  return res.json();
-}
 
 /** Result from a paginated conversation fetch. */
 export interface PaginatedConversationsResult {

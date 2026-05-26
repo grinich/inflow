@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { format } from 'date-fns';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/db/database';
 import { useCachedImage } from '@/hooks/useCachedImage';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
@@ -31,7 +33,16 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
   const hasBody = message.body.trim().length > 0;
   const hasAttachments = message.attachments && message.attachments.length > 0;
   const showAvatar = !isMe && !grouped;
-  const canEdit = isMe && message.status !== 'sending' && message.status !== 'failed'
+
+  // Look up sender's publicId for profile link (only when avatar is visible)
+  const senderProfile = useLiveQuery(
+    () => showAvatar && message.senderUrn ? db.profiles.get(message.senderUrn) : undefined,
+    [showAvatar, message.senderUrn]
+  );
+  const senderProfileUrl = senderProfile?.publicId
+    ? `https://www.linkedin.com/in/${senderProfile.publicId}`
+    : null;
+  const canEdit = isMe && message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued'
     && Date.now() - message.createdAt < 60 * 60 * 1000;
 
   const [editing, setEditing] = useState(false);
@@ -56,7 +67,7 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
   };
 
   // Animate only the optimistic message while it's being sent
-  const isNew = message.status === 'sending';
+  const isNew = message.status === 'sending' || message.status === 'queued';
 
   return (
     <div className={`group/msg flex items-center gap-2 ${isMe ? 'flex-row-reverse' : ''} ${isNew ? 'animate-message-in' : ''}`}>
@@ -77,15 +88,27 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
       {!isMe && (
         <div className="h-8 w-8 shrink-0">
           {showAvatar ? (
-            <div className="h-8 w-8 overflow-hidden rounded-full bg-surface-muted">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={message.senderName} className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-xs font-medium text-fg-secondary">
-                  {message.senderName.charAt(0).toUpperCase()}
-                </div>
-              )}
-            </div>
+            senderProfileUrl ? (
+              <a href={senderProfileUrl} target="_blank" rel="noopener noreferrer" className="block h-8 w-8 overflow-hidden rounded-full bg-surface-muted">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={message.senderName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs font-medium text-fg-secondary">
+                    {message.senderName.charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </a>
+            ) : (
+              <div className="h-8 w-8 overflow-hidden rounded-full bg-surface-muted">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={message.senderName} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs font-medium text-fg-secondary">
+                    {message.senderName.charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+            )
           ) : null}
         </div>
       )}
@@ -166,7 +189,7 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
           <div className={`mt-0.5 text-[10px] text-fg-faint ${isMe ? 'text-right' : ''}`}>(edited)</div>
         )}
         {/* Read receipt indicators — only show on last message in group */}
-        {isMe && message.status !== 'sending' && message.status !== 'failed' && isLastInGroup && !editing && (
+        {isMe && message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued' && isLastInGroup && !editing && (
           <div className={`mt-0.5 text-[10px] ${isMe ? 'text-right' : ''}`}>
             {message.seenAt ? (
               <span className="text-blue-400">✓✓</span>
@@ -176,12 +199,13 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
           </div>
         )}
         {/* Status indicators */}
-        {isMe && message.status !== 'sending' && message.status !== 'failed' && hasAttachments && !isLastInGroup && (
+        {isMe && message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued' && hasAttachments && !isLastInGroup && (
           <div className={`mt-0.5 text-xs text-fg-faint ${isMe ? 'text-right' : ''}`}>delivered</div>
         )}
-        {(message.status === 'sending' || message.status === 'failed') && (
+        {(message.status === 'sending' || message.status === 'failed' || message.status === 'queued') && (
           <div className={`mt-0.5 flex items-center gap-1.5 text-xs text-fg-faint ${isMe ? 'justify-end' : ''}`}>
             {message.status === 'sending' && <span className="text-fg-muted">Sending...</span>}
+            {message.status === 'queued' && <span className="text-yellow-400">Queued — will send when online</span>}
             {message.status === 'failed' && (
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-1.5">
@@ -411,8 +435,8 @@ function Linkify({ text, isMe }: { text: string; isMe: boolean }) {
         {cleaned}
       </a>
     );
-    // If we stripped trailing chars, adjust so they stay as plain text
-    lastIndex = match.index + cleaned.length;
+    // Advance past the full match so stripped trailing chars become plain text
+    lastIndex = match.index + raw.length;
   }
 
   if (lastIndex < text.length) {
