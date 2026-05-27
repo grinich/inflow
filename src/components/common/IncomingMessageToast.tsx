@@ -78,6 +78,24 @@ export function IncomingMessageToast() {
     return () => window.removeEventListener('keydown', handler);
   }, [show]);
 
+  // Demo mode: listen for custom events (chrome.runtime.onMessage won't fire)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) {
+        show({
+          id: detail.id,
+          senderName: detail.senderName,
+          senderPicture: detail.senderPicture || '',
+          body: detail.body,
+          conversationId: detail.conversationId,
+        });
+      }
+    };
+    window.addEventListener('inflow:demo-incoming', handler);
+    return () => window.removeEventListener('inflow:demo-incoming', handler);
+  }, [show]);
+
   // Clean up timers
   useEffect(() => {
     return () => {

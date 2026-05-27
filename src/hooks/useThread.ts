@@ -6,14 +6,20 @@ import { sendBridgeMessage } from '@/lib/bridge';
 
 const DEBOUNCE_MS = 150; // debounce rapid thread switches
 
-export function useThread(conversationId: string | null) {
+export function useThread(conversationId: string | null, mergedIds?: string[]) {
   const messages = useLiveQuery(
     async () => {
       if (!conversationId) return [];
-      const all = await db.messages
-        .where('[conversationId+createdAt]')
-        .between([conversationId, Dexie.minKey], [conversationId, Dexie.maxKey])
-        .toArray();
+      const allIds = [conversationId, ...(mergedIds || [])];
+      const chunks = await Promise.all(
+        allIds.map((id) =>
+          db.messages
+            .where('[conversationId+createdAt]')
+            .between([id, Dexie.minKey], [id, Dexie.maxKey])
+            .toArray()
+        )
+      );
+      const all = chunks.flat();
 
       // Deduplicate: SSE events store messages with non-canonical IDs
       // (urn:li:fsd_message: / urn:li:fs_event:) while the Messenger API
@@ -24,13 +30,13 @@ export function useThread(conversationId: string | null) {
           canonicalKeys.add(`${msg.body}|${msg.senderUrn}|${msg.createdAt}`);
         }
       }
-      if (canonicalKeys.size === 0) return all;
+      if (canonicalKeys.size === 0) return all.sort((a, b) => a.createdAt - b.createdAt);
       return all.filter((msg) => {
         if (msg.id.startsWith('urn:li:msg_message:') || msg.id.startsWith('temp-')) return true;
         return !canonicalKeys.has(`${msg.body}|${msg.senderUrn}|${msg.createdAt}`);
-      });
+      }).sort((a, b) => a.createdAt - b.createdAt);
     },
-    [conversationId],
+    [conversationId, mergedIds?.join(',')],
     []
   );
 
@@ -50,6 +56,12 @@ export function useThread(conversationId: string | null) {
     const timeout = setTimeout(() => {
       lastFetchedRef.current = conversationId;
       sendBridgeMessage({ type: 'FETCH_MESSAGES', conversationId });
+      // Also fetch messages for merged conversations
+      if (mergedIds) {
+        for (const id of mergedIds) {
+          sendBridgeMessage({ type: 'FETCH_MESSAGES', conversationId: id });
+        }
+      }
     }, isRapidSwitch ? DEBOUNCE_MS : 0);
 
     return () => {

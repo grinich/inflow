@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { switchDatabase, memberIdFromUrn, getActiveAccountId } from '@/db/database';
+import { isDemoMode, seedDemoData, startDemoIncoming, stopDemoIncoming } from '@/lib/demo-mode';
 
 interface AuthGateProps {
   children: ReactNode;
@@ -45,10 +46,22 @@ export function AuthGate({ children }: AuthGateProps) {
     return () => {
       window.removeEventListener('focus', handleFocus);
       chrome.runtime.onMessage.removeListener(handleMessage);
+      stopDemoIncoming();
     };
   }, []);
 
   async function checkAuth() {
+    // Demo mode: skip real auth, use local DB
+    if (isDemoMode()) {
+      await switchDatabase('demo');
+      await seedDemoData();
+      startDemoIncoming();
+      try { localStorage.setItem('inflow-account-name', 'Demo User'); } catch {}
+      setAccountKey('demo');
+      setAuthState('authenticated');
+      return;
+    }
+
     try {
       const res = await sendBridgeMessage({ type: 'CHECK_AUTH' });
       if (res.success && res.data?.authenticated) {

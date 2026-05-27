@@ -324,19 +324,22 @@ export function useOptimisticAction() {
       },
     });
 
-    // 3. Send message in background
-    sendMessage(conversationId, body, files, replyTo).then((ok) => {
-      if (!ok) showToast({ message: 'Failed to send message' });
-    });
-
-    // 4. Archive via API (or queue)
+    // 3. Send message, then archive AFTER send succeeds.
+    //    If we archive concurrently with the send, LinkedIn moves the
+    //    conversation back to PRIMARY_INBOX when the new message arrives.
     if (!navigator.onLine) {
+      sendMessage(conversationId, body, files, replyTo);
       await queueAction(actionId, archiveBridgeMsg);
       return;
     }
 
-    sendBridgeMessage(archiveBridgeMsg)
-      .then(async (res) => {
+    sendMessage(conversationId, body, files, replyTo).then(async (ok) => {
+      if (!ok) {
+        showToast({ message: 'Failed to send message' });
+        return;
+      }
+      try {
+        const res = await sendBridgeMessage(archiveBridgeMsg);
         if (res.success) {
           await db.pendingActions.update(actionId, { status: 'confirmed' });
         } else {
@@ -344,8 +347,7 @@ export function useOptimisticAction() {
           await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: 'Failed to archive — rolled back' });
         }
-      })
-      .catch(async () => {
+      } catch {
         if (!navigator.onLine) {
           await queueAction(actionId, archiveBridgeMsg);
           return;
@@ -353,7 +355,8 @@ export function useOptimisticAction() {
         await db.conversations.update(conversationId, { archived: 0, category: previousCategory });
         await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to archive — rolled back' });
-      });
+      }
+    });
   }
 
   async function moveToFocused(conversation: Conversation) {

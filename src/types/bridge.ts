@@ -22,6 +22,7 @@ export type BridgeMessage =
   | { type: 'GET_DEBUG_LOGS' }
   | { type: 'CLEAR_DEBUG_LOGS' }
   | { type: 'RESET_DB' }
+  | { type: 'COUNT_DUPLICATE_CONVERSATIONS' }
   | { type: 'DIAGNOSTIC_SYNC' }
   | { type: 'GET_SYNC_PROGRESS' }
   | { type: 'GET_SSE_STATUS' }

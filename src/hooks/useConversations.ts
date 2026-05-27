@@ -58,6 +58,43 @@ export function useConversations() {
       results = [];
     }
 
+    // Deduplicate 1:1 conversations that share the same participant URN.
+    // LinkedIn can create multiple threads with the same person (InMail,
+    // message requests, system migrations). Merge them into the most recent one.
+    {
+      const byParticipant = new Map<string, number[]>();
+      for (let i = 0; i < results.length; i++) {
+        const c = results[i];
+        if (c.participantUrns.length !== 1) continue; // skip group convs
+        const key = c.participantUrns[0];
+        const indices = byParticipant.get(key);
+        if (indices) indices.push(i);
+        else byParticipant.set(key, [i]);
+      }
+
+      const toRemove = new Set<number>();
+      for (const indices of byParticipant.values()) {
+        if (indices.length < 2) continue;
+        // Sort by lastActivityAt descending — first one wins
+        indices.sort((a, b) => results[b].lastActivityAt - results[a].lastActivityAt);
+        const primary = results[indices[0]];
+        const mergedIds: string[] = [];
+        for (let j = 1; j < indices.length; j++) {
+          const other = results[indices[j]];
+          mergedIds.push(other.id);
+          // Preserve unread/starred from merged conversations
+          if (other.read === 0) primary.read = 0;
+          if (other.starred === 1) primary.starred = 1;
+        }
+        primary.mergedIds = mergedIds;
+        for (let j = 1; j < indices.length; j++) toRemove.add(indices[j]);
+      }
+
+      if (toRemove.size > 0) {
+        results = results.filter((_, i) => !toRemove.has(i));
+      }
+    }
+
     if (searchQuery) {
       let q = searchQuery;
       let requireAttachments = false;

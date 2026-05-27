@@ -479,6 +479,13 @@ async function handleVoyagerEvent(
       };
       if (convMessages.some((m) => !m.isFromMe)) {
         updates.read = 0;
+        // Move to Focused and un-archive when someone replies
+        if (existing.category !== 'PRIMARY_INBOX') {
+          updates.category = 'PRIMARY_INBOX';
+        }
+        if (existing.archived === 1) {
+          updates.archived = 0;
+        }
       }
       await db.conversations.update(convId, updates);
     } else {
@@ -713,18 +720,25 @@ async function _doFetchLatest(
     };
     // Check if any fetched message is newer than what the conversation had
     // and is from someone else — only then mark as unread.
-    if (!suppressReadChange) {
-      const hasNewInbound = messages.some(
-        (m) => !m.isFromMe && m.createdAt > existing.lastActivityAt
-      );
-      if (hasNewInbound) {
-        updates.read = 0;
-      } else if (existing.read === 0) {
-        // No new inbound messages but we got a non-suppressed conversation
-        // update event — this was likely a read-status change from another
-        // client (e.g. LinkedIn web). Mark the conversation as read.
-        updates.read = 1;
+    const hasNewInbound = messages.some(
+      (m) => !m.isFromMe && m.createdAt > existing.lastActivityAt
+    );
+    if (hasNewInbound) {
+      // Always mark as unread for genuinely new messages, even during
+      // suppression window — suppression is for read-echoes, not new messages.
+      updates.read = 0;
+      // Move to Focused and un-archive when someone replies
+      if (existing.category !== 'PRIMARY_INBOX') {
+        updates.category = 'PRIMARY_INBOX';
       }
+      if (existing.archived === 1) {
+        updates.archived = 0;
+      }
+    } else if (!suppressReadChange && existing.read === 0) {
+      // No new inbound messages but we got a non-suppressed conversation
+      // update event — this was likely a read-status change from another
+      // client (e.g. LinkedIn web). Mark the conversation as read.
+      updates.read = 1;
     }
     await db.conversations.update(conversationId, updates);
   }
@@ -820,6 +834,13 @@ async function handleIncludedMessage(
       };
       if (convMessages.some((m) => !m.isFromMe)) {
         updates.read = 0;
+        // Move to Focused and un-archive when someone replies
+        if (existing.category !== 'PRIMARY_INBOX') {
+          updates.category = 'PRIMARY_INBOX';
+        }
+        if (existing.archived === 1) {
+          updates.archived = 0;
+        }
       }
       await db.conversations.update(convId, updates);
     } else {
@@ -937,6 +958,13 @@ async function handleSingleMessageEntity(
     };
     if (!message.isFromMe) {
       updates.read = 0;
+      // Move to Focused and un-archive when someone replies
+      if (existing.category !== 'PRIMARY_INBOX') {
+        updates.category = 'PRIMARY_INBOX';
+      }
+      if (existing.archived === 1) {
+        updates.archived = 0;
+      }
     }
     await db.conversations.update(conversationId, updates);
   }
