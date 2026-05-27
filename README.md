@@ -10,9 +10,13 @@ This extension uses LinkedIn's undocumented internal APIs to read and send messa
 
 This software is provided as-is for **personal and educational use only**. The author assumes no responsibility for any consequences of using it, including account suspension or data loss. Use at your own risk.
 
-## Building from source
+## Prerequisites
 
-Requires Node.js 18+.
+- [Node.js](https://nodejs.org/) 18 or later
+- npm (included with Node.js)
+- Google Chrome or any Chromium-based browser (Edge, Arc, Brave, etc.)
+
+## Install
 
 ```sh
 git clone https://github.com/mgrinich/inflow.git
@@ -21,15 +25,25 @@ npm install
 npm run build
 ```
 
-This produces an unpacked extension in `dist/chrome-mv3/`.
-
-## Installing in Chrome
+Then load the extension in Chrome:
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode** (toggle in the top right)
 3. Click **Load unpacked** and select the `dist/chrome-mv3` folder
 4. Sign into LinkedIn in any tab
-5. Click the inflow icon in the toolbar
+5. Click the inflow icon in the toolbar (pin it for easy access)
+
+## Updating
+
+Pull the latest changes and rebuild:
+
+```sh
+git pull
+npm install
+npm run build
+```
+
+Then go to `chrome://extensions` and click the reload button (↻) on the inflow card. Your data is stored locally in IndexedDB and is preserved across updates.
 
 ## Development
 
