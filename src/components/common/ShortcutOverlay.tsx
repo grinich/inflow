@@ -42,7 +42,7 @@ export function ShortcutOverlay() {
             <div className="space-y-0.5">
               {grouped.get(group)?.map((s) => (
                 <div
-                  key={s.key + s.context + (s.shift ? 'shift' : '') + (s.meta ? 'meta' : '')}
+                  key={s.key + s.context + s.description}
                   className="flex items-center justify-between gap-2 py-0.5"
                 >
                   <span className="truncate text-xs text-fg-secondary">{s.description}</span>

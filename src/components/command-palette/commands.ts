@@ -23,6 +23,9 @@ export function buildCommands(actions: {
   goToArchived: () => void;
   goToSpam: () => void;
   undo: () => void;
+  openAISetup: () => void;
+  toggleDemoMode: () => void;
+  isDemoActive: boolean;
 }): Command[] {
   return [
     { id: 'archive', label: 'Archive conversation', shortcut: 'E', action: actions.archiveSelected },
@@ -42,5 +45,12 @@ export function buildCommands(actions: {
     { id: 'shortcuts', label: 'Show keyboard shortcuts', shortcut: '?', action: actions.showShortcuts },
     { id: 'sync', label: 'Sync now', shortcut: '', action: actions.triggerSync },
     { id: 'theme', label: 'Toggle theme (Dark / Light / System)', shortcut: '', action: actions.toggleTheme },
+    { id: 'ai-setup', label: 'Set up AI features', shortcut: '', action: actions.openAISetup },
+    {
+      id: 'demo-mode',
+      label: actions.isDemoActive ? 'Exit demo mode' : 'Enter demo mode',
+      shortcut: '',
+      action: actions.toggleDemoMode,
+    },
   ];
 }

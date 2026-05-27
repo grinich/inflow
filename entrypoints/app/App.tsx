@@ -7,6 +7,7 @@ import { ShortcutOverlay, SHORTCUT_PANEL_PADDING } from '@/components/common/Sho
 import { ImageLightbox } from '@/components/common/ImageLightbox';
 import { ConfirmDeleteModal } from '@/components/common/ConfirmDeleteModal';
 import { ConfirmSpamModal } from '@/components/common/ConfirmSpamModal';
+import { AISetupModal } from '@/components/common/AISetupModal';
 import { Toast } from '@/components/common/Toast';
 import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
 import { DebugPanel } from '@/components/common/DebugPanel';
@@ -241,6 +242,7 @@ export function App() {
           onCancel={() => setSpamConfirmId(null)}
         />
       )}
+      <AISetupModal />
       <Toast />
       <IncomingMessageToast />
       <DebugPanel open={debugOpen} onClose={() => setDebugOpen(false)} />

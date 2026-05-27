@@ -2,6 +2,7 @@ import { Command } from 'cmdk';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
+import { isDemoMode, enableDemoMode, disableDemoMode } from '@/lib/demo-mode';
 import { buildCommands } from './commands';
 import type { Conversation } from '@/types/conversation';
 
@@ -85,6 +86,17 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
         store.dismissToast();
       }
     },
+    openAISetup: () => {
+      useUIStore.getState().setAISetupOpen(true);
+    },
+    toggleDemoMode: () => {
+      if (isDemoMode()) {
+        disableDemoMode(); // navigates to URL without ?demo
+      } else {
+        enableDemoMode(); // navigates to URL with ?demo
+      }
+    },
+    isDemoActive: isDemoMode(),
   });
 
   if (!paletteOpen) return null;

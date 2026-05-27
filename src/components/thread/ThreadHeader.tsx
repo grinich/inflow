@@ -146,6 +146,19 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
         </div>
 
         {/* Action buttons */}
+        <a
+          href="https://github.com/grinich/inflow/issues/new"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mr-2 flex cursor-pointer items-center gap-1 rounded-md border border-edge px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          Report Bug
+        </a>
         <div ref={menuRef} className="relative flex shrink-0 items-center">
           <button
             onClick={() => starConv(conversation)}
@@ -160,7 +173,7 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
             onClick={() => isInArchive ? moveToFocused(conversation) : archiveConversation(conversation)}
             className="flex cursor-pointer items-center gap-1.5 border border-l-0 border-edge px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"
           >
-            {isInArchive ? 'move to focused' : 'archive'}
+            {isInArchive ? 'Move to Focused' : 'Archive'}
             <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">E</kbd>
           </button>
           <button
@@ -178,14 +191,14 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
                 onClick={() => { markUnread(conversation.id); setMenuOpen(false); }}
                 className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg-strong"
               >
-                <span>mark as unread</span>
+                <span>Mark as Unread</span>
                 <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">U</kbd>
               </button>
               <button
                 onClick={() => { moveToOther(conversation); setMenuOpen(false); }}
                 className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg-strong"
               >
-                <span>move to other</span>
+                <span>Move to Other</span>
                 <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">O</kbd>
               </button>
               {conversation.category === 'SPAM' ? (
@@ -193,7 +206,7 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
                   onClick={() => { moveToOther(conversation); setMenuOpen(false); }}
                   className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg-strong"
                 >
-                  <span>mark as not spam</span>
+                  <span>Mark as Not Spam</span>
                   <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">O</kbd>
                 </button>
               ) : (
@@ -201,7 +214,7 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
                   onClick={() => { moveToSpam(conversation); setMenuOpen(false); }}
                   className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg-strong"
                 >
-                  <span>mark as spam</span>
+                  <span>Mark as Spam</span>
                   <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">!</kbd>
                 </button>
               )}
@@ -210,7 +223,7 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
                 onClick={() => { useUIStore.getState().setDeleteConfirmId(conversation.id); setMenuOpen(false); }}
                 className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-red-400 transition-colors hover:bg-surface-hover hover:text-red-300"
               >
-                <span>delete conversation</span>
+                <span>Delete Conversation</span>
                 <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">D</kbd>
               </button>
             </div>

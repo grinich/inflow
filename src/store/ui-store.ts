@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Message } from '@/types/message';
+import { isDemoMode as checkDemoMode } from '@/lib/demo-mode';
 
 export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system';
@@ -34,10 +35,13 @@ interface UIState {
   lightboxImageUrl: string | null;
   deleteConfirmId: string | null;
   spamConfirmId: string | null;
+  demoMode: boolean;
   replyingTo: Message | null;
+  aiSetupOpen: boolean;
   tabMemory: Partial<Record<InboxTab, TabMemory>>;
   _pendingRestore: TabMemory | null;
 
+  setDemoMode: (active: boolean) => void;
   setViewMode: (mode: ViewMode) => void;
   setSelectedIndex: (index: number) => void;
   setSelectedConversationId: (id: string | null) => void;
@@ -57,6 +61,7 @@ interface UIState {
   setDeleteConfirmId: (id: string | null) => void;
   setSpamConfirmId: (id: string | null) => void;
   setReplyingTo: (msg: Message | null) => void;
+  setAISetupOpen: (open: boolean) => void;
   openThread: (conversationId: string, index: number) => void;
   closeThread: () => void;
   setTheme: (theme: Theme) => void;
@@ -140,10 +145,13 @@ export const useUIStore = create<UIState>((set, get) => ({
   lightboxImageUrl: null,
   deleteConfirmId: null,
   spamConfirmId: null,
+  demoMode: checkDemoMode(),
   replyingTo: null,
+  aiSetupOpen: false,
   tabMemory: {},
   _pendingRestore: null,
 
+  setDemoMode: (active) => set({ demoMode: active }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setSelectedIndex: (index) => set({ selectedIndex: Math.max(0, index) }),
   setSelectedConversationId: (id) => set({ selectedConversationId: id }),
@@ -179,6 +187,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   setDeleteConfirmId: (id) => set({ deleteConfirmId: id }),
   setSpamConfirmId: (id) => set({ spamConfirmId: id }),
   setReplyingTo: (msg) => set({ replyingTo: msg }),
+  setAISetupOpen: (open) => set({ aiSetupOpen: open }),
 
   showToast: (toast) => {
     if (toastTimeout) clearTimeout(toastTimeout);

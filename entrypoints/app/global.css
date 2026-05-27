@@ -131,6 +131,16 @@
   animation: highlight-flash 1.5s ease-out;
 }
 
+/* AI autocomplete loading glow */
+@keyframes autocomplete-glow {
+  0%, 100% { box-shadow: 0 0 4px 1px rgba(96, 165, 250, 0.3); }
+  50% { box-shadow: 0 0 10px 3px rgba(96, 165, 250, 0.6); }
+}
+
+.animate-autocomplete-glow {
+  animation: autocomplete-glow 1.5s ease-in-out infinite;
+}
+
 /* cmdk styles */
 [cmdk-root] {
   width: 100%;

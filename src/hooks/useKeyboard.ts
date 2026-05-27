@@ -61,9 +61,10 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // When emoji autocomplete is open, let the textarea's own onKeyDown handle
-      // Enter/Tab/Escape/Arrow keys — don't dispatch send or other global actions.
+      // When emoji autocomplete or AI autocomplete is open, let the textarea's own
+      // onKeyDown handle Enter/Tab/Escape/Arrow keys — don't dispatch send or other global actions.
       const emojiOpen = target instanceof HTMLElement && target.hasAttribute('data-emoji-open');
+      const autocompleteOpen = target instanceof HTMLElement && target.hasAttribute('data-autocomplete-open');
 
       // Cmd+Enter — Send + archive (only in compose)
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && isInput && !emojiOpen) {
@@ -82,7 +83,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
 
       // Escape — close overlays, clear search + blur input, exit compose, or close thread
       // (skip when emoji autocomplete is open — the textarea handles it)
-      if (e.key === 'Escape' && !emojiOpen) {
+      if (e.key === 'Escape' && !emojiOpen && !autocompleteOpen) {
         if (store.shortcutOverlayOpen) {
           e.preventDefault();
           store.setShortcutOverlayOpen(false);

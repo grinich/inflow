@@ -251,6 +251,32 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
       await syncConversations();
       return { success: true };
     }
+    case 'COUNT_DUPLICATE_CONVERSATIONS': {
+      const all = await db.conversations.toArray();
+      const byParticipant = new Map<string, string[]>();
+      for (const c of all) {
+        if (c.participantUrns.length !== 1) continue;
+        const key = c.participantUrns[0];
+        const ids = byParticipant.get(key);
+        if (ids) ids.push(c.id);
+        else byParticipant.set(key, [c.id]);
+      }
+      const duplicates: { participantUrn: string; name: string; conversationIds: string[] }[] = [];
+      for (const [urn, ids] of byParticipant) {
+        if (ids.length < 2) continue;
+        const conv = all.find((c) => c.participantUrns[0] === urn);
+        duplicates.push({
+          participantUrn: urn,
+          name: conv?.participantNames[0] || 'Unknown',
+          conversationIds: ids,
+        });
+      }
+      debugLog('info', `[DIAG] Found ${duplicates.length} participants with duplicate conversations (${duplicates.reduce((s, d) => s + d.conversationIds.length, 0)} total conversations)`);
+      for (const d of duplicates) {
+        debugLog('info', `[DIAG]   ${d.name}: ${d.conversationIds.length} conversations (${d.conversationIds.join(', ')})`);
+      }
+      return { success: true, data: { count: duplicates.length, duplicates } };
+    }
     case 'DIAGNOSTIC_SYNC': {
       const report = await runDiagnosticSync();
       return { success: true, data: report };

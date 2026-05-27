@@ -14,7 +14,7 @@ interface ThreadViewProps {
 }
 
 export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
-  const messages = useThread(conversation.id);
+  const messages = useThread(conversation.id, conversation.mergedIds);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { sendMessage, markRead } = useOptimisticAction();
 
@@ -226,7 +226,8 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
         </div>
       </div>
 
-      <ComposeBox ref={composeRef} conversationId={conversation.id} />
+      <ComposeBox ref={composeRef} conversationId={conversation.id}
+                  messages={messages} participantNames={conversation.participantNames} />
     </div>
   );
 }

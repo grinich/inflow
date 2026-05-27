@@ -5,6 +5,9 @@ import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
 import { searchEmoji, type EmojiResult } from '@/lib/emoji-search';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
+import { useAutocomplete } from '@/hooks/useAutocomplete';
+import { useReplySuggestions } from '@/hooks/useReplySuggestions';
+import type { Message } from '@/types/message';
 
 const FILE_ICONS: Record<string, string> = {
   'image': '🖼',
@@ -53,10 +56,12 @@ async function loadDraft(conversationId: string): Promise<{ text: string; files:
 
 interface ComposeBoxProps {
   conversationId: string;
+  messages?: Message[];
+  participantNames?: string[];
 }
 
 export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
-  ({ conversationId }, ref) => {
+  ({ conversationId, messages = [], participantNames = [] }, ref) => {
     const [body, setBody] = useState('');
     const [attachments, setAttachments] = useState<File[]>([]);
     const { sendMessage, sendAndArchive, archiveConversation } = useOptimisticAction();
@@ -70,6 +75,33 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       () => (emojiQuery !== null ? searchEmoji(emojiQuery) : []),
       [emojiQuery],
     );
+
+    const bodyRef = useReactRef(body);
+    bodyRef.current = body;
+    const attachmentsRef = useReactRef(attachments);
+    attachmentsRef.current = attachments;
+    const textareaRef = useReactRef<HTMLTextAreaElement | null>(null);
+
+    const [cursorAtEnd, setCursorAtEnd] = useState(true);
+    const emojiOpen = emojiQuery !== null && emojiResults.length > 0;
+
+    const autocomplete = useAutocomplete({
+      body,
+      cursorAtEnd,
+      emojiOpen,
+      messages,
+      participantNames,
+      conversationId,
+      textareaRef,
+      setBody,
+    });
+
+    const replySuggestions = useReplySuggestions({
+      conversationId,
+      messages,
+      participantNames,
+      body,
+    });
 
     useEffect(() => {
       const isFocused = () => document.activeElement === textareaRef.current;
@@ -85,11 +117,6 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         window.removeEventListener('blur', blur);
       };
     }, []);
-    const bodyRef = useReactRef(body);
-    bodyRef.current = body;
-    const attachmentsRef = useReactRef(attachments);
-    attachmentsRef.current = attachments;
-    const textareaRef = useReactRef<HTMLTextAreaElement | null>(null);
 
     // Sync forwarded ref + local ref
     const setRefs = useCallback((el: HTMLTextAreaElement | null) => {
@@ -422,8 +449,45 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
           </div>
         )}
 
+        {/* AI reply suggestion chips */}
+        {body.length === 0 && (replySuggestions.suggestions.length > 0 || replySuggestions.isLoading) && (
+          <div className="mb-2 flex gap-1.5">
+            {replySuggestions.isLoading ? (
+              <>
+                <span className="h-6 w-20 animate-pulse rounded-full bg-surface-raised ring-1 ring-ring-muted" />
+                <span className="h-6 w-24 animate-pulse rounded-full bg-surface-raised ring-1 ring-ring-muted" />
+                <span className="h-6 w-16 animate-pulse rounded-full bg-surface-raised ring-1 ring-ring-muted" />
+              </>
+            ) : (
+              replySuggestions.suggestions.map((text) => (
+                <button
+                  key={text}
+                  type="button"
+                  onClick={() => {
+                    setBody(text);
+                    replySuggestions.clear();
+                    textareaRef.current?.focus();
+                  }}
+                  className="cursor-pointer rounded-full bg-surface-raised px-3 py-1 text-xs text-fg-secondary ring-1 ring-ring-muted transition-colors hover:bg-surface-hover"
+                >
+                  {text}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
-          <div className="relative flex flex-1 items-end">
+          <div className={`relative flex flex-1 items-end ${autocomplete.isOpen ? 'rounded-lg bg-surface-input ring-1 ring-ring-muted' : ''} ${autocomplete.isLoading ? 'animate-autocomplete-glow rounded-lg' : ''}`}>
+          {autocomplete.suggestion && (
+            <div
+              className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg px-3 py-2 text-sm"
+              style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}
+            >
+              <span style={{ visibility: 'hidden' }}>{body}</span>
+              <span className="text-zinc-500">{autocomplete.suggestion}</span>
+            </div>
+          )}
           <textarea
             ref={setRefs}
             value={body}
@@ -431,8 +495,10 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
               const val = e.target.value;
               setBody(val);
               autoResize();
-              // Detect emoji shortcode: `:` followed by valid chars before cursor
+              // Track whether cursor is at the end of the text
               const pos = e.target.selectionStart ?? val.length;
+              setCursorAtEnd(pos === val.length);
+              // Detect emoji shortcode: `:` followed by valid chars before cursor
               const before = val.slice(0, pos);
               const match = before.match(/:([a-z0-9_+-]*)$/);
               if (match) {
@@ -446,8 +512,9 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             onBlur={() => { setComposeActive(false); setEmojiQuery(null); }}
             placeholder="Reply..."
             rows={1}
-            data-emoji-open={emojiQuery !== null && emojiResults.length > 0 ? '' : undefined}
-            className="max-h-40 w-full resize-none rounded-lg bg-surface-input px-3 py-2 text-sm text-fg placeholder-fg-faint outline-none ring-1 ring-ring-muted transition-colors focus:ring-blue-500/50"
+            data-emoji-open={emojiOpen ? '' : undefined}
+            data-autocomplete-open={autocomplete.isOpen || undefined}
+            className={`max-h-40 w-full resize-none rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-faint outline-none transition-colors ${autocomplete.isOpen ? 'bg-transparent ring-0' : 'bg-surface-input ring-1 ring-ring-muted focus:ring-blue-500/50'}`}
             onPaste={(e) => {
               const files = Array.from(e.clipboardData?.files || []);
               if (files.length) {
@@ -480,6 +547,21 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
                   e.preventDefault();
                   e.stopPropagation();
                   setEmojiQuery(null);
+                  return;
+                }
+              }
+              // AI autocomplete keyboard handling
+              if (autocomplete.isOpen) {
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  autocomplete.accept();
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  autocomplete.dismiss();
                   return;
                 }
               }
