@@ -106,6 +106,7 @@ async function discoverPage(
             category: conv.category,
             archived: conv.archived,
             starred: existing.starred,
+            read: conv.read,
           });
         } else {
           await testDb.conversations.put(conv);

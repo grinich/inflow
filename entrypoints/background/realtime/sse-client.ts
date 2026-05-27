@@ -29,8 +29,22 @@ let realtimeSessionId: string | null = null;
 /** Consider the connection stale if no event received for 3 minutes. */
 const STALE_THRESHOLD_MS = 3 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;
-const RECONNECT_BASE_MS = 2000;
-const RECONNECT_MAX_MS = 60000;
+const RECONNECT_INTERVAL_MS = 3000;
+
+function broadcastSSEStatus(): void {
+  chrome.runtime.sendMessage({
+    type: 'SSE_STATUS',
+    connected,
+    reconnecting: !!reconnectTimer || (!connected && reconnectAttempts > 0),
+  }).catch(() => {});
+}
+
+export function getSSEStatus() {
+  return {
+    connected,
+    reconnecting: !!reconnectTimer || (!connected && reconnectAttempts > 0),
+  };
+}
 
 export function isRealtimeConnected(): boolean {
   if (!connected) return false;
@@ -108,6 +122,7 @@ async function connect(): Promise<void> {
   connected = true;
   lastEventAt = Date.now();
   reconnectAttempts = 0;
+  broadcastSSEStatus();
 
   // Start reading the stream
   reader = res.body.getReader();
@@ -163,6 +178,7 @@ async function readStream(
 
   // Stream ended — reconnect
   connected = false;
+  broadcastSSEStatus();
   debugLog('info', '[SSE] Connection lost, scheduling reconnect...');
   scheduleReconnect();
 }
@@ -252,15 +268,11 @@ function stopHeartbeat(): void {
 function scheduleReconnect(): void {
   if (reconnectTimer) return;
 
-  const delay = Math.min(
-    RECONNECT_BASE_MS * Math.pow(2, reconnectAttempts),
-    RECONNECT_MAX_MS
-  );
   reconnectAttempts++;
 
   debugLog(
     'info',
-    `[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`
+    `[SSE] Reconnecting in ${RECONNECT_INTERVAL_MS}ms (attempt ${reconnectAttempts})`
   );
 
   reconnectTimer = setTimeout(() => {
@@ -269,7 +281,7 @@ function scheduleReconnect(): void {
       debugLog('error', `[SSE] Reconnect failed: ${err}`);
       scheduleReconnect();
     });
-  }, delay);
+  }, RECONNECT_INTERVAL_MS);
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +291,7 @@ function scheduleReconnect(): void {
 function cleanup(): void {
   connected = false;
   realtimeSessionId = null;
+  broadcastSSEStatus();
 
   if (abortController) {
     abortController.abort();

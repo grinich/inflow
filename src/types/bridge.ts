@@ -24,6 +24,7 @@ export type BridgeMessage =
   | { type: 'RESET_DB' }
   | { type: 'DIAGNOSTIC_SYNC' }
   | { type: 'GET_SYNC_PROGRESS' }
+  | { type: 'GET_SSE_STATUS' }
   | { type: 'RESET_SYNC_STATE' }
   | { type: 'FETCH_POST'; activityUrn: string }
   | { type: 'BURST_DISCOVER'; category: string }

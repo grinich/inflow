@@ -164,7 +164,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
   return (
     <div className="flex h-full flex-col">
       <ConversationListHeader conversationCount={conversations.length} />
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-contain">
         {conversations.length === 0 ? null : (
           <>
             {conversations.map((conv, i) => (

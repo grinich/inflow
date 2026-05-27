@@ -19,6 +19,7 @@
     "date-fns": "^4.3.0",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
+    "gemoji": "^8.1.0",
     "nanoid": "^5.1.11",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

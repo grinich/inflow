@@ -48,14 +48,18 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
-  const displayName = conversation.participantNames.join(', ') || 'Unknown';
+  // Reactively read profiles for all participants
+  const participantUrns = conversation.participantUrns;
+  const profiles = useLiveQuery(
+    () => participantUrns.length > 0
+      ? db.profiles.where('urn').anyOf(participantUrns).toArray()
+      : [],
+    [participantUrns.join(',')]
+  ) ?? [];
+  const profilesByUrn = new Map(profiles.map((p) => [p.urn, p]));
 
-  // Reactively read profile — updates automatically when background enrichment writes data
-  const firstUrn = conversation.participantUrns[0];
-  const profile = useLiveQuery(
-    () => firstUrn ? db.profiles.where('urn').equals(firstUrn).first() : undefined,
-    [firstUrn]
-  ) ?? null;
+  const firstUrn = participantUrns[0];
+  const profile = profilesByUrn.get(firstUrn) ?? null;
 
   // Refresh profile data after staying on a thread for 2s (avoids spam during quick scrolling)
   useEffect(() => {
@@ -108,18 +112,21 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
         )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            {profileUrl ? (
-              <a
-                href={profileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 text-sm font-semibold text-fg-strong hover:underline"
-              >
-                {displayName}
-              </a>
-            ) : (
-              <h2 className="shrink-0 text-sm font-semibold text-fg-strong">{displayName}</h2>
-            )}
+            <h2 className="shrink-0 text-sm font-semibold text-fg-strong">
+              {conversation.participantNames.length === 0 ? 'Unknown' : conversation.participantNames.map((name, i) => {
+                const urn = participantUrns[i];
+                const p = urn ? profilesByUrn.get(urn) : undefined;
+                const url = p?.publicId ? `https://www.linkedin.com/in/${p.publicId}` : null;
+                return (
+                  <span key={urn || i}>
+                    {i > 0 && <span className="text-fg-muted font-normal">, </span>}
+                    {url ? (
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="hover:underline">{name}</a>
+                    ) : name}
+                  </span>
+                );
+              })}
+            </h2>
             {profile?.location && (
               <span className="min-w-0 truncate text-xs text-fg-faint">({shortenLocation(profile.location)})</span>
             )}
