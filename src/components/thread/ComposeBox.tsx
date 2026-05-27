@@ -3,6 +3,8 @@ import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { useUIStore } from '@/store/ui-store';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
+import { searchEmoji, type EmojiResult } from '@/lib/emoji-search';
+import { EmojiAutocomplete } from './EmojiAutocomplete';
 
 const FILE_ICONS: Record<string, string> = {
   'image': '🖼',
@@ -62,6 +64,12 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     const replyingTo = useUIStore((s) => s.replyingTo);
     const setReplyingTo = useUIStore((s) => s.setReplyingTo);
     const [cmdHeld, setCmdHeld] = useState(false);
+    const [emojiQuery, setEmojiQuery] = useState<string | null>(null);
+    const [emojiIndex, setEmojiIndex] = useState(0);
+    const emojiResults = useMemo(
+      () => (emojiQuery !== null ? searchEmoji(emojiQuery) : []),
+      [emojiQuery],
+    );
 
     useEffect(() => {
       const isFocused = () => document.activeElement === textareaRef.current;
@@ -180,6 +188,25 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         saveDraft(conversationId, bodyRef.current, next);
         document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
         return next;
+      });
+    }
+
+    function insertEmoji(result: EmojiResult) {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      const pos = ta.selectionStart ?? body.length;
+      const before = body.slice(0, pos);
+      // Find the colon that started this query
+      const colonIdx = before.lastIndexOf(':');
+      if (colonIdx === -1) return;
+      const newBody = body.slice(0, colonIdx) + result.emoji + body.slice(pos);
+      setBody(newBody);
+      setEmojiQuery(null);
+      // Restore cursor position after the inserted emoji
+      const newPos = colonIdx + result.emoji.length;
+      requestAnimationFrame(() => {
+        ta.focus();
+        ta.setSelectionRange(newPos, newPos);
       });
     }
 
@@ -401,13 +428,25 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             ref={setRefs}
             value={body}
             onChange={(e) => {
-              setBody(e.target.value);
+              const val = e.target.value;
+              setBody(val);
               autoResize();
+              // Detect emoji shortcode: `:` followed by valid chars before cursor
+              const pos = e.target.selectionStart ?? val.length;
+              const before = val.slice(0, pos);
+              const match = before.match(/:([a-z0-9_+-]*)$/);
+              if (match) {
+                setEmojiQuery(match[1]);
+                setEmojiIndex(0);
+              } else {
+                setEmojiQuery(null);
+              }
             }}
             onFocus={() => setComposeActive(true)}
-            onBlur={() => setComposeActive(false)}
+            onBlur={() => { setComposeActive(false); setEmojiQuery(null); }}
             placeholder="Reply..."
             rows={1}
+            data-emoji-open={emojiQuery !== null && emojiResults.length > 0 ? '' : undefined}
             className="max-h-40 w-full resize-none rounded-lg bg-surface-input px-3 py-2 text-sm text-fg placeholder-fg-faint outline-none ring-1 ring-ring-muted transition-colors focus:ring-blue-500/50"
             onPaste={(e) => {
               const files = Array.from(e.clipboardData?.files || []);
@@ -417,6 +456,33 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
               }
             }}
             onKeyDown={(e) => {
+              // Emoji autocomplete keyboard handling (when popup is open)
+              if (emojiQuery !== null && emojiResults.length > 0) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setEmojiIndex((i) => (i + 1) % emojiResults.length);
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setEmojiIndex((i) => (i - 1 + emojiResults.length) % emojiResults.length);
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  insertEmoji(emojiResults[emojiIndex]);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setEmojiQuery(null);
+                  return;
+                }
+              }
               // Escape dismisses reply preview
               if (e.key === 'Escape' && useUIStore.getState().replyingTo) {
                 e.preventDefault();
@@ -437,6 +503,15 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             <kbd className="pointer-events-none absolute left-[4.25rem] top-1/2 -translate-y-1/2 rounded border border-ring-muted bg-surface px-1.5 py-0.5 font-mono text-[10px] leading-none text-fg-faint">
               R
             </kbd>
+          )}
+          {emojiQuery !== null && emojiResults.length > 0 && (
+            <EmojiAutocomplete
+              results={emojiResults}
+              selectedIndex={emojiIndex}
+              query={emojiQuery}
+              onSelect={insertEmoji}
+              onClose={() => setEmojiQuery(null)}
+            />
           )}
           </div>
           <button

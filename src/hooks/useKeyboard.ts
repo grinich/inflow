@@ -61,8 +61,12 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
+      // When emoji autocomplete is open, let the textarea's own onKeyDown handle
+      // Enter/Tab/Escape/Arrow keys — don't dispatch send or other global actions.
+      const emojiOpen = target instanceof HTMLElement && target.hasAttribute('data-emoji-open');
+
       // Cmd+Enter — Send + archive (only in compose)
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && isInput) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && isInput && !emojiOpen) {
         e.preventDefault();
         document.dispatchEvent(new CustomEvent('inflow:send-and-archive'));
         return;
@@ -70,14 +74,15 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
 
       // Enter (no modifier) — Send message (only in compose textarea)
       // Shift+Enter inserts a newline (default browser behavior)
-      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && isInput && target instanceof HTMLTextAreaElement) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && isInput && target instanceof HTMLTextAreaElement && !emojiOpen) {
         e.preventDefault();
         document.dispatchEvent(new CustomEvent('inflow:send'));
         return;
       }
 
       // Escape — close overlays, clear search + blur input, exit compose, or close thread
-      if (e.key === 'Escape') {
+      // (skip when emoji autocomplete is open — the textarea handles it)
+      if (e.key === 'Escape' && !emojiOpen) {
         if (store.shortcutOverlayOpen) {
           e.preventDefault();
           store.setShortcutOverlayOpen(false);

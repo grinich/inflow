@@ -11,7 +11,7 @@ import type { Conversation } from '@/types/conversation';
 const ALARM_NAME = 'inflow-sync';
 const POLL_INTERVAL_MINUTES = 0.5; // 30 seconds
 const STALENESS_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
-const BACKFILL_BATCH_SIZE = 3;
+const BACKFILL_BATCH_SIZE = 10;
 const BURST_MAX_PAGES = 5;
 
 /** Categories currently being discovered — prevents concurrent discovery for the same category. */

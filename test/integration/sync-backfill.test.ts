@@ -626,7 +626,7 @@ describe('sync-backfill', () => {
       const count = await backfillBatch(10);
       expect(count).toBe(1);
       expect(fetchAllMessages).toHaveBeenCalledTimes(1);
-      expect(fetchAllMessages).toHaveBeenCalledWith('conv-pending');
+      expect(fetchAllMessages).toHaveBeenCalledWith('conv-pending', 10, { skipJitter: true });
     });
 
     it('handles fetchAllMessages returning empty array (no pages)', async () => {

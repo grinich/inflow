@@ -186,7 +186,10 @@ async function storeConversationPage(
           category: conv.category,
           archived: conv.archived,
           starred: existing.starred,
-          read: existing.read,
+          // Sync read state from server: if server says read, trust it.
+          // If server says unread but local says read, also trust the server
+          // (the user may have received a new message or read on another client).
+          read: conv.read,
         });
       } else {
         await db.conversations.put(conv);

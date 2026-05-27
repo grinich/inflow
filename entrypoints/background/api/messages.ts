@@ -71,8 +71,7 @@ export async function fetchAllMessages(
   const promise = (async () => {
     const pages: VoyagerResponse[] = [];
     for (let page = 0; page < maxPages; page++) {
-      // Only skip jitter on the first page — subsequent pages use normal jitter
-      const res = await fetchMessages(conversationId, MESSAGE_PAGE_SIZE, page * MESSAGE_PAGE_SIZE, { skipJitter: skipJitter && page === 0 });
+      const res = await fetchMessages(conversationId, MESSAGE_PAGE_SIZE, page * MESSAGE_PAGE_SIZE, { skipJitter });
       pages.push(res);
 
       // LinkedIn often returns fewer items than requested even when more exist.

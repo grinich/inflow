@@ -181,11 +181,13 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
   }, [open]);
 
   const [followScroll, setFollowScroll] = useState(true);
+  const followScrollRef = useRef(followScroll);
+  followScrollRef.current = followScroll;
 
   // When follow is on, pin to bottom whenever logs change
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !open || diagReport || !followScroll) return;
+    if (!el || !open || diagReport || !followScrollRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [logs, open, diagReport, followScroll]);
 
@@ -194,13 +196,13 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => {
-      if (!followScroll) return;
+      if (!followScrollRef.current) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       if (!atBottom) setFollowScroll(false);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [followScroll]);
+  }, []);
 
   if (!open) return null;
 

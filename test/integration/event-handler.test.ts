@@ -499,7 +499,7 @@ describe('event-handler', () => {
   });
 
   describe('conversation update (RealtimeConversation)', () => {
-    it('skips events with unreadCount=0', async () => {
+    it('marks conversation as read when unreadCount=0 (read on another client)', async () => {
       const { handleRealtimeEvent } = await import(
         '../../entrypoints/background/realtime/event-handler'
       );
@@ -508,7 +508,7 @@ describe('event-handler', () => {
       );
       vi.mocked(fetchMessages).mockClear();
 
-      await testDb.conversations.put(makeConversation({ id: 'conv-noread' }));
+      await testDb.conversations.put(makeConversation({ id: 'conv-noread', read: 0 }));
 
       const { eventType, data } = buildConversationUpdateEvent({
         conversationUrn: 'urn:li:fs_conversation:conv-noread',
@@ -517,7 +517,37 @@ describe('event-handler', () => {
 
       await handleRealtimeEvent(eventType, data);
 
+      // Should not fetch messages (no new content)
       expect(fetchMessages).not.toHaveBeenCalled();
+      // Should mark conversation as read
+      const conv = await testDb.conversations.get('conv-noread');
+      expect(conv.read).toBe(1);
+    });
+
+    it('does not mark as read when unreadCount=0 and suppressed (our own echo)', async () => {
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+      const { shouldSuppressConversationUpdate } = await import(
+        '../../entrypoints/background/realtime/mark-read-suppression'
+      );
+
+      vi.mocked(shouldSuppressConversationUpdate).mockReturnValue(true);
+
+      await testDb.conversations.put(makeConversation({ id: 'conv-suppressed-0', read: 0 }));
+
+      const { eventType, data } = buildConversationUpdateEvent({
+        conversationUrn: 'urn:li:fs_conversation:conv-suppressed-0',
+        unreadCount: 0,
+      });
+
+      await handleRealtimeEvent(eventType, data);
+
+      // Should NOT change read state when suppressed
+      const conv = await testDb.conversations.get('conv-suppressed-0');
+      expect(conv.read).toBe(0);
+
+      vi.mocked(shouldSuppressConversationUpdate).mockReturnValue(false);
     });
 
     it('suppresses events when shouldSuppressConversationUpdate returns true', async () => {

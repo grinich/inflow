@@ -424,7 +424,7 @@ describe('sync-engine', () => {
       expect(conv.lastActivityAt).toBe(2000);
     });
 
-    it('preserves read field when updating existing conversation', async () => {
+    it('syncs read field from server when updating existing conversation', async () => {
       const { fetchConversationsPage } = await import(
         '../../entrypoints/background/api/conversations'
       );
@@ -464,9 +464,8 @@ describe('sync-engine', () => {
       await syncConversations();
 
       const conv = await testDb.conversations.get('conv-read');
-      // read should be preserved from the existing record (1),
-      // not overwritten by the API value (0 from unreadCount=3)
-      expect(conv.read).toBe(1);
+      // read should now be synced from server (0 from unreadCount=3)
+      expect(conv.read).toBe(0);
     });
 
     it('puts new conversations directly without merge', async () => {

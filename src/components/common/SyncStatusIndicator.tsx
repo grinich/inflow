@@ -34,6 +34,7 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
   const [sync, setSync] = useState<SyncState>({ state: 'idle' });
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [lastSynced, setLastSynced] = useState<number | null>(null);
+  const [sseConnected, setSseConnected] = useState(true);
 
   // Count queued actions for offline indicator
   const queuedCount = useLiveQuery(
@@ -56,14 +57,22 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
       if (msg.type === 'SYNC_COMPLETE') {
         setLastSynced(Date.now());
       }
+      if (msg.type === 'SSE_STATUS') {
+        setSseConnected(msg.connected);
+      }
     }, [])
   );
 
-  // Fetch initial sync progress on mount
+  // Fetch initial sync progress and SSE status on mount
   useEffect(() => {
     sendBridgeMessage({ type: 'GET_SYNC_PROGRESS' }).then((res) => {
       if (res.success && res.data) {
         setProgress(res.data);
+      }
+    }).catch(() => {});
+    sendBridgeMessage({ type: 'GET_SSE_STATUS' }).then((res) => {
+      if (res.success && res.data) {
+        setSseConnected(res.data.connected);
       }
     }).catch(() => {});
   }, []);
@@ -82,6 +91,8 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
   let statusText = '';
   if (!online) {
     statusText = queuedCount > 0 ? `Offline (${queuedCount} queued)` : 'Offline';
+  } else if (!sseConnected) {
+    statusText = 'Reconnecting...';
   } else if (active) {
     statusText = 'Syncing';
   } else if (lastSynced) {
@@ -117,7 +128,10 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
       onClick={onOpenDebug}
       title={tooltip}
       className={`flex cursor-pointer items-center gap-1.5 text-xs outline-none ${
-        sync.state === 'error' ? 'text-red-400' : 'text-fg-faint hover:text-fg-muted'
+        !online ? 'text-fg-faint hover:text-fg-muted'
+        : !sseConnected ? 'text-yellow-500'
+        : sync.state === 'error' ? 'text-red-400'
+        : 'text-fg-faint hover:text-fg-muted'
       }`}
     >
       {icon}

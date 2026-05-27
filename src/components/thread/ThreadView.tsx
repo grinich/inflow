@@ -191,7 +191,7 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
     <div className="flex h-full flex-col">
       <ThreadHeader conversation={conversation} />
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scrollRef} data-scroll-container className="flex-1 overflow-y-auto overscroll-contain px-4 py-4">
         <div ref={contentRef}>
           {messages.length === 0 ? (
             conversation.draft === 1 ? null : (

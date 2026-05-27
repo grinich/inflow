@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
 import { useCachedImage } from '@/hooks/useCachedImage';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
+import { searchEmoji, type EmojiResult } from '@/lib/emoji-search';
+import { EmojiAutocomplete } from './EmojiAutocomplete';
 
 /** Block dangerous URL protocols (javascript:, data:, vbscript:, etc.) */
 function sanitizeUrl(url: string | undefined): string {
@@ -52,6 +54,12 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
   const [editBody, setEditBody] = useState(message.body);
   const [unsendConfirm, setUnsendConfirm] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [editEmojiQuery, setEditEmojiQuery] = useState<string | null>(null);
+  const [editEmojiIndex, setEditEmojiIndex] = useState(0);
+  const editEmojiResults = useMemo(
+    () => (editEmojiQuery !== null ? searchEmoji(editEmojiQuery) : []),
+    [editEmojiQuery],
+  );
   const editRef = useRef<HTMLTextAreaElement>(null);
   const unsendTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const emojiPickerRef = useRef<HTMLDivElement>(null);
@@ -72,6 +80,23 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
     const ok = await editMessage(message.conversationId, message.id, editBody.trim());
     if (ok) setEditing(false);
   };
+
+  function insertEditEmoji(result: EmojiResult) {
+    const ta = editRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart ?? editBody.length;
+    const before = editBody.slice(0, pos);
+    const colonIdx = before.lastIndexOf(':');
+    if (colonIdx === -1) return;
+    const newBody = editBody.slice(0, colonIdx) + result.emoji + editBody.slice(pos);
+    setEditBody(newBody);
+    setEditEmojiQuery(null);
+    const newPos = colonIdx + result.emoji.length;
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(newPos, newPos);
+    });
+  }
 
   const handleUnsend = useCallback(() => {
     if (!unsendConfirm) {
@@ -218,11 +243,50 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
         >
           {editing ? (
             <div className="flex flex-col gap-1.5">
+              <div className="relative">
               <textarea
                 ref={editRef}
                 value={editBody}
-                onChange={(e) => setEditBody(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setEditBody(val);
+                  const pos = e.target.selectionStart ?? val.length;
+                  const before = val.slice(0, pos);
+                  const match = before.match(/:([a-z0-9_+-]*)$/);
+                  if (match) {
+                    setEditEmojiQuery(match[1]);
+                    setEditEmojiIndex(0);
+                  } else {
+                    setEditEmojiQuery(null);
+                  }
+                }}
                 onKeyDown={(e) => {
+                  if (editEmojiQuery !== null && editEmojiResults.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setEditEmojiIndex((i) => (i + 1) % editEmojiResults.length);
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setEditEmojiIndex((i) => (i - 1 + editEmojiResults.length) % editEmojiResults.length);
+                      return;
+                    }
+                    if (e.key === 'Enter' || e.key === 'Tab') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      insertEditEmoji(editEmojiResults[editEmojiIndex]);
+                      return;
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setEditEmojiQuery(null);
+                      return;
+                    }
+                  }
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                     handleEditSave();
@@ -233,9 +297,21 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
                     setEditing(false);
                   }
                 }}
+                onBlur={() => setEditEmojiQuery(null)}
+                data-emoji-open={editEmojiQuery !== null && editEmojiResults.length > 0 ? '' : undefined}
                 className="w-full resize-none rounded-lg bg-blue-700/50 px-2 py-1 text-sm text-white outline-none placeholder:text-blue-200/50"
                 rows={Math.min(6, editBody.split('\n').length + 1)}
               />
+              {editEmojiQuery !== null && editEmojiResults.length > 0 && (
+                <EmojiAutocomplete
+                  results={editEmojiResults}
+                  selectedIndex={editEmojiIndex}
+                  query={editEmojiQuery}
+                  onSelect={insertEditEmoji}
+                  onClose={() => setEditEmojiQuery(null)}
+                />
+              )}
+              </div>
               <div className="flex justify-end gap-1.5">
                 <button
                   onClick={() => setEditing(false)}
@@ -537,36 +613,66 @@ export function formatSeparatorTime(ts: number): string {
   }
 }
 
+// Matches email addresses
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+
 // Matches URLs with protocol, or bare domains like dribbble.com/path
 const URL_REGEX = /(?:https?:\/\/[^\s<>"')\]]+)|(?:(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(?:com|org|net|io|co|dev|app|me|info|biz|us|uk|ca|de|fr|es|it|nl|au|in|xyz|tech|design|art|studio|page|site|so|ly|to|cc|gg|fm|tv|ai|sh))\b(?:\/[^\s<>"')\],]*)?)/gi;
 
 function Linkify({ text, isMe }: { text: string; isMe: boolean }) {
+  const linkClass = `underline break-all ${isMe ? 'text-blue-100 hover:text-white' : 'text-blue-500 hover:text-blue-600'}`;
+
+  // Collect all matches (emails + URLs) with their positions
+  const matches: { index: number; length: number; href: string; display: string }[] = [];
+
+  // Find emails first — they take priority over URL matches
+  EMAIL_REGEX.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = EMAIL_REGEX.exec(text)) !== null) {
+    matches.push({ index: m.index, length: m[0].length, href: `mailto:${m[0]}`, display: m[0] });
+  }
+
+  // Find URLs, skipping any that overlap with email matches
+  URL_REGEX.lastIndex = 0;
+  while ((m = URL_REGEX.exec(text)) !== null) {
+    const raw = m[0];
+    const cleaned = raw.replace(/[.,;:!?]+$/, '');
+    const start = m.index;
+    const end = start + raw.length;
+
+    // Skip if this URL overlaps with any email match (e.g. "gmail.com" inside "user@gmail.com")
+    const overlapsEmail = matches.some(
+      (em) => start < em.index + em.length && end > em.index
+    );
+    if (overlapsEmail) continue;
+
+    const href = cleaned.startsWith('http') ? cleaned : `https://${cleaned}`;
+    matches.push({ index: start, length: raw.length, href, display: cleaned });
+  }
+
+  // Sort by position
+  matches.sort((a, b) => a.index - b.index);
+
+  // Build parts
   const parts: (string | JSX.Element)[] = [];
   let lastIndex = 0;
-  let match: RegExpExecArray | null;
 
-  URL_REGEX.lastIndex = 0;
-  while ((match = URL_REGEX.exec(text)) !== null) {
+  for (const match of matches) {
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index));
     }
-    const raw = match[0];
-    // Strip trailing punctuation that's likely not part of the URL
-    const cleaned = raw.replace(/[.,;:!?]+$/, '');
-    const href = cleaned.startsWith('http') ? cleaned : `https://${cleaned}`;
     parts.push(
       <a
         key={match.index}
-        href={href}
-        target="_blank"
+        href={match.href}
+        target={match.href.startsWith('mailto:') ? undefined : '_blank'}
         rel="noopener noreferrer"
-        className={`underline break-all ${isMe ? 'text-blue-100 hover:text-white' : 'text-blue-500 hover:text-blue-600'}`}
+        className={linkClass}
       >
-        {cleaned}
+        {match.display}
       </a>
     );
-    // Advance past the full match so stripped trailing chars become plain text
-    lastIndex = match.index + raw.length;
+    lastIndex = match.index + match.length;
   }
 
   if (lastIndex < text.length) {

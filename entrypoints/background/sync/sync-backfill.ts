@@ -5,9 +5,9 @@ import { prefetchSharedPosts } from './prefetch-posts';
 import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
 
-/** Random delay between backfill conversations (1–2.5s). */
+/** Small delay between backfill conversations to yield the event loop. */
 function backfillDelay(): Promise<void> {
-  return new Promise((r) => setTimeout(r, 1000 + Math.random() * 1500));
+  return new Promise((r) => setTimeout(r, 100));
 }
 const MAX_RETRIES = 3;
 
@@ -16,7 +16,7 @@ const MAX_RETRIES = 3;
  * Processes items ordered by priority (newest conversations first).
  * Paginates through all message pages per conversation.
  */
-export async function backfillBatch(batchSize = 5, onProgress?: () => void): Promise<number> {
+export async function backfillBatch(batchSize = 10, onProgress?: () => void): Promise<number> {
   const memberUrn = await getMemberUrn();
 
   // Get pending items ordered by priority (lowest = newest)
@@ -38,7 +38,7 @@ export async function backfillBatch(batchSize = 5, onProgress?: () => void): Pro
 
     try {
       // Fetch all pages of messages for this conversation
-      const pages = await fetchAllMessages(item.conversationId);
+      const pages = await fetchAllMessages(item.conversationId, 10, { skipJitter: true });
       let totalMessages = 0;
 
       for (const raw of pages) {

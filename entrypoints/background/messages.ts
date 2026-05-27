@@ -29,6 +29,7 @@ import { db, mergeProfiles } from '@/db/database';
 import { dbReady } from './db-ready';
 import { runDiagnosticSync } from './diagnostic';
 import { recordMarkRead } from './realtime/mark-read-suppression';
+import { getSSEStatus } from './realtime/sse-client';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 
@@ -46,7 +47,7 @@ export function setupMessageRouter() {
 async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
   // CHECK_AUTH must work before DB init (AuthGate calls it to determine the account).
   // All other handlers wait for the DB to be pointed at the correct account.
-  if (msg.type !== 'CHECK_AUTH' && msg.type !== 'GET_DEBUG_LOGS') {
+  if (msg.type !== 'CHECK_AUTH' && msg.type !== 'GET_DEBUG_LOGS' && msg.type !== 'GET_SSE_STATUS') {
     await dbReady;
   }
 
@@ -54,6 +55,9 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
     case 'CHECK_AUTH': {
       const session = await getSession();
       return { success: true, data: session };
+    }
+    case 'GET_SSE_STATUS': {
+      return { success: true, data: getSSEStatus() };
     }
     case 'SYNC_CONVERSATIONS': {
       await syncConversations();
