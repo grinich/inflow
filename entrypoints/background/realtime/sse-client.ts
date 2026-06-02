@@ -52,9 +52,12 @@ function broadcastSSEStatus(): void {
 }
 
 export function getSSEStatus() {
+  // Treat a stale (silently half-open) stream as not-connected so the UI doesn't
+  // report "connected" on a dead stream before the heartbeat watchdog fires.
+  const live = isRealtimeConnected();
   return {
-    connected,
-    reconnecting: !!reconnectTimer || (!connected && reconnectAttempts > 0),
+    connected: live,
+    reconnecting: !!reconnectTimer || (!live && reconnectAttempts > 0),
   };
 }
 

@@ -166,12 +166,22 @@ async function onSyncTick(): Promise<void> {
     debugLog('info', `[COORDINATOR] Rapid discovery started for ${cat}`);
 
     try {
+      const MAX_DISCOVERY_PAGES = 1000; // hard backstop against a runaway cursor
+      let pageCount = 0;
       while (!paused) {
         const { conversations, isLastPage, nextCursor } = await discoverPage(cat, cursor);
         await enqueueConversations(conversations, cat);
         totalDiscovered += conversations.length;
+        pageCount++;
 
-        if (isLastPage) {
+        // Stop when the server says it's done, OR when the cursor stops advancing
+        // / we've paged absurdly far. `isLastPage` is just `!nextCursor`, so an
+        // empty-page-with-cursor (or stuck-cursor) tail would otherwise loop
+        // forever hammering the API — the burst path is capped, this one wasn't.
+        if (isLastPage || nextCursor === cursor || pageCount >= MAX_DISCOVERY_PAGES) {
+          if (!isLastPage) {
+            debugLog('warn', `[COORDINATOR] Discovery for ${cat} stopped early at page ${pageCount} (cursor not advancing or page cap)`);
+          }
           await db.syncState.update(cat, {
             phase: 'backfilling',
             cursor: '',

@@ -57,7 +57,9 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
     }, { threshold: 0 });
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [isDiscovering, category, hasMoreSearchResults, onLoadMoreSearch]);
+    // isSearching / conversations.length gate whether the sentinel node is mounted,
+    // so re-run when they change to (re)attach the observer to the live node.
+  }, [isDiscovering, category, hasMoreSearchResults, onLoadMoreSearch, isSearching, conversations.length]);
 
   // Prefetch next 2 conversations after the selected one so j/k navigation feels instant
   useEffect(() => {
