@@ -53,6 +53,17 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
     }
   }
 
+  // Unread quick-filter: toggles the `is:unread` token in the search query.
+  const unreadActive = /(^|\s)is:unread(\s|$)/i.test(searchQuery);
+  function toggleUnread() {
+    if (unreadActive) {
+      setSearchQuery(searchQuery.replace(/\bis:unread\b/gi, '').replace(/\s{2,}/g, ' ').trim());
+    } else {
+      const trimmed = searchQuery.trim();
+      setSearchQuery(trimmed ? `${trimmed} is:unread` : 'is:unread');
+    }
+  }
+
   // Extract the current token (last space-separated word) from the input
   const currentToken = useMemo(() => {
     if (!searchQuery) return '';
@@ -161,6 +172,20 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
             </button>
           ))}
         </div>
+
+        {/* Unread quick-filter — sets/clears the is:unread search filter */}
+        <button
+          onClick={toggleUnread}
+          title="Show only unread"
+          aria-pressed={unreadActive}
+          className={`cursor-pointer rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+            unreadActive
+              ? 'bg-blue-500/15 text-blue-400 ring-1 ring-blue-500/30'
+              : 'bg-surface-input text-fg-muted hover:text-fg-secondary'
+          }`}
+        >
+          Unread
+        </button>
         </div>
 
         <button
