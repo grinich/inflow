@@ -22,6 +22,22 @@ function extractProfileId(urn: string): string {
   return match ? match[1] : urn;
 }
 
+/**
+ * Pick the single inbox category the UI can route to, priority-ordered so the
+ * result doesn't depend on LinkedIn's (unspecified) category array order.
+ * ARCHIVE is also surfaced via the `archived` flag; INMAIL/OTHER aren't tab
+ * categories, so they fold into the Other tab to avoid vanishing from the UI.
+ */
+function pickInboxCategory(categories?: string[]): string {
+  if (!categories) return 'PRIMARY_INBOX';
+  if (categories.includes('ARCHIVE')) return 'ARCHIVE';
+  if (categories.includes('SPAM')) return 'SPAM';
+  if (categories.includes('SECONDARY_INBOX')) return 'SECONDARY_INBOX';
+  if (categories.includes('PRIMARY_INBOX')) return 'PRIMARY_INBOX';
+  if (categories.includes('INMAIL') || categories.includes('OTHER')) return 'SECONDARY_INBOX';
+  return 'PRIMARY_INBOX';
+}
+
 function getParticipantPicture(participant: VoyagerEntity): string {
   const member = participant.participantType?.member;
   if (!member?.profilePicture) return '';
@@ -131,14 +147,7 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
       lastActivityAt: conv.lastActivityAt || 0,
       read: (conv.unreadCount || 0) === 0 ? 1 : 0,
       archived: conv.categories?.includes('ARCHIVE') ? 1 : 0,
-      // Only assign a category the inbox tabs can route to. INMAIL/OTHER-only
-      // threads would otherwise match no tab and silently vanish from the UI, so
-      // fold them into the "Other" (SECONDARY_INBOX) tab. ARCHIVE is surfaced via
-      // the `archived` flag, so its category value is not tab-queried.
-      category:
-        conv.categories?.find(
-          (c: string) => c === 'PRIMARY_INBOX' || c === 'SECONDARY_INBOX' || c === 'SPAM' || c === 'ARCHIVE',
-        ) ?? (conv.categories?.some((c: string) => c === 'INMAIL' || c === 'OTHER') ? 'SECONDARY_INBOX' : 'PRIMARY_INBOX'),
+      category: pickInboxCategory(conv.categories),
       starred: conv.categories ? (conv.categories.includes('STARRED') ? 1 : 0) : undefined,
     };
   });

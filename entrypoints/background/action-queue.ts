@@ -93,19 +93,20 @@ export async function drainActionQueue(): Promise<void> {
 
         debugLog('info', `[ACTION-QUEUE] Replayed ${action.type} for ${action.conversationId}`);
       } catch (err) {
+        if (replayed) {
+          // The server-side action already succeeded — only the local bookkeeping
+          // failed. Rolling back or re-queuing would resend on the next drain
+          // (duplicate), so mark confirmed and move on. This MUST precede the
+          // offline check below, or going offline here would re-queue it.
+          debugLog('warn', `[ACTION-QUEUE] Post-replay bookkeeping failed for ${action.type} (${action.conversationId}): ${err}`);
+          await db.pendingActions.update(action.id, { status: 'confirmed' }).catch(() => {});
+          continue;
+        }
+
         // If offline again, stop draining — leave remaining as queued
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
           debugLog('info', '[ACTION-QUEUE] Went offline during replay — stopping');
           break;
-        }
-
-        if (replayed) {
-          // The server-side action already succeeded — only the local bookkeeping
-          // failed. Rolling back here would resend on the next retry (duplicate),
-          // so best-effort mark confirmed and move on instead.
-          debugLog('warn', `[ACTION-QUEUE] Post-replay bookkeeping failed for ${action.type} (${action.conversationId}): ${err}`);
-          await db.pendingActions.update(action.id, { status: 'confirmed' }).catch(() => {});
-          continue;
         }
 
         // Genuine server error — rollback

@@ -119,16 +119,12 @@ export function useReplySuggestions({
       if (controller.signal.aborted) return;
       setIsLoading(false);
 
-      console.log('[inflow] reply suggestions raw:', JSON.stringify(result));
-
       if (!result) return;
 
       const parsed = result
         .split('|')
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-
-      console.log('[inflow] reply suggestions parsed:', parsed);
 
       // Cache whatever we got (even <3) so we don't re-request the same state on
       // every render; show up to 3.
