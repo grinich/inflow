@@ -3,6 +3,7 @@ import { getMemberUrn } from '../auth/session';
 import { normalizeConversations } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
 import { db, mergeProfiles, type SyncQueueItem } from '@/db/database';
+import { mergeConversation } from './merge-conversation';
 import { getBackfillCutoff } from '@/lib/sync-settings';
 import type { Conversation } from '@/types/conversation';
 import type { Profile } from '@/types/profile';
@@ -31,7 +32,7 @@ export async function discoverPage(
   const { response: raw, nextCursor } = await fetchConversationsPage(category, cursor);
   const { conversations: allConversations, profiles: allProfiles } = normalizeConversations(raw, memberUrn);
 
-  const isLastPage = allConversations.length === 0 || !nextCursor;
+  const isLastPage = !nextCursor;
 
   debugLog(
     'info',
@@ -47,28 +48,12 @@ export async function discoverPage(
     }
     const dedupedProfiles = [...profileMap.values()];
 
-    await db.transaction('rw', [db.conversations, db.profiles], async () => {
+    await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions], async () => {
       if (dedupedProfiles.length > 0) {
         await mergeProfiles(dedupedProfiles);
       }
       for (const conv of allConversations) {
-        const existing = await db.conversations.get(conv.id);
-        if (existing) {
-          // Merge: only update fields that have meaningful values, preserve local-only fields
-          await db.conversations.update(conv.id, {
-            participantUrns: conv.participantUrns.length > 0 ? conv.participantUrns : existing.participantUrns,
-            participantNames: conv.participantNames.length > 0 ? conv.participantNames : existing.participantNames,
-            participantPictures: conv.participantPictures.length > 0 ? conv.participantPictures : existing.participantPictures,
-            lastMessage: conv.lastMessage || existing.lastMessage,
-            lastActivityAt: Math.max(conv.lastActivityAt, existing.lastActivityAt),
-            category: conv.category,
-            archived: conv.archived,
-            starred: existing.starred,
-            read: conv.read,
-          });
-        } else {
-          await db.conversations.put(conv);
-        }
+        await mergeConversation(conv);
       }
     });
   }
@@ -93,50 +78,52 @@ export async function enqueueConversations(
   // Get cutoff timestamp — conversations older than this skip message backfill
   const cutoff = await getBackfillCutoff();
 
-  for (const conv of conversations) {
-    const existing = await db.syncQueue.get(conv.id);
-    const tooOld = cutoff > 0 && conv.lastActivityAt < cutoff;
+  await db.transaction('rw', db.syncQueue, async () => {
+    for (const conv of conversations) {
+      const existing = await db.syncQueue.get(conv.id);
+      const tooOld = cutoff > 0 && conv.lastActivityAt < cutoff;
 
-    if (!existing) {
-      // New conversation — add to queue
-      const item: SyncQueueItem = {
-        conversationId: conv.id,
-        category,
-        lastActivityAt: conv.lastActivityAt,
-        messagesSyncedAt: 0,
-        status: tooOld ? 'done' : 'pending',
-        failCount: 0,
-        lastFailedAt: 0,
-        priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
-      };
-      await db.syncQueue.put(item);
-      if (tooOld) skipped++;
-      else enqueued++;
-    } else if (
-      conv.lastActivityAt > existing.messagesSyncedAt &&
-      existing.status !== 'pending' &&
-      existing.status !== 'syncing' &&
-      !tooOld
-    ) {
-      // Conversation has new activity since last message sync — re-queue
-      await db.syncQueue.update(conv.id, {
-        status: 'pending',
-        lastActivityAt: conv.lastActivityAt,
-        priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
-        category,
-      });
-      enqueued++;
-    } else {
-      // Update lastActivityAt if newer, but don't re-queue
-      if (conv.lastActivityAt > existing.lastActivityAt) {
-        await db.syncQueue.update(conv.id, {
+      if (!existing) {
+        // New conversation — add to queue
+        const item: SyncQueueItem = {
+          conversationId: conv.id,
+          category,
           lastActivityAt: conv.lastActivityAt,
+          messagesSyncedAt: 0,
+          status: tooOld ? 'done' : 'pending',
+          failCount: 0,
+          lastFailedAt: 0,
+          priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
+        };
+        await db.syncQueue.put(item);
+        if (tooOld) skipped++;
+        else enqueued++;
+      } else if (
+        conv.lastActivityAt > existing.messagesSyncedAt &&
+        existing.status !== 'pending' &&
+        existing.status !== 'syncing' &&
+        !tooOld
+      ) {
+        // Conversation has new activity since last message sync — re-queue
+        await db.syncQueue.update(conv.id, {
+          status: 'pending',
+          lastActivityAt: conv.lastActivityAt,
+          priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
           category,
         });
+        enqueued++;
+      } else {
+        // Update lastActivityAt if newer, but don't re-queue
+        if (conv.lastActivityAt > existing.lastActivityAt) {
+          await db.syncQueue.update(conv.id, {
+            lastActivityAt: conv.lastActivityAt,
+            category,
+          });
+        }
+        skipped++;
       }
-      skipped++;
     }
-  }
+  });
 
   debugLog(
     'info',

@@ -28,9 +28,12 @@ export async function getMemberUrn(): Promise<string> {
   if (cachedMemberUrn) {
     const cookieChanged = await hasSessionCookieChanged();
     if (cookieChanged) {
+      // Invalidate the session cache so getSession() re-hits /me, but KEEP
+      // cachedMemberUrn so getSession can compare previousUrn !== newUrn and
+      // actually trigger switchDatabase()/ACCOUNT_CHANGED on a real account
+      // switch. Nulling it here defeated that and contaminated the old DB.
       debugLog('info', '[SESSION] li_at cookie changed — forcing /me re-check');
       invalidateSessionCache();
-      cachedMemberUrn = null;
     } else {
       return cachedMemberUrn;
     }
@@ -90,6 +93,15 @@ export async function getSession(): Promise<Session> {
     // e.g. "urn:li:fs_miniProfile:ACoAAAUhqQcB..." -> "ACoAAAUhqQcB..."
     const memberId = miniProfile?.entityUrn?.split(':').pop() || '';
     const memberUrn = memberId ? `urn:li:fsd_profile:${memberId}` : '';
+
+    if (!memberUrn) {
+      // /me returned 200 but carried no MiniProfile (e.g. a security checkpoint
+      // or interstitial). Don't cache a useless {authenticated:true, memberUrn:''}
+      // session — report unauthenticated so callers retry instead of showing an
+      // empty inbox for the full 30s TTL.
+      debugLog('warn', '[SESSION] /me returned no MiniProfile — treating as unauthenticated');
+      return { authenticated: false };
+    }
 
     // Detect account change
     const previousUrn = cachedMemberUrn;

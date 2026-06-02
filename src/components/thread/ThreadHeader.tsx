@@ -51,7 +51,7 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
   // Reactively read profiles for all participants
   const participantUrns = conversation.participantUrns;
   const profiles = useLiveQuery(
-    () => participantUrns.length > 0
+    () => (participantUrns.length > 0 && db)
       ? db.profiles.where('urn').anyOf(participantUrns).toArray()
       : [],
     [participantUrns.join(',')]

@@ -62,7 +62,7 @@ describe('debug-log', () => {
       debugLog('info', 'data:', { key: 'value' });
       const logs = getDebugLogs();
       expect(logs[0].message).toContain('data:');
-      expect(logs[0].message).toContain('"key": "value"');
+      expect(logs[0].message).toContain('"key":"value"');
     });
 
     it('forwards info messages to console.log', () => {

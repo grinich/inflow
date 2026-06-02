@@ -17,7 +17,10 @@ export function buildCommands(actions: {
   goBack: () => void;
   showShortcuts: () => void;
   triggerSync: () => void;
-  toggleTheme: () => void;
+  setThemeLight: () => void;
+  setThemeDark: () => void;
+  setThemeSystem: () => void;
+  currentTheme: 'light' | 'dark' | 'system';
   goToFocused: () => void;
   goToOther: () => void;
   goToArchived: () => void;
@@ -26,6 +29,9 @@ export function buildCommands(actions: {
   openAISetup: () => void;
   toggleDemoMode: () => void;
   isDemoActive: boolean;
+  toggleAISuggestions: () => void;
+  aiSuggestionsEnabled: boolean;
+  reportBug: () => void;
 }): Command[] {
   return [
     { id: 'archive', label: 'Archive conversation', shortcut: 'E', action: actions.archiveSelected },
@@ -44,8 +50,17 @@ export function buildCommands(actions: {
     { id: 'go-spam', label: 'Go to Spam', shortcut: '4', action: actions.goToSpam },
     { id: 'shortcuts', label: 'Show keyboard shortcuts', shortcut: '?', action: actions.showShortcuts },
     { id: 'sync', label: 'Sync now', shortcut: '', action: actions.triggerSync },
-    { id: 'theme', label: 'Toggle theme (Dark / Light / System)', shortcut: '', action: actions.toggleTheme },
+    ...(actions.currentTheme !== 'light' ? [{ id: 'theme-light', label: 'Switch to Light theme', shortcut: '', action: actions.setThemeLight }] : []),
+    ...(actions.currentTheme !== 'dark' ? [{ id: 'theme-dark', label: 'Switch to Dark theme', shortcut: '', action: actions.setThemeDark }] : []),
+    ...(actions.currentTheme !== 'system' ? [{ id: 'theme-system', label: 'Switch to System theme', shortcut: '', action: actions.setThemeSystem }] : []),
     { id: 'ai-setup', label: 'Set up AI features', shortcut: '', action: actions.openAISetup },
+    {
+      id: 'ai-suggestions',
+      label: actions.aiSuggestionsEnabled ? 'Disable AI reply suggestions' : 'Enable AI reply suggestions',
+      shortcut: '',
+      action: actions.toggleAISuggestions,
+    },
+    { id: 'report-bug', label: 'Report a bug', shortcut: '', action: actions.reportBug },
     {
       id: 'demo-mode',
       label: actions.isDemoActive ? 'Exit demo mode' : 'Enter demo mode',

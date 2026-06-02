@@ -29,24 +29,26 @@ export async function prefetchSharedPosts(messages: Message[]): Promise<void> {
 
   if (postUrns.size === 0) return;
 
-  // Check which are already cached and fresh
+  // Check which are already cached and fresh (read-only — safe to interleave).
   const now = Date.now();
-  const toFetch: string[] = [];
+  const candidates: string[] = [];
   for (const urn of postUrns) {
-    // Skip if already being fetched by another concurrent call
     if (_inflightPostFetches.has(urn)) continue;
     const cached = await db.postCache.get(urn);
     if (cached && (now - cached.cachedAt) < POST_CACHE_TTL) {
       continue; // still fresh
     }
-    toFetch.push(urn);
+    candidates.push(urn);
   }
 
-  if (toFetch.length === 0) return;
+  if (candidates.length === 0) return;
 
-  debugLog('info', `[PREFETCH] Fetching ${toFetch.length} shared post(s)...`);
+  debugLog('info', `[PREFETCH] Fetching up to ${candidates.length} shared post(s)...`);
 
-  for (const urn of toFetch) {
+  for (const urn of candidates) {
+    // Re-check + claim with no await in between, so a concurrent caller that
+    // already started this URN isn't fetched a second time.
+    if (_inflightPostFetches.has(urn)) continue;
     const promise = _fetchAndCachePost(urn, now);
     _inflightPostFetches.set(urn, promise);
     // Await sequentially to avoid flooding the API

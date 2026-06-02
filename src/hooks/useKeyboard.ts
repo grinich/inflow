@@ -228,7 +228,14 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       // J/K/ArrowDown/ArrowUp — navigate conversations and auto-open thread
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault();
-        const newIndex = Math.min(store.selectedIndex + 1, convs.length - 1);
+        // Reconcile the cursor from the actually-selected conversation so it
+        // can't desync (e.g. opened from a toast with a list-wide index, or the
+        // list reordered under us). Fall back to the stored index.
+        const curIdx = store.selectedConversationId
+          ? convs.findIndex((c) => c.id === store.selectedConversationId)
+          : store.selectedIndex;
+        const baseIdx = curIdx === -1 ? store.selectedIndex : curIdx;
+        const newIndex = Math.min(baseIdx + 1, convs.length - 1);
         const conv = convs[newIndex];
         if (conv) {
           if (conv.draft === 1) {
@@ -250,7 +257,11 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
       if ((e.key === 'k' || e.key === 'ArrowUp') && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
-        const newIndex = Math.max(store.selectedIndex - 1, 0);
+        const curIdx = store.selectedConversationId
+          ? convs.findIndex((c) => c.id === store.selectedConversationId)
+          : store.selectedIndex;
+        const baseIdx = curIdx === -1 ? store.selectedIndex : curIdx;
+        const newIndex = Math.max(baseIdx - 1, 0);
         const conv = convs[newIndex];
         if (conv) {
           if (conv.draft === 1) {

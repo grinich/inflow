@@ -13,6 +13,10 @@ interface PredictOptions {
   fullResponse?: boolean;
   /** Override maxOutputTokens (default: 20). */
   maxTokens?: number;
+  /** Override the system prompt. */
+  systemPrompt?: string;
+  /** Override temperature (default: 0.3). */
+  temperature?: number;
 }
 
 interface AISession {
@@ -44,9 +48,12 @@ export function useAISession(): AISession {
 
   const predict = async (prompt: string, options?: AbortSignal | PredictOptions): Promise<string | null> => {
     // Support both old (AbortSignal) and new (options object) signatures
-    const signal = options instanceof AbortSignal ? options : options?.signal;
-    const fullResponse = options instanceof AbortSignal ? false : options?.fullResponse ?? false;
-    const maxTokens = options instanceof AbortSignal ? 20 : options?.maxTokens ?? 20;
+    const isOpts = options && !(options instanceof AbortSignal);
+    const signal = isOpts ? options.signal : (options as AbortSignal | undefined);
+    const fullResponse = isOpts ? options.fullResponse ?? false : false;
+    const maxTokens = isOpts ? options.maxTokens ?? 20 : 20;
+    const systemPrompt = isOpts ? options.systemPrompt ?? SYSTEM_PROMPT : SYSTEM_PROMPT;
+    const temperature = isOpts ? options.temperature ?? 0.3 : 0.3;
 
     try {
       const key = cachedKey;
@@ -57,9 +64,9 @@ export function useAISession(): AISession {
         headers: { 'Content-Type': 'application/json' },
         signal,
         body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          system_instruction: { parts: [{ text: systemPrompt }] },
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
+          generationConfig: { maxOutputTokens: maxTokens, temperature },
         }),
       });
 

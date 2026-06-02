@@ -19,11 +19,37 @@ import {
   unstarConversation,
 } from './api/conversations';
 import { sendMessage, editMessage, reactWithEmoji, recallMessage } from './api/messages';
+import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression';
 import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
 import type { PendingAction } from '@/db/database';
 
 let draining = false;
+
+/** Age threshold after which confirmed/failed actions are cleaned up. */
+const ACTION_CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 1 day
+
+/**
+ * Remove old confirmed/failed pending actions to prevent unbounded table growth.
+ * Called at the start of every drain cycle.
+ */
+async function cleanupStaleActions(): Promise<void> {
+  try {
+    const cutoff = Date.now() - ACTION_CLEANUP_AGE_MS;
+    const stale = await db.pendingActions
+      .filter((a) =>
+        (a.status === 'confirmed' || a.status === 'failed') &&
+        a.timestamp < cutoff
+      )
+      .toArray();
+    if (stale.length > 0) {
+      await db.pendingActions.bulkDelete(stale.map((a) => a.id));
+      debugLog('info', `[ACTION-QUEUE] Cleaned up ${stale.length} stale action(s)`);
+    }
+  } catch (err) {
+    debugLog('warn', `[ACTION-QUEUE] Cleanup failed: ${err}`);
+  }
+}
 
 /**
  * Process all queued actions in timestamp order.
@@ -34,6 +60,9 @@ export async function drainActionQueue(): Promise<void> {
   draining = true;
 
   try {
+    // Prune old confirmed/failed actions before draining
+    await cleanupStaleActions();
+
     const queued = await db.pendingActions
       .where('status')
       .equals('queued')
@@ -50,8 +79,10 @@ export async function drainActionQueue(): Promise<void> {
         break;
       }
 
+      let replayed = false;
       try {
         await replayAction(action);
+        replayed = true;
         await db.pendingActions.update(action.id, { status: 'confirmed' });
 
         // For send actions, update the temp message status
@@ -66,6 +97,15 @@ export async function drainActionQueue(): Promise<void> {
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
           debugLog('info', '[ACTION-QUEUE] Went offline during replay — stopping');
           break;
+        }
+
+        if (replayed) {
+          // The server-side action already succeeded — only the local bookkeeping
+          // failed. Rolling back here would resend on the next retry (duplicate),
+          // so best-effort mark confirmed and move on instead.
+          debugLog('warn', `[ACTION-QUEUE] Post-replay bookkeeping failed for ${action.type} (${action.conversationId}): ${err}`);
+          await db.pendingActions.update(action.id, { status: 'confirmed' }).catch(() => {});
+          continue;
         }
 
         // Genuine server error — rollback
@@ -89,30 +129,39 @@ async function replayAction(action: PendingAction): Promise<void> {
 
   switch (action.type) {
     case 'archive':
+      recordMutation(convId);
       await archiveConversation(convId);
       break;
     case 'unarchive':
+      recordMutation(convId);
       await unarchiveConversation(convId);
       break;
     case 'move_to_focused':
+      recordMutation(convId);
       await moveToFocused(convId);
       break;
     case 'move_to_other':
+      recordMutation(convId);
       await moveToOther(convId);
       break;
     case 'move_to_spam':
+      recordMutation(convId);
       await moveToSpam(convId);
       break;
     case 'markRead':
+      recordMarkRead(convId);
       await markConversationRead(convId);
       break;
     case 'markUnread':
+      recordMutation(convId);
       await markConversationUnread(convId);
       break;
     case 'star':
+      recordMutation(convId);
       await starConversation(convId);
       break;
     case 'unstar':
+      recordMutation(convId);
       await unstarConversation(convId);
       break;
     case 'delete':

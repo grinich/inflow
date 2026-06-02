@@ -10,6 +10,7 @@ function backfillDelay(): Promise<void> {
   return new Promise((r) => setTimeout(r, 100));
 }
 const MAX_RETRIES = 3;
+let _backfillRunning = false;
 
 /**
  * Fetch messages for a batch of queued conversations.
@@ -17,6 +18,16 @@ const MAX_RETRIES = 3;
  * Paginates through all message pages per conversation.
  */
 export async function backfillBatch(batchSize = 10, onProgress?: () => void): Promise<number> {
+  if (_backfillRunning) return 0;
+  _backfillRunning = true;
+  try {
+  return await _backfillBatchInner(batchSize, onProgress);
+  } finally {
+    _backfillRunning = false;
+  }
+}
+
+async function _backfillBatchInner(batchSize: number, onProgress?: () => void): Promise<number> {
   const memberUrn = await getMemberUrn();
 
   // Get pending items ordered by priority (lowest = newest)
@@ -50,6 +61,17 @@ export async function backfillBatch(batchSize = 10, onProgress?: () => void): Pr
           }
         }
 
+        // Preserve SSE-written fields the pagination API doesn't return, so a
+        // re-sync doesn't wipe read receipts / reactions / edits already stored
+        // on the canonical message rows.
+        const existingRows = await db.messages.bulkGet(messages.map((m) => m.id));
+        for (let i = 0; i < messages.length; i++) {
+          const prev = existingRows[i];
+          if (!prev) continue;
+          if (prev.seenAt && !messages[i].seenAt) messages[i].seenAt = prev.seenAt;
+          if (prev.reactions?.length && !messages[i].reactions?.length) messages[i].reactions = prev.reactions;
+          if (prev.editedAt && !messages[i].editedAt) messages[i].editedAt = prev.editedAt;
+        }
         await db.messages.bulkPut(messages);
 
         // Update hasAttachments flag
@@ -65,9 +87,11 @@ export async function backfillBatch(batchSize = 10, onProgress?: () => void): Pr
         totalMessages += messages.length;
       }
 
-      // Clean up SSE duplicate messages — only delete those that have
-      // a canonical replacement (same body + sender). Keep SSE messages
-      // that arrived after the API response to avoid losing recent messages.
+      // Clean up SSE duplicate messages — only delete SSE-format entries
+      // (fsd_message / fs_event) that have a canonical replacement (msg_message)
+      // with the same body + sender + timestamp. Preserve editedAt and reactions
+      // from the SSE entry onto the canonical version (the Messenger API doesn't
+      // return these fields).
       const allMsgs = await db.messages
         .where('conversationId')
         .equals(item.conversationId)
@@ -78,14 +102,30 @@ export async function backfillBatch(batchSize = 10, onProgress?: () => void): Pr
           canonicalKeys.add(`${m.body}|${m.senderUrn}|${m.createdAt}`);
         }
       }
-      const sseOrphans = allMsgs
-        .filter((m) =>
-          (m.id.startsWith('urn:li:fsd_message:') || m.id.startsWith('urn:li:fs_event:')) &&
-          canonicalKeys.has(`${m.body}|${m.senderUrn}|${m.createdAt}`)
-        )
-        .map((m) => m.id);
+      const sseOrphans = allMsgs.filter((m) =>
+        (m.id.startsWith('urn:li:fsd_message:') || m.id.startsWith('urn:li:fs_event:')) &&
+        canonicalKeys.has(`${m.body}|${m.senderUrn}|${m.createdAt}`)
+      );
       if (sseOrphans.length > 0) {
-        await db.messages.bulkDelete(sseOrphans);
+        // Preserve editedAt and reactions from SSE entries onto canonical versions
+        for (const stale of sseOrphans) {
+          if (!stale.editedAt && !stale.reactions?.length) continue;
+          const canonical = allMsgs.find(m =>
+            m.id.startsWith('urn:li:msg_message:') &&
+            m.body === stale.body &&
+            m.senderUrn === stale.senderUrn &&
+            m.createdAt === stale.createdAt
+          );
+          if (canonical) {
+            const updates: Record<string, any> = {};
+            if (stale.editedAt && !canonical.editedAt) updates.editedAt = stale.editedAt;
+            if (stale.reactions?.length && !canonical.reactions?.length) updates.reactions = stale.reactions;
+            if (Object.keys(updates).length > 0) {
+              await db.messages.update(canonical.id, updates);
+            }
+          }
+        }
+        await db.messages.bulkDelete(sseOrphans.map((m) => m.id));
       }
 
       // Mark as done
@@ -140,7 +180,12 @@ export async function recoverStuckItems(): Promise<number> {
   );
 
   for (const item of stuck) {
-    await db.syncQueue.update(item.conversationId, { status: 'pending' });
+    // Count the interrupted attempt instead of resetting to 0, so a conversation
+    // that repeatedly crashes the worker eventually reaches MAX_RETRIES and stops
+    // rather than retrying (and re-crashing) forever.
+    const newFailCount = item.failCount + 1;
+    const newStatus = newFailCount >= MAX_RETRIES ? 'failed' : 'pending';
+    await db.syncQueue.update(item.conversationId, { status: newStatus, failCount: newFailCount });
   }
 
   return stuck.length;

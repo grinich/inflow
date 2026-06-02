@@ -10,13 +10,18 @@ export interface LogEntry {
 }
 
 const MAX_ENTRIES = 200;
+const MAX_MESSAGE_LENGTH = 10_000;
 const entries: LogEntry[] = [];
 
 export function debugLog(level: LogEntry['level'], ...args: unknown[]) {
-  const message = args.map(a => {
+  let message = args.map(a => {
     if (typeof a === 'string') return a;
-    try { return JSON.stringify(a, null, 2); } catch { return String(a); }
+    try { return JSON.stringify(a); } catch { return String(a); }
   }).join(' ');
+
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    message = message.substring(0, MAX_MESSAGE_LENGTH) + `… (truncated)`;
+  }
 
   entries.push({ ts: Date.now(), level, message });
   if (entries.length > MAX_ENTRIES) entries.shift();

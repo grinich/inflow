@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { sendBridgeMessage } from '@/lib/bridge';
-import { switchDatabase, memberIdFromUrn, getActiveAccountId } from '@/db/database';
+import { switchDatabase, memberIdFromUrn, getActiveAccountId, migrateDraftsFromLocalStorage } from '@/db/database';
 import { isDemoMode, seedDemoData, startDemoIncoming, stopDemoIncoming } from '@/lib/demo-mode';
 
 interface AuthGateProps {
@@ -70,6 +70,8 @@ export function AuthGate({ children }: AuthGateProps) {
           const memberId = memberIdFromUrn(memberUrn);
           if (memberId) {
             await switchDatabase(memberId);
+            // Runs in the UI where localStorage exists (the SW-side v11 upgrade couldn't).
+            migrateDraftsFromLocalStorage().catch(() => {});
             if (memberId !== accountKey) {
               setAccountKey(memberId);
             }
@@ -150,12 +152,12 @@ export function AuthGate({ children }: AuthGateProps) {
 
   return (
     <div key={accountKey} className="flex h-screen flex-col">
+      <div className="min-h-0 flex-1">{children}</div>
       {!online && (
         <div className="flex h-5 shrink-0 items-center justify-center bg-blue-400/80 text-[10px] font-medium tracking-wide text-white">
           OFFLINE
         </div>
       )}
-      <div className="min-h-0 flex-1">{children}</div>
     </div>
   );
 }

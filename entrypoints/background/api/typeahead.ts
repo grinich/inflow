@@ -1,5 +1,6 @@
 import { voyagerFetch } from './client';
 import { getMemberUrn } from '../auth/session';
+import { encodeUrnChars } from './encode';
 import { debugLog } from '@/lib/debug-log';
 
 export interface TypeaheadResult {
@@ -12,7 +13,7 @@ export interface TypeaheadResult {
 export async function searchTypeahead(query: string): Promise<TypeaheadResult[]> {
   const memberUrn = await getMemberUrn();
 
-  const variables = `(keyword:${query},types:List(CONNECTIONS,GROUP_THREADS,PEOPLE,COWORKERS))`;
+  const variables = `(keyword:${encodeUrnChars(query)},types:List(CONNECTIONS,GROUP_THREADS,PEOPLE,COWORKERS))`;
   const queryId = 'voyagerMessagingDashMessagingTypeahead.7f566173ac0c94b510b3dc2b2a6763d4';
   const res = await voyagerFetch(
     `/graphql?includeWebMetadata=true&variables=${variables}&queryId=${queryId}`

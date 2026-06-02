@@ -198,13 +198,15 @@ export const useUIStore = create<UIState>((set, get) => ({
       lastUndoConversationId: toast.undoConversationId ?? null,
     }));
     toastTimeout = setTimeout(() => {
-      set((s) => (s.toast?.id === id ? { toast: null } : {}));
+      // Clear the undo state alongside the toast so a later 'z' press can't fire
+      // a stale undo for an action whose toast disappeared long ago.
+      set((s) => (s.toast?.id === id ? { toast: null, lastUndoAction: null, lastUndoConversationId: null } : {}));
     }, 2000);
   },
 
   dismissToast: () => {
     if (toastTimeout) clearTimeout(toastTimeout);
-    set({ toast: null });
+    set({ toast: null, lastUndoAction: null, lastUndoConversationId: null });
   },
 
   clearLastUndo: () => set({ lastUndoAction: null, lastUndoConversationId: null }),

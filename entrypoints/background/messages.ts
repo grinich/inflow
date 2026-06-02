@@ -26,12 +26,23 @@ import { normalizeConversations, normalizeMessages } from '@/lib/voyager-normali
 import { debugLog, getDebugLogs, clearDebugLogs } from '@/lib/debug-log';
 import { getBackfillCutoff } from '@/lib/sync-settings';
 import { db, mergeProfiles } from '@/db/database';
+import { mergeConversation } from './sync/merge-conversation';
 import { dbReady } from './db-ready';
 import { runDiagnosticSync } from './diagnostic';
-import { recordMarkRead } from './realtime/mark-read-suppression';
+import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression';
 import { getSSEStatus } from './realtime/sse-client';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
+
+/** Per-conversation in-flight send tracking to prevent duplicate messages.
+ *  Stores conversation ID → start timestamp. Entries older than 5 minutes
+ *  are automatically expired to prevent permanent blocks from hung requests. */
+/**
+ * Per-conversation send chain — serializes sends so a rapid second message
+ * queues behind the first instead of being rejected (which the optimistic UI
+ * would otherwise mark as 'failed').
+ */
+const _sendChains = new Map<string, Promise<unknown>>();
 
 export function setupMessageRouter() {
   chrome.runtime.onMessage.addListener(
@@ -49,6 +60,11 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
   // All other handlers wait for the DB to be pointed at the correct account.
   if (msg.type !== 'CHECK_AUTH' && msg.type !== 'GET_DEBUG_LOGS' && msg.type !== 'GET_SSE_STATUS') {
     await dbReady;
+    // dbReady can resolve while unauthenticated (no account → DB never opened).
+    // Bail with a clean error instead of dereferencing a null db in the handlers.
+    if (!db) {
+      return { success: false, error: 'Not authenticated — database not initialized' };
+    }
   }
 
   switch (msg.type) {
@@ -155,26 +171,47 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
       return { success: true };
     }
     case 'SEND_MESSAGE': {
-      await sendMessage(msg.conversationId, msg.body, msg.attachments, msg.replyTo);
-      return { success: true };
+      // Chain after any in-flight send to the same conversation (regardless of
+      // its outcome) so a legitimate second message is delivered in order rather
+      // than rejected.
+      const prev = _sendChains.get(msg.conversationId) ?? Promise.resolve();
+      const run = prev.then(
+        () => sendMessage(msg.conversationId, msg.body, msg.attachments, msg.replyTo),
+        () => sendMessage(msg.conversationId, msg.body, msg.attachments, msg.replyTo),
+      );
+      _sendChains.set(msg.conversationId, run);
+      try {
+        await run;
+        return { success: true };
+      } finally {
+        // Drop the entry once drained (only if no newer send queued behind us).
+        if (_sendChains.get(msg.conversationId) === run) {
+          _sendChains.delete(msg.conversationId);
+        }
+      }
     }
     case 'ARCHIVE': {
+      recordMutation(msg.conversationId);
       await archiveConversation(msg.conversationId);
       return { success: true };
     }
     case 'UNARCHIVE': {
+      recordMutation(msg.conversationId);
       await unarchiveConversation(msg.conversationId);
       return { success: true };
     }
     case 'MOVE_TO_OTHER': {
+      recordMutation(msg.conversationId);
       await moveToOther(msg.conversationId);
       return { success: true };
     }
     case 'MOVE_TO_FOCUSED': {
+      recordMutation(msg.conversationId);
       await moveToFocused(msg.conversationId);
       return { success: true };
     }
     case 'MOVE_TO_SPAM': {
+      recordMutation(msg.conversationId);
       await moveToSpam(msg.conversationId);
       return { success: true };
     }
@@ -184,6 +221,7 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
       return { success: true };
     }
     case 'MARK_UNREAD': {
+      recordMutation(msg.conversationId);
       await markConversationUnread(msg.conversationId);
       return { success: true };
     }
@@ -192,10 +230,12 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
       return { success: true };
     }
     case 'STAR': {
+      recordMutation(msg.conversationId);
       await starConversation(msg.conversationId);
       return { success: true };
     }
     case 'UNSTAR': {
+      recordMutation(msg.conversationId);
       await unstarConversation(msg.conversationId);
       return { success: true };
     }
@@ -344,26 +384,12 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
       const { response: rawData, nextCursor } = await searchConversations(msg.query, msg.cursor || null);
       const { conversations, profiles } = normalizeConversations(rawData, memberUrn);
 
-      // Store in IndexedDB using same merge logic as discovery
+      // Store in IndexedDB using shared merge logic
       if (conversations.length > 0 || profiles.length > 0) {
-        await db.transaction('rw', [db.conversations, db.profiles], async () => {
+        await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions], async () => {
           await mergeProfiles(profiles);
           for (const conv of conversations) {
-            const existing = await db.conversations.get(conv.id);
-            if (existing) {
-              await db.conversations.update(conv.id, {
-                participantUrns: conv.participantUrns.length > 0 ? conv.participantUrns : existing.participantUrns,
-                participantNames: conv.participantNames.length > 0 ? conv.participantNames : existing.participantNames,
-                participantPictures: conv.participantPictures.length > 0 ? conv.participantPictures : existing.participantPictures,
-                lastMessage: conv.lastMessage || existing.lastMessage,
-                lastActivityAt: Math.max(conv.lastActivityAt, existing.lastActivityAt),
-                category: conv.category,
-                archived: conv.archived,
-                starred: existing.starred,  // preserve starred state during search merge
-              });
-            } else {
-              await db.conversations.put(conv);
-            }
+            await mergeConversation(conv);
           }
         });
       }

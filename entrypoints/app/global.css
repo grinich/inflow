@@ -3,7 +3,7 @@
 /* Theme variables — light is default */
 :root {
   --surface: #ffffff;
-  --surface-raised: #f9fafb;
+  --surface-raised: #f0f0f3;
   --surface-hover: #f4f4f5;
   --surface-active: #dbeafe;
   --surface-input: #f4f4f5;

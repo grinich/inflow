@@ -32,7 +32,7 @@ export function SharedPostCard({ attachment, isMe }: SharedPostCardProps) {
 
   // Check cache first (reactive — updates when cache is populated by sync)
   const cached = useLiveQuery(
-    () => postUrn ? db.postCache.get(postUrn) : undefined,
+    () => (postUrn && db) ? db.postCache.get(postUrn) : undefined,
     [postUrn]
   );
 

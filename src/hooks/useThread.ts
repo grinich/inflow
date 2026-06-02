@@ -9,7 +9,7 @@ const DEBOUNCE_MS = 150; // debounce rapid thread switches
 export function useThread(conversationId: string | null, mergedIds?: string[]) {
   const messages = useLiveQuery(
     async () => {
-      if (!conversationId) return [];
+      if (!conversationId || !db) return [];
       const allIds = [conversationId, ...(mergedIds || [])];
       const chunks = await Promise.all(
         allIds.map((id) =>
@@ -67,7 +67,7 @@ export function useThread(conversationId: string | null, mergedIds?: string[]) {
     return () => {
       clearTimeout(timeout);
     };
-  }, [conversationId]);
+  }, [conversationId, mergedIds?.join(',')]);
 
   // Re-fetch when tab becomes visible again (catches messages missed while backgrounded)
   useEffect(() => {

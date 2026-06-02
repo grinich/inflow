@@ -79,7 +79,8 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
       }
       if (uncached.length === 0) return;
       for (const id of uncached) prefetchedRef.current.add(id);
-      sendBridgeMessage({ type: 'PREFETCH_MESSAGES', conversationIds: uncached }).catch(() => {});
+      sendBridgeMessage({ type: 'PREFETCH_MESSAGES', conversationIds: uncached })
+      .catch(() => { for (const id of uncached) prefetchedRef.current.delete(id); });
     })();
   }, [selectedConversationId, conversations]);
 
@@ -114,7 +115,8 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
     // Mark as requested so we don't re-request
     for (const id of uncached) prefetchedRef.current.add(id);
 
-    sendBridgeMessage({ type: 'PREFETCH_MESSAGES', conversationIds: uncached }).catch(() => {});
+    sendBridgeMessage({ type: 'PREFETCH_MESSAGES', conversationIds: uncached })
+      .catch(() => { for (const id of uncached) prefetchedRef.current.delete(id); });
   }, []);
 
   useEffect(() => {
@@ -164,28 +166,29 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
   return (
     <div className="flex h-full flex-col">
       <ConversationListHeader conversationCount={conversations.length} />
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overscroll-contain">
-        {conversations.length === 0 ? null : (
-          <>
-            {conversations.map((conv, i) => (
-              <ConversationRow
-                key={conv.id}
-                conversation={conv}
-                selected={conv.id === selectedConversationId}
-                onClick={() => handleRowClick(conv, i)}
-                // onArchive={() => archiveConversation(conv)}
-              />
-            ))}
-            <div ref={sentinelRef} className="h-1" />
-            {(isSearching || isDiscovering) && (
-              <div className="flex items-center justify-center gap-2 py-3 text-xs text-fg-faint">
-                <svg className="h-3 w-3 animate-spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="8" cy="8" r="6" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
-                </svg>
-                {isSearching ? 'Searching LinkedIn...' : 'Loading more...'}
-              </div>
-            )}
-          </>
+      <div ref={scrollContainerRef} className="flex-1 select-none overflow-y-auto overscroll-contain">
+        {conversations.map((conv, i) => (
+          <ConversationRow
+            key={conv.id}
+            conversation={conv}
+            selected={conv.id === selectedConversationId}
+            onClick={() => handleRowClick(conv, i)}
+            // onArchive={() => archiveConversation(conv)}
+          />
+        ))}
+        {/* Keep the infinite-scroll sentinel mounted whenever a search/discovery
+            is in flight — even with zero local matches — so pagination can fire
+            and the loading state stays visible. */}
+        {(conversations.length > 0 || isSearching || isDiscovering) && (
+          <div ref={sentinelRef} className="h-1" />
+        )}
+        {(isSearching || isDiscovering) && (
+          <div className="flex items-center justify-center gap-2 py-3 text-xs text-fg-faint">
+            <svg className="h-3 w-3 animate-spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="8" cy="8" r="6" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
+            </svg>
+            {isSearching ? 'Searching LinkedIn...' : 'Loading more...'}
+          </div>
         )}
       </div>
       <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">

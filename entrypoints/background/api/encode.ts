@@ -9,13 +9,17 @@
  * Encode a URN value for use in LinkedIn GraphQL variables.
  * Encodes : ( ) , = but leaves alphanumeric, -, _ alone.
  */
-function encodeUrnChars(s: string): string {
+export function encodeUrnChars(s: string): string {
   return s
+    .replace(/%/g, '%25') // must run first so we don't double-encode the escapes below
     .replace(/:/g, '%3A')
     .replace(/\(/g, '%28')
     .replace(/\)/g, '%29')
     .replace(/,/g, '%2C')
     .replace(/=/g, '%3D')
+    .replace(/&/g, '%26')
+    .replace(/#/g, '%23')
+    .replace(/\+/g, '%2B')
     .replace(/ /g, '%20');
 }
 

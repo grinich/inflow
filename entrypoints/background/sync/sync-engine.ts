@@ -3,6 +3,7 @@ import { getMemberUrn } from '../auth/session';
 import { normalizeConversations } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
 import { db, mergeProfiles } from '@/db/database';
+import { mergeConversation } from './merge-conversation';
 import type { Conversation } from '@/types/conversation';
 import type { Profile } from '@/types/profile';
 
@@ -171,29 +172,11 @@ async function storeConversationPage(
   debugLog('info', `Storing page: ${conversations.length} conversations, ${profiles.length} profiles`);
 
   // Store immediately so UI updates via useLiveQuery
-  // Merge instead of bulkPut to preserve local-only fields like starred
-  await db.transaction('rw', [db.conversations, db.profiles], async () => {
+  // mergeConversation preserves local-only fields and respects pending actions
+  await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions], async () => {
     await mergeProfiles(profiles);
     for (const conv of conversations) {
-      const existing = await db.conversations.get(conv.id);
-      if (existing) {
-        await db.conversations.update(conv.id, {
-          participantUrns: conv.participantUrns.length > 0 ? conv.participantUrns : existing.participantUrns,
-          participantNames: conv.participantNames.length > 0 ? conv.participantNames : existing.participantNames,
-          participantPictures: conv.participantPictures.length > 0 ? conv.participantPictures : existing.participantPictures,
-          lastMessage: conv.lastMessage || existing.lastMessage,
-          lastActivityAt: Math.max(conv.lastActivityAt, existing.lastActivityAt),
-          category: conv.category,
-          archived: conv.archived,
-          starred: existing.starred,
-          // Sync read state from server: if server says read, trust it.
-          // If server says unread but local says read, also trust the server
-          // (the user may have received a new message or read on another client).
-          read: conv.read,
-        });
-      } else {
-        await db.conversations.put(conv);
-      }
+      await mergeConversation(conv);
     }
   });
 

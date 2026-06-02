@@ -406,6 +406,7 @@ describe('sync-engine', () => {
           participants: [{ profileId: 'Alice', firstName: 'Alice', lastName: 'Smith' }],
           lastMessage: 'New msg',
           lastActivityAt: 2000,
+          categories: ['PRIMARY_INBOX', 'STARRED'],
         },
       ]);
 
@@ -417,7 +418,7 @@ describe('sync-engine', () => {
       await syncConversations();
 
       const conv = await testDb.conversations.get('conv-star');
-      // starred should be preserved from existing record
+      // starred should be synced from API categories
       expect(conv.starred).toBe(1);
       // Other fields should be updated from API
       expect(conv.lastMessage).toBe('New msg');
@@ -845,6 +846,167 @@ describe('sync-engine', () => {
         .find((msg: any) => msg.type === 'SYNC_STATUS' && msg.state === 'syncing');
 
       expect(syncingCall.message).toBe('Syncing Spam...');
+    });
+  });
+
+  describe('pending-action guard (fix #1)', () => {
+    it('does NOT overwrite category/archived/read/starred when a pending action exists', async () => {
+      const { fetchConversationsPage } = await import(
+        '../../entrypoints/background/api/conversations'
+      );
+      const { syncConversations } = await import(
+        '../../entrypoints/background/sync/sync-engine'
+      );
+
+      // Pre-insert a conversation that was just archived optimistically
+      await testDb.conversations.put({
+        id: 'conv-guard',
+        participantUrns: ['urn:li:fsd_profile:Alice'],
+        participantNames: ['Alice'],
+        participantPictures: [''],
+        lastMessage: 'Hi',
+        lastActivityAt: 1000,
+        read: 1,
+        archived: 1,       // optimistically archived
+        category: 'ARCHIVE',
+        starred: 0,
+      });
+
+      // Insert a pending action for this conversation (archive in-flight)
+      await testDb.pendingActions.put({
+        id: 'pa-1',
+        type: 'archive',
+        conversationId: 'conv-guard',
+        status: 'pending',
+        timestamp: Date.now(),
+      });
+
+      // API returns stale data showing conversation still in PRIMARY_INBOX
+      const pageData = buildConversationsPage([
+        {
+          id: 'conv-guard',
+          participants: [{ profileId: 'Alice', firstName: 'Alice', lastName: 'Smith' }],
+          lastMessage: 'Hi there',
+          lastActivityAt: 2000,
+          categories: ['PRIMARY_INBOX'],
+          unreadCount: 1,
+        },
+      ]);
+
+      vi.mocked(fetchConversationsPage).mockResolvedValue({
+        response: pageData,
+        nextCursor: null,
+      });
+
+      await syncConversations();
+
+      const conv = await testDb.conversations.get('conv-guard');
+      // category/archived/read should NOT be overwritten because of pending action
+      expect(conv.archived).toBe(1);
+      expect(conv.category).toBe('ARCHIVE');
+      expect(conv.read).toBe(1);
+      // But non-guarded fields should still update
+      expect(conv.lastMessage).toBe('Hi there');
+      expect(conv.lastActivityAt).toBe(2000);
+    });
+
+    it('DOES overwrite category/archived/read when no pending action exists', async () => {
+      const { fetchConversationsPage } = await import(
+        '../../entrypoints/background/api/conversations'
+      );
+      const { syncConversations } = await import(
+        '../../entrypoints/background/sync/sync-engine'
+      );
+
+      // Pre-insert a conversation
+      await testDb.conversations.put({
+        id: 'conv-no-guard',
+        participantUrns: ['urn:li:fsd_profile:Bob'],
+        participantNames: ['Bob'],
+        participantPictures: [''],
+        lastMessage: 'Hi',
+        lastActivityAt: 1000,
+        read: 1,
+        archived: 0,
+        category: 'PRIMARY_INBOX',
+        starred: 0,
+      });
+
+      // No pending actions — server data should win
+      const pageData = buildConversationsPage([
+        {
+          id: 'conv-no-guard',
+          participants: [{ profileId: 'Bob', firstName: 'Bob', lastName: 'Jones' }],
+          lastMessage: 'New msg',
+          lastActivityAt: 2000,
+          categories: ['SECONDARY_INBOX'],
+          unreadCount: 2,
+        },
+      ]);
+
+      vi.mocked(fetchConversationsPage).mockResolvedValue({
+        response: pageData,
+        nextCursor: null,
+      });
+
+      await syncConversations();
+
+      const conv = await testDb.conversations.get('conv-no-guard');
+      expect(conv.category).toBe('SECONDARY_INBOX');
+      expect(conv.read).toBe(0);
+    });
+
+    it('does NOT guard when pending action status is confirmed', async () => {
+      const { fetchConversationsPage } = await import(
+        '../../entrypoints/background/api/conversations'
+      );
+      const { syncConversations } = await import(
+        '../../entrypoints/background/sync/sync-engine'
+      );
+
+      await testDb.conversations.put({
+        id: 'conv-confirmed',
+        participantUrns: ['urn:li:fsd_profile:C'],
+        participantNames: ['C'],
+        participantPictures: [''],
+        lastMessage: 'Hi',
+        lastActivityAt: 1000,
+        read: 1,
+        archived: 1,
+        category: 'ARCHIVE',
+        starred: 0,
+      });
+
+      // Pending action exists but is already confirmed — should not guard
+      await testDb.pendingActions.put({
+        id: 'pa-confirmed',
+        type: 'archive',
+        conversationId: 'conv-confirmed',
+        status: 'confirmed',
+        timestamp: Date.now(),
+      });
+
+      const pageData = buildConversationsPage([
+        {
+          id: 'conv-confirmed',
+          participants: [{ profileId: 'C', firstName: 'C', lastName: 'D' }],
+          lastMessage: 'Updated',
+          lastActivityAt: 2000,
+          categories: ['PRIMARY_INBOX'],
+        },
+      ]);
+
+      vi.mocked(fetchConversationsPage).mockResolvedValue({
+        response: pageData,
+        nextCursor: null,
+      });
+
+      await syncConversations();
+
+      const conv = await testDb.conversations.get('conv-confirmed');
+      // Should be overwritten because the action is confirmed, not pending/queued
+      expect(conv.category).toBe('PRIMARY_INBOX');
+      expect(conv.archived).toBe(0);
     });
   });
 

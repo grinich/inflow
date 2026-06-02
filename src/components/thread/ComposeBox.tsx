@@ -154,6 +154,12 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       prevUrls.current = previewUrls;
     }, [previewUrls]);
 
+    // Revoke any remaining preview URLs when the compose box unmounts (e.g.
+    // navigating away without sending) so the blob URLs don't leak.
+    useEffect(() => () => {
+      for (const url of prevUrls.current.values()) URL.revokeObjectURL(url);
+    }, []);
+
     // Restore draft when switching conversations
     useEffect(() => {
       let cancelled = false;
@@ -369,6 +375,8 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       };
     }, [conversationId, body, attachments]);
 
+    const hasContent = !!(body.trim() || attachments.length > 0);
+
     return (
       <div className="border-t border-edge p-3">
         {/* Attachment chips */}
@@ -478,7 +486,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         )}
 
         <div className="flex items-end gap-2">
-          <div className={`relative flex flex-1 items-end ${autocomplete.isOpen ? 'rounded-lg bg-surface-input ring-1 ring-ring-muted' : ''} ${autocomplete.isLoading ? 'animate-autocomplete-glow rounded-lg' : ''}`}>
+          <div className={`relative flex flex-1 items-end ${autocomplete.isOpen ? 'rounded-lg bg-surface-input ring-1 ring-ring-muted' : ''}`}>
           {autocomplete.suggestion && (
             <div
               className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg px-3 py-2 text-sm"
@@ -511,7 +519,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             onFocus={() => setComposeActive(true)}
             onBlur={() => { setComposeActive(false); setEmojiQuery(null); }}
             placeholder="Reply..."
-            rows={1}
+            rows={2}
             data-emoji-open={emojiOpen ? '' : undefined}
             data-autocomplete-open={autocomplete.isOpen || undefined}
             className={`max-h-40 w-full resize-none rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-faint outline-none transition-colors ${autocomplete.isOpen ? 'bg-transparent ring-0' : 'bg-surface-input ring-1 ring-ring-muted focus:ring-blue-500/50'}`}
@@ -582,7 +590,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             }}
           />
           {!body && (
-            <kbd className="pointer-events-none absolute left-[4.25rem] top-1/2 -translate-y-1/2 rounded border border-ring-muted bg-surface px-1.5 py-0.5 font-mono text-[10px] leading-none text-fg-faint">
+            <kbd className="pointer-events-none absolute left-[4.25rem] top-[0.6rem] rounded border border-ring-muted bg-surface px-1.5 py-0.5 font-mono text-[10px] leading-none text-fg-faint">
               R
             </kbd>
           )}
@@ -605,14 +613,27 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
                 handleSend();
               }
             }}
-            disabled={!body.trim() && attachments.length === 0}
-            className="flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!hasContent}
+            className="flex shrink-0 flex-col items-center justify-center rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium leading-tight text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {cmdHeld ? 'Send+Archive' : 'Send'}
-            <span className="flex items-center gap-0.5 opacity-60">
-              {cmdHeld && <kbd className="rounded border border-white/30 bg-white/10 px-1 py-0.5 font-mono text-[10px] leading-none">⌘</kbd>}
-              <kbd className="rounded border border-white/30 bg-white/10 px-1 py-0.5 font-mono text-[10px] leading-none">↵</kbd>
-            </span>
+            {cmdHeld && hasContent ? (
+              <>
+                <span className="flex items-center gap-1.5">
+                  Send
+                  <kbd className="rounded border border-white/30 bg-white/10 px-1 py-0.5 font-mono text-[10px] leading-none opacity-60">⌘</kbd>
+                </span>
+                <span className="-my-1 text-[9px] font-normal opacity-50">+</span>
+                <span className="flex items-center gap-1.5">
+                  Archive
+                  <kbd className="rounded border border-white/30 bg-white/10 px-1 py-0.5 font-mono text-[10px] leading-none opacity-60">↵</kbd>
+                </span>
+              </>
+            ) : (
+              <span className="flex items-center gap-1.5">
+                Send
+                <kbd className="rounded border border-white/30 bg-white/10 px-1 py-0.5 font-mono text-[10px] leading-none opacity-60">↵</kbd>
+              </span>
+            )}
           </button>
         </div>
       </div>

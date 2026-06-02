@@ -34,11 +34,12 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
   const avatarUrl = useCachedImage(message.senderPicture);
   const hasBody = message.body.trim().length > 0;
   const hasAttachments = message.attachments && message.attachments.length > 0;
+
   const showAvatar = !isMe && !grouped;
 
   // Look up sender's publicId for profile link (only when avatar is visible)
   const senderProfile = useLiveQuery(
-    () => showAvatar && message.senderUrn ? db.profiles.get(message.senderUrn) : undefined,
+    () => (showAvatar && message.senderUrn && db) ? db.profiles.get(message.senderUrn) : undefined,
     [showAvatar, message.senderUrn]
   );
   const senderProfileUrl = senderProfile?.publicId
@@ -130,6 +131,13 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
 
   // Animate only the optimistic message while it's being sent
   const isNew = message.status === 'sending' || message.status === 'queued';
+
+  // Skip rendering recalled/empty messages (no body, no attachments, no reply
+  // context). Must come AFTER all hooks so hook order stays stable when a
+  // message is emptied in place (e.g. unsend/recall) — see Rules of Hooks.
+  if (!hasBody && !hasAttachments && !message.repliedMessage && message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued') {
+    return null;
+  }
 
   return (
     <div data-message-id={message.id} className={`group/msg flex items-center gap-2 ${isMe ? 'flex-row-reverse' : ''} ${isNew ? 'animate-message-in' : ''}`}>
