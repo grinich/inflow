@@ -22,6 +22,7 @@ export function useConversations() {
   const filterSnapshotRef = useRef<{ query: string; tab: InboxTab; ids: Set<string> } | null>(null);
 
   const conversations = useLiveQuery(async () => {
+    if (!db) return [];
     let results;
 
     if (inboxTab === 'focused') {
@@ -161,14 +162,16 @@ export function useConversations() {
       // Parse after:YYYY-MM-DD filter
       const afterMatch = q.match(/after:(\d{4}-\d{2}-\d{2})/i);
       if (afterMatch) {
-        afterTs = Date.parse(afterMatch[1]);
+        const t = Date.parse(afterMatch[1]);
+        if (!Number.isNaN(t)) afterTs = t; // ignore impossible dates (e.g. 2026-13-40)
         q = q.replace(/after:\d{4}-\d{2}-\d{2}/gi, '').trim();
       }
 
       // Parse before:YYYY-MM-DD filter
       const beforeMatch = q.match(/before:(\d{4}-\d{2}-\d{2})/i);
       if (beforeMatch) {
-        beforeTs = Date.parse(beforeMatch[1]);
+        const t = Date.parse(beforeMatch[1]);
+        if (!Number.isNaN(t)) beforeTs = t;
         q = q.replace(/before:\d{4}-\d{2}-\d{2}/gi, '').trim();
       }
 
@@ -274,6 +277,7 @@ export function useConversations() {
   // Check if discovery is in progress for the current tab's category
   const category = TAB_TO_CATEGORY[inboxTab];
   const isDiscovering = useLiveQuery(async () => {
+    if (!db) return false;
     const state = await db.syncState.get(category);
     return state?.phase === 'discovering';
   }, [category]);

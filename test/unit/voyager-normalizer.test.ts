@@ -416,7 +416,7 @@ describe('normalizeConversations()', () => {
   });
 
   describe('category extraction', () => {
-    it('extracts category from categories (excluding INBOX)', () => {
+    it('folds non-routable OTHER category into the Other tab (SECONDARY_INBOX)', () => {
       const response: VoyagerResponse = {
         data: {},
         included: [
@@ -430,7 +430,9 @@ describe('normalizeConversations()', () => {
       };
 
       const { conversations } = normalizeConversations(response);
-      expect(conversations[0].category).toBe('OTHER');
+      // OTHER is not a UI-routable tab category — it is folded into the "Other"
+      // (SECONDARY_INBOX) tab so the conversation doesn't vanish from every tab.
+      expect(conversations[0].category).toBe('SECONDARY_INBOX');
     });
 
     it('defaults to PRIMARY_INBOX when only INBOX is in categories', () => {
@@ -467,7 +469,63 @@ describe('normalizeConversations()', () => {
       expect(conversations[0].category).toBe('PRIMARY_INBOX');
     });
 
-    it('handles INMAIL category', () => {
+    it('does NOT return STARRED as category when categories is [INBOX, STARRED] (fix #3)', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          makeConversation({
+            entityUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:X,2-conv)',
+            participantRefs: [participantAlice.entityUrn],
+            categories: ['INBOX', 'STARRED'],
+          }),
+        ],
+      };
+
+      const { conversations } = normalizeConversations(response);
+      // STARRED is not an inbox category — should default to PRIMARY_INBOX
+      expect(conversations[0].category).toBe('PRIMARY_INBOX');
+      // starred field should be set correctly
+      expect(conversations[0].starred).toBe(1);
+    });
+
+    it('returns correct category when both STARRED and PRIMARY_INBOX are present', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          makeConversation({
+            entityUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:X,2-conv)',
+            participantRefs: [participantAlice.entityUrn],
+            categories: ['INBOX', 'PRIMARY_INBOX', 'STARRED'],
+          }),
+        ],
+      };
+
+      const { conversations } = normalizeConversations(response);
+      expect(conversations[0].category).toBe('PRIMARY_INBOX');
+      expect(conversations[0].starred).toBe(1);
+    });
+
+    it('returns correct category when both STARRED and SECONDARY_INBOX are present', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          makeConversation({
+            entityUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:X,2-conv)',
+            participantRefs: [participantAlice.entityUrn],
+            categories: ['INBOX', 'SECONDARY_INBOX', 'STARRED'],
+          }),
+        ],
+      };
+
+      const { conversations } = normalizeConversations(response);
+      expect(conversations[0].category).toBe('SECONDARY_INBOX');
+      expect(conversations[0].starred).toBe(1);
+    });
+
+    it('folds INMAIL category into the Other tab (SECONDARY_INBOX)', () => {
       const response: VoyagerResponse = {
         data: {},
         included: [
@@ -481,7 +539,9 @@ describe('normalizeConversations()', () => {
       };
 
       const { conversations } = normalizeConversations(response);
-      expect(conversations[0].category).toBe('INMAIL');
+      // INMAIL is not a UI-routable tab category — folded into "Other" (SECONDARY_INBOX)
+      // so InMail threads stay visible instead of disappearing from every tab.
+      expect(conversations[0].category).toBe('SECONDARY_INBOX');
     });
   });
 

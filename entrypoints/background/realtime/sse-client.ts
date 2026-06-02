@@ -26,17 +26,29 @@ let connected = false;
 let lastEventAt = 0;
 let realtimeSessionId: string | null = null;
 
+// Serializes SSE event handling so two events touching the same conversation /
+// message row can't race on a non-transactional get→update and lose an update.
+let _eventChain: Promise<void> = Promise.resolve();
+
 /** Consider the connection stale if no event received for 3 minutes. */
 const STALE_THRESHOLD_MS = 3 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;
 const RECONNECT_INTERVAL_MS = 3000;
+const MAX_RECONNECT_ATTEMPTS = 100;
+/** After exhausting fast retries, keep retrying on this slow cadence (self-heal). */
+const GIVEUP_BACKOFF_MS = 5 * 60 * 1000;
 
+let _broadcastDebounce: ReturnType<typeof setTimeout> | null = null;
 function broadcastSSEStatus(): void {
-  chrome.runtime.sendMessage({
-    type: 'SSE_STATUS',
-    connected,
-    reconnecting: !!reconnectTimer || (!connected && reconnectAttempts > 0),
-  }).catch(() => {});
+  if (_broadcastDebounce) return;
+  _broadcastDebounce = setTimeout(() => {
+    _broadcastDebounce = null;
+    chrome.runtime.sendMessage({
+      type: 'SSE_STATUS',
+      connected,
+      reconnecting: !!reconnectTimer || (!connected && reconnectAttempts > 0),
+    }).catch(() => {});
+  }, 100);
 }
 
 export function getSSEStatus() {
@@ -49,7 +61,6 @@ export function getSSEStatus() {
 export function isRealtimeConnected(): boolean {
   if (!connected) return false;
   if (Date.now() - lastEventAt > STALE_THRESHOLD_MS) {
-    connected = false;
     return false;
   }
   return true;
@@ -164,8 +175,11 @@ async function readStream(
       for (const rawEvent of events) {
         if (!rawEvent.trim()) continue;
         totalEvents++;
-        lastEventAt = Date.now();
         processRawEvent(rawEvent);
+      }
+      // Update lastEventAt after processing complete events (not raw chunks)
+      if (events.length > 0) {
+        lastEventAt = Date.now();
       }
     }
   } catch (err: any) {
@@ -213,8 +227,11 @@ function processRawEvent(raw: string): void {
     debugLog('info', `[SSE] Got realtimeSessionId: ${realtimeSessionId}`);
   }
 
-  // Forward to event handler
-  handleRealtimeEvent(eventType, data);
+  // Forward to event handler, serialized so concurrent handlers don't perform
+  // overlapping read-modify-writes on the same conversation/message rows.
+  _eventChain = _eventChain
+    .then(() => handleRealtimeEvent(eventType, data))
+    .catch((err) => debugLog('error', `[SSE] event handler error: ${err}`));
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +242,27 @@ function startHeartbeat(): void {
   stopHeartbeat();
 
   heartbeatTimer = setInterval(async () => {
+    // Watchdog: a half-open socket leaves readStream blocked on read() forever
+    // with connected=true, so inbound messages silently stop. If no SSE event
+    // (including server keep-alives) has arrived within the stale threshold,
+    // force a reconnect rather than sitting on a dead stream.
+    if (connected && lastEventAt > 0 && Date.now() - lastEventAt > STALE_THRESHOLD_MS) {
+      debugLog('warn', '[SSE] No events for >3min — connection stale, forcing reconnect');
+      connected = false;
+      broadcastSSEStatus();
+      stopHeartbeat();
+      if (abortController) {
+        abortController.abort();
+        abortController = null;
+      }
+      if (reader) {
+        reader.cancel().catch(() => {});
+        reader = null;
+      }
+      scheduleReconnect();
+      return;
+    }
+
     if (!connected || !realtimeSessionId) return;
 
     try {
@@ -270,9 +308,28 @@ function scheduleReconnect(): void {
 
   reconnectAttempts++;
 
+  // After exhausting fast retries, don't give up permanently (which left the UI
+  // stuck showing "reconnecting" forever with no recovery). Reset and keep
+  // retrying on a slow cadence so the connection can self-heal.
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    debugLog('error', `[SSE] Max fast reconnect attempts reached — backing off to ${GIVEUP_BACKOFF_MS}ms cadence`);
+    reconnectAttempts = 0;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect().catch((err) => {
+        debugLog('error', `[SSE] Reconnect failed: ${err}`);
+        scheduleReconnect();
+      });
+    }, GIVEUP_BACKOFF_MS);
+    broadcastSSEStatus();
+    return;
+  }
+
+  const delay = Math.min(RECONNECT_INTERVAL_MS * Math.pow(2, Math.min(reconnectAttempts, 7)), 120_000);
+
   debugLog(
     'info',
-    `[SSE] Reconnecting in ${RECONNECT_INTERVAL_MS}ms (attempt ${reconnectAttempts})`
+    `[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`
   );
 
   reconnectTimer = setTimeout(() => {
@@ -281,7 +338,7 @@ function scheduleReconnect(): void {
       debugLog('error', `[SSE] Reconnect failed: ${err}`);
       scheduleReconnect();
     });
-  }, RECONNECT_INTERVAL_MS);
+  }, delay);
 }
 
 // ---------------------------------------------------------------------------

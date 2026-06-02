@@ -428,7 +428,7 @@ export async function createConversation(
   // Try to extract conversation ID from response
   const data = await res.json().catch(() => null);
   const convUrn = data?.value?.conversationUrn || data?.data?.value?.conversationUrn || '';
-  const convMatch = convUrn.match(/,([\w-]+=*)[\)]*$/);
+  const convMatch = convUrn.match(/,([\w+-]+=*)[\)]*$/);
   const conversationId = convMatch ? convMatch[1] : '';
 
   debugLog('info', `createConversation: success, convId=${conversationId.substring(0, 20)}`);

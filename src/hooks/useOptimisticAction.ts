@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { nanoid } from 'nanoid';
 import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
@@ -116,15 +117,14 @@ export function useOptimisticAction() {
     }
 
     sendBridgeMessage(bridgeMsg).catch(async () => {
-      if (!navigator.onLine) {
-        await createQueuedAction({
-          type: 'markRead',
-          conversationId,
-          rollbackData: { read: 0 },
-          bridgeMessage: bridgeMsg,
-        });
-      }
-      // markRead is idempotent — don't rollback on failure
+      // Queue for retry regardless of online state — markRead is idempotent
+      // but the server should eventually know about it.
+      await createQueuedAction({
+        type: 'markRead',
+        conversationId,
+        rollbackData: { read: 0 },
+        bridgeMessage: bridgeMsg,
+      });
     });
   }
 
@@ -262,6 +262,7 @@ export function useOptimisticAction() {
         return true;
       } else {
         const failReason = res.error || undefined;
+        for (const url of objectUrls) URL.revokeObjectURL(url);
         await db.messages.update(tempId, { status: 'failed', failReason });
         document.dispatchEvent(new CustomEvent('inflow:failed-change', { detail: conversationId }));
         return false;
@@ -269,6 +270,7 @@ export function useOptimisticAction() {
     } catch {
       // If we went offline during the call, queue instead of failing
       if (!navigator.onLine) {
+        for (const url of objectUrls) URL.revokeObjectURL(url);
         await db.messages.update(tempId, { status: 'queued' });
         await createQueuedAction({
           type: 'send',
@@ -278,6 +280,7 @@ export function useOptimisticAction() {
         });
         return true; // optimistic success
       }
+      for (const url of objectUrls) URL.revokeObjectURL(url);
       await db.messages.update(tempId, { status: 'failed' });
       document.dispatchEvent(new CustomEvent('inflow:failed-change', { detail: conversationId }));
       return false;
@@ -328,35 +331,34 @@ export function useOptimisticAction() {
     //    If we archive concurrently with the send, LinkedIn moves the
     //    conversation back to PRIMARY_INBOX when the new message arrives.
     if (!navigator.onLine) {
-      sendMessage(conversationId, body, files, replyTo);
+      await sendMessage(conversationId, body, files, replyTo);
       await queueAction(actionId, archiveBridgeMsg);
       return;
     }
 
-    sendMessage(conversationId, body, files, replyTo).then(async (ok) => {
-      if (!ok) {
-        showToast({ message: 'Failed to send message' });
-        return;
-      }
-      try {
-        const res = await sendBridgeMessage(archiveBridgeMsg);
-        if (res.success) {
-          await db.pendingActions.update(actionId, { status: 'confirmed' });
-        } else {
-          await db.conversations.update(conversationId, { archived: 0, category: previousCategory });
-          await db.pendingActions.update(actionId, { status: 'failed' });
-          showToast({ message: 'Failed to archive — rolled back' });
-        }
-      } catch {
-        if (!navigator.onLine) {
-          await queueAction(actionId, archiveBridgeMsg);
-          return;
-        }
+    const ok = await sendMessage(conversationId, body, files, replyTo);
+    if (!ok) {
+      showToast({ message: 'Failed to send message' });
+      return;
+    }
+    try {
+      const res = await sendBridgeMessage(archiveBridgeMsg);
+      if (res.success) {
+        await db.pendingActions.update(actionId, { status: 'confirmed' });
+      } else {
         await db.conversations.update(conversationId, { archived: 0, category: previousCategory });
         await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to archive — rolled back' });
       }
-    });
+    } catch {
+      if (!navigator.onLine) {
+        await queueAction(actionId, archiveBridgeMsg);
+        return;
+      }
+      await db.conversations.update(conversationId, { archived: 0, category: previousCategory });
+      await db.pendingActions.update(actionId, { status: 'failed' });
+      showToast({ message: 'Failed to archive — rolled back' });
+    }
   }
 
   async function moveToFocused(conversation: Conversation) {
@@ -534,14 +536,17 @@ export function useOptimisticAction() {
   }
 
   async function deleteConversation(conversation: Conversation) {
-    // Save messages for rollback before deleting
+    // Save messages + syncQueue row for rollback before deleting
     const savedMessages = await db.messages.where('conversationId').equals(conversation.id).toArray();
+    const savedQueueItem = await db.syncQueue.get(conversation.id).catch(() => undefined);
     const bridgeMsg = { type: 'DELETE_CONVERSATION' as const, conversationId: conversation.id };
 
-    // Remove from IndexedDB immediately
-    await db.conversations.delete(conversation.id);
-    await db.messages.where('conversationId').equals(conversation.id).delete();
-    await db.syncQueue.delete(conversation.id).catch(() => {});
+    // Remove from IndexedDB immediately (atomic transaction)
+    await db.transaction('rw', [db.conversations, db.messages, db.syncQueue], async () => {
+      await db.conversations.delete(conversation.id);
+      await db.messages.where('conversationId').equals(conversation.id).delete();
+      await db.syncQueue.delete(conversation.id).catch(() => {});
+    });
 
     if (!navigator.onLine) {
       await createQueuedAction({
@@ -558,6 +563,7 @@ export function useOptimisticAction() {
         if (!res.success) {
           await db.conversations.put(conversation);
           if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
+          if (savedQueueItem) await db.syncQueue.put(savedQueueItem).catch(() => {});
           showToast({ message: 'Failed to delete — restored' });
         }
       })
@@ -573,6 +579,7 @@ export function useOptimisticAction() {
         }
         await db.conversations.put(conversation);
         if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
+        if (savedQueueItem) await db.syncQueue.put(savedQueueItem).catch(() => {});
         showToast({ message: 'Failed to delete — restored' });
       });
   }
@@ -700,35 +707,42 @@ export function useOptimisticAction() {
   }
 
   async function reactToMessage(conversationId: string, messageId: string, emoji: string): Promise<void> {
-    const msg = await db.messages.get(messageId);
-    if (!msg) return;
+    // Serialize the read-modify-write in a transaction so two rapid reactions on
+    // the same message can't both read the old reactions and clobber each other.
+    let oldReactions: ReactionSummary[] = [];
+    let found = false;
+    await db.transaction('rw', db.messages, async () => {
+      const msg = await db.messages.get(messageId);
+      if (!msg) return;
+      found = true;
+      oldReactions = msg.reactions || [];
+      const existingIdx = oldReactions.findIndex(r => r.emoji === emoji);
+      let newReactions: ReactionSummary[];
 
-    const oldReactions = msg.reactions || [];
-    const existingIdx = oldReactions.findIndex(r => r.emoji === emoji);
-    let newReactions: ReactionSummary[];
-
-    if (existingIdx >= 0 && oldReactions[existingIdx].viewerReacted) {
-      // Toggle off — decrement count or remove pill
-      const existing = oldReactions[existingIdx];
-      if (existing.count <= 1) {
-        newReactions = oldReactions.filter((_, i) => i !== existingIdx);
-      } else {
+      if (existingIdx >= 0 && oldReactions[existingIdx].viewerReacted) {
+        // Toggle off — decrement count or remove pill
+        const existing = oldReactions[existingIdx];
+        if (existing.count <= 1) {
+          newReactions = oldReactions.filter((_, i) => i !== existingIdx);
+        } else {
+          newReactions = oldReactions.map((r, i) =>
+            i === existingIdx ? { ...r, count: r.count - 1, viewerReacted: false } : r
+          );
+        }
+      } else if (existingIdx >= 0) {
+        // Emoji exists but viewer hasn't reacted — increment
         newReactions = oldReactions.map((r, i) =>
-          i === existingIdx ? { ...r, count: r.count - 1, viewerReacted: false } : r
+          i === existingIdx ? { ...r, count: r.count + 1, viewerReacted: true } : r
         );
+      } else {
+        // New reaction
+        newReactions = [...oldReactions, { emoji, count: 1, firstReactedAt: Date.now(), viewerReacted: true }];
       }
-    } else if (existingIdx >= 0) {
-      // Emoji exists but viewer hasn't reacted — increment
-      newReactions = oldReactions.map((r, i) =>
-        i === existingIdx ? { ...r, count: r.count + 1, viewerReacted: true } : r
-      );
-    } else {
-      // New reaction
-      newReactions = [...oldReactions, { emoji, count: 1, firstReactedAt: Date.now(), viewerReacted: true }];
-    }
 
-    // Optimistic DB update
-    await db.messages.update(messageId, { reactions: newReactions.length > 0 ? newReactions : undefined });
+      // Optimistic DB update
+      await db.messages.update(messageId, { reactions: newReactions.length > 0 ? newReactions : undefined });
+    });
+    if (!found) return;
 
     const bridgeMsg = { type: 'REACT_EMOJI' as const, conversationId, messageId, emoji };
 
@@ -770,6 +784,23 @@ export function useOptimisticAction() {
 
     // Optimistic delete
     await db.messages.delete(messageId);
+
+    // Update conversation preview to show the previous message
+    try {
+      const remaining = await db.messages
+        .where('[conversationId+createdAt]')
+        .between([conversationId, Dexie.minKey], [conversationId, Dexie.maxKey])
+        .reverse()
+        .first();
+      if (remaining) {
+        await db.conversations.update(conversationId, {
+          lastMessage: remaining.body || '',
+          lastActivityAt: remaining.createdAt,
+        });
+      }
+      // If no remaining messages, keep the existing conversation preview
+    } catch {}
+
     showToast({ message: 'Message unsent' });
 
     const bridgeMsg = { type: 'RECALL_MESSAGE' as const, conversationId, messageId };

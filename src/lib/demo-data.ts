@@ -2,37 +2,46 @@
 // Demo mode — hardcoded realistic content
 // ---------------------------------------------------------------------------
 
+// Bundled portraits in public/demo/ — no network dependency.
+function pic(file: string): string {
+  try {
+    return chrome.runtime.getURL(`demo/${file}`);
+  } catch {
+    return '';
+  }
+}
+
 export const DEMO_PEOPLE = [
-  { firstName: 'Sarah', lastName: 'Chen', company: 'Stripe', title: 'Head of Partnerships' },
-  { firstName: 'Marcus', lastName: 'Rivera', company: 'Figma', title: 'Senior Product Designer' },
-  { firstName: 'Priya', lastName: 'Sharma', company: 'Notion', title: 'Engineering Manager' },
-  { firstName: 'James', lastName: 'O\'Brien', company: 'Vercel', title: 'Solutions Architect' },
-  { firstName: 'Aisha', lastName: 'Patel', company: 'Linear', title: 'Founding Engineer' },
-  { firstName: 'Daniel', lastName: 'Kim', company: 'Retool', title: 'VP of Sales' },
-  { firstName: 'Emma', lastName: 'Larsson', company: 'Klarna', title: 'Product Manager' },
-  { firstName: 'Carlos', lastName: 'Mendez', company: 'Ramp', title: 'Growth Lead' },
-  { firstName: 'Yuki', lastName: 'Tanaka', company: 'Mercari', title: 'Staff Engineer' },
-  { firstName: 'Rachel', lastName: 'Foster', company: 'Plaid', title: 'Head of Developer Relations' },
-  { firstName: 'Omar', lastName: 'Hassan', company: 'Databricks', title: 'Data Science Lead' },
-  { firstName: 'Lisa', lastName: 'Zhang', company: 'Anthropic', title: 'Research Scientist' },
-  { firstName: 'Ryan', lastName: 'McCarthy', company: 'Coinbase', title: 'Engineering Director' },
-  { firstName: 'Nina', lastName: 'Petrov', company: 'Miro', title: 'UX Research Lead' },
-  { firstName: 'Alex', lastName: 'Nguyen', company: 'Supabase', title: 'Developer Advocate' },
-  { firstName: 'Sophie', lastName: 'Martin', company: 'Datadog', title: 'Site Reliability Engineer' },
-  { firstName: 'David', lastName: 'Park', company: 'Airtable', title: 'Product Lead' },
-  { firstName: 'Maria', lastName: 'Gonzalez', company: 'Canva', title: 'Creative Director' },
-  { firstName: 'Thomas', lastName: 'Anderson', company: 'MongoDB', title: 'Principal Architect' },
-  { firstName: 'Fatima', lastName: 'Al-Rashid', company: 'Wise', title: 'Head of Compliance' },
-  { firstName: 'Jake', lastName: 'Wilson', company: 'Loom', title: 'Customer Success Manager' },
-  { firstName: 'Chloe', lastName: 'Dubois', company: 'Algolia', title: 'Search Engineer' },
-  { firstName: 'Raj', lastName: 'Kapoor', company: 'Freshworks', title: 'VP of Engineering' },
-  { firstName: 'Hannah', lastName: 'Brooks', company: 'Zapier', title: 'Automation Specialist' },
-  { firstName: 'Kevin', lastName: 'Wu', company: 'Scale AI', title: 'ML Engineer' },
-  { firstName: 'Elena', lastName: 'Volkov', company: 'JetBrains', title: 'IDE Developer' },
-  { firstName: 'Sam', lastName: 'Taylor', company: 'Webflow', title: 'Design Systems Lead' },
-  { firstName: 'Mei', lastName: 'Lin', company: 'TikTok', title: 'Ads Product Manager' },
-  { firstName: 'Patrick', lastName: 'Byrne', company: 'Intercom', title: 'Support Engineering Lead' },
-  { firstName: 'Zara', lastName: 'Johnson', company: 'Amplitude', title: 'Analytics Lead' },
+  { firstName: 'Sarah', lastName: 'Chen', company: 'Stripe', title: 'Head of Partnerships', picture: pic('w44.jpg') },
+  { firstName: 'Marcus', lastName: 'Rivera', company: 'Figma', title: 'Senior Product Designer', picture: pic('m32.jpg') },
+  { firstName: 'Priya', lastName: 'Sharma', company: 'Notion', title: 'Engineering Manager', picture: pic('w68.jpg') },
+  { firstName: 'James', lastName: 'O\'Brien', company: 'Vercel', title: 'Solutions Architect', picture: pic('m75.jpg') },
+  { firstName: 'Aisha', lastName: 'Patel', company: 'Linear', title: 'Founding Engineer', picture: pic('w21.jpg') },
+  { firstName: 'Daniel', lastName: 'Kim', company: 'Retool', title: 'VP of Sales', picture: pic('m45.jpg') },
+  { firstName: 'Emma', lastName: 'Larsson', company: 'Klarna', title: 'Product Manager', picture: pic('w17.jpg') },
+  { firstName: 'Carlos', lastName: 'Mendez', company: 'Ramp', title: 'Growth Lead', picture: pic('m52.jpg') },
+  { firstName: 'Yuki', lastName: 'Tanaka', company: 'Mercari', title: 'Staff Engineer', picture: pic('w56.jpg') },
+  { firstName: 'Rachel', lastName: 'Foster', company: 'Plaid', title: 'Head of Developer Relations', picture: pic('w90.jpg') },
+  { firstName: 'Omar', lastName: 'Hassan', company: 'Databricks', title: 'Data Science Lead', picture: pic('m22.jpg') },
+  { firstName: 'Lisa', lastName: 'Zhang', company: 'Anthropic', title: 'Research Scientist', picture: pic('w33.jpg') },
+  { firstName: 'Ryan', lastName: 'McCarthy', company: 'Coinbase', title: 'Engineering Director', picture: pic('m11.jpg') },
+  { firstName: 'Nina', lastName: 'Petrov', company: 'Miro', title: 'UX Research Lead', picture: pic('w49.jpg') },
+  { firstName: 'Alex', lastName: 'Nguyen', company: 'Supabase', title: 'Developer Advocate', picture: pic('m64.jpg') },
+  { firstName: 'Sophie', lastName: 'Martin', company: 'Datadog', title: 'Site Reliability Engineer', picture: pic('w8.jpg') },
+  { firstName: 'David', lastName: 'Park', company: 'Airtable', title: 'Product Lead', picture: pic('m36.jpg') },
+  { firstName: 'Maria', lastName: 'Gonzalez', company: 'Canva', title: 'Creative Director', picture: pic('w72.jpg') },
+  { firstName: 'Thomas', lastName: 'Anderson', company: 'MongoDB', title: 'Principal Architect', picture: pic('m3.jpg') },
+  { firstName: 'Fatima', lastName: 'Al-Rashid', company: 'Wise', title: 'Head of Compliance', picture: pic('w85.jpg') },
+  { firstName: 'Jake', lastName: 'Wilson', company: 'Loom', title: 'Customer Success Manager', picture: pic('m18.jpg') },
+  { firstName: 'Chloe', lastName: 'Dubois', company: 'Algolia', title: 'Search Engineer', picture: pic('w61.jpg') },
+  { firstName: 'Raj', lastName: 'Kapoor', company: 'Freshworks', title: 'VP of Engineering', picture: pic('m87.jpg') },
+  { firstName: 'Hannah', lastName: 'Brooks', company: 'Zapier', title: 'Automation Specialist', picture: pic('w25.jpg') },
+  { firstName: 'Kevin', lastName: 'Wu', company: 'Scale AI', title: 'ML Engineer', picture: pic('m71.jpg') },
+  { firstName: 'Elena', lastName: 'Volkov', company: 'JetBrains', title: 'IDE Developer', picture: pic('w41.jpg') },
+  { firstName: 'Sam', lastName: 'Taylor', company: 'Webflow', title: 'Design Systems Lead', picture: pic('m29.jpg') },
+  { firstName: 'Mei', lastName: 'Lin', company: 'TikTok', title: 'Ads Product Manager', picture: pic('w14.jpg') },
+  { firstName: 'Patrick', lastName: 'Byrne', company: 'Intercom', title: 'Support Engineering Lead', picture: pic('m55.jpg') },
+  { firstName: 'Zara', lastName: 'Johnson', company: 'Amplitude', title: 'Analytics Lead', picture: pic('w37.jpg') },
 ] as const;
 
 export const DEMO_MESSAGES_INBOUND = [

@@ -109,6 +109,7 @@ export function IncomingMessageToast() {
     if (!n || n.conversationId === 'demo') return;
 
     // Navigate to the conversation
+    if (!db) return;
     const conversations = await db.conversations.toArray();
     const idx = conversations
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt)

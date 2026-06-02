@@ -259,8 +259,12 @@ async function onSyncTick(): Promise<void> {
       await db.syncState.update(cat, {
         phase: 'discovering',
         cursor: '',
+        totalDiscovered: 0,
         lastSyncStartedAt: now,
       });
+      // Keep the in-memory snapshot in sync so the broadcast below reflects the
+      // just-triggered re-discovery (and totalDiscovered doesn't inflate over cycles).
+      freshStateMap.set(cat, { ...state, phase: 'discovering', cursor: '', totalDiscovered: 0, lastSyncStartedAt: now });
       break; // Only re-discover one category per tick
     }
   }

@@ -18,9 +18,14 @@ function useDraft(conversationId: string): DraftInfo {
   useEffect(() => {
     function refresh() {
       db.draftAttachments.get(conversationId).then((row) => {
-        setDraft({ text: row?.text || '', attachmentCount: row?.files?.length || 0 });
+        const text = row?.text || '';
+        const attachmentCount = row?.files?.length || 0;
+        // Only update when the value actually changed. ComposeBox dispatches
+        // inflow:draft-change every second, which would otherwise re-render this
+        // row (and the list) every tick for no reason.
+        setDraft((prev) => (prev.text === text && prev.attachmentCount === attachmentCount ? prev : { text, attachmentCount }));
       }).catch(() => {
-        setDraft({ text: '', attachmentCount: 0 });
+        setDraft((prev) => (prev.text === '' && prev.attachmentCount === 0 ? prev : { text: '', attachmentCount: 0 }));
       });
     }
     refresh(); // read once on mount
@@ -74,7 +79,7 @@ export function ConversationRow({ conversation, selected, onClick, onArchive }: 
   const hasFailed = useHasFailedMessage(conversation.id);
   const firstUrn = conversation.participantUrns[0];
   const profileInfo = useLiveQuery(
-    () => firstUrn ? db.profiles.get(firstUrn).then((p) => ({ company: p?.company || '', logoUrl: p?.companyLogoUrl || '' })) : { company: '', logoUrl: '' },
+    () => (firstUrn && db) ? db.profiles.get(firstUrn).then((p) => ({ company: p?.company || '', logoUrl: p?.companyLogoUrl || '' })) : { company: '', logoUrl: '' },
     [firstUrn]
   ) || { company: '', logoUrl: '' };
   const company = profileInfo.company;
@@ -94,6 +99,7 @@ export function ConversationRow({ conversation, selected, onClick, onArchive }: 
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
+          if (cleanup) return; // already preloaded — don't double-count ref-counts
           const pics = conversation.participantPictures.filter(Boolean);
           if (pics.length > 0) cleanup = preloadImages(pics);
         } else {

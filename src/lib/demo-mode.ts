@@ -35,13 +35,13 @@ export function enableDemoMode(): void {
   window.location.replace(url.toString());
 }
 
-/** Navigate to current page with `?demo` removed. */
+/** Strip `?demo` from the URL and hard-refresh the page. */
 export function disableDemoMode(): void {
   const url = new URL(window.location.href);
   url.searchParams.delete('demo');
-  // Use location.replace for a full navigation (not just a history swap),
-  // ensuring the entire page re-initializes against the real session.
-  window.location.replace(url.toString());
+  // Set the clean URL, then force a full reload from the server.
+  window.history.replaceState(null, '', url.toString());
+  window.location.reload();
 }
 
 // ── Lazy DB access ─────────────────────────────────────────────────────────
@@ -80,9 +80,21 @@ export async function seedDemoData(): Promise<void> {
   const database = getDb();
   if (!database) return;
 
-  // Don't re-seed if data already exists
+  // Re-seed if data is missing or stale (picture URLs changed)
   const existing = await database.conversations.count();
-  if (existing > 0) return;
+  if (existing > 0) {
+    const first = await database.conversations.toCollection().first();
+    const pic = first?.participantPictures?.[0] || '';
+    // Re-seed if the stored picture URL isn't one the current demo assets use
+    // (e.g. a portrait filename changed). Comparing against the full set works
+    // even though conversations are shuffled at seed time.
+    const validPics = new Set(DEMO_PEOPLE.map((p) => p.picture));
+    if (validPics.has(pic)) return;
+    // Clear stale data before re-seeding
+    await database.conversations.clear();
+    await database.messages.clear();
+    await database.profiles.clear();
+  }
 
   const now = Date.now();
   const people = shuffle([...DEMO_PEOPLE]);
@@ -124,7 +136,7 @@ export async function seedDemoData(): Promise<void> {
         conversationId: convId,
         senderUrn: isFromMe ? DEMO_ME_URN : personUrn,
         senderName: isFromMe ? 'You' : fullName,
-        senderPicture: '',
+        senderPicture: isFromMe ? '' : person.picture,
         body,
         createdAt,
         isFromMe,
@@ -136,7 +148,7 @@ export async function seedDemoData(): Promise<void> {
       id: convId,
       participantUrns: [personUrn],
       participantNames: [fullName],
-      participantPictures: [''],
+      participantPictures: [person.picture],
       lastMessage: lastBody,
       lastActivityAt,
       read: isUnread ? 0 : 1,
@@ -154,7 +166,7 @@ export async function seedDemoData(): Promise<void> {
       fullName,
       occupation: `${person.title} at ${person.company}`,
       location: '',
-      pictureUrl: '',
+      pictureUrl: person.picture,
       company: person.company,
       title: person.title,
     });
@@ -287,6 +299,7 @@ function scheduleAutoReply(conversationId: string): void {
 
       const senderUrn = conv.participantUrns[0];
       const senderName = conv.participantNames[0];
+      const senderPicture = conv.participantPictures[0] || '';
       const body = pick(DEMO_MESSAGES_INBOUND);
       const now = Date.now();
 
@@ -295,7 +308,7 @@ function scheduleAutoReply(conversationId: string): void {
         conversationId,
         senderUrn,
         senderName,
-        senderPicture: '',
+        senderPicture,
         body,
         createdAt: now,
         isFromMe: false,
@@ -313,7 +326,7 @@ function scheduleAutoReply(conversationId: string): void {
           detail: {
             id: `demo-reply-${now}`,
             senderName,
-            senderPicture: '',
+            senderPicture,
             body,
             conversationId,
           },
@@ -373,7 +386,7 @@ async function createIncomingConversation(scheduleNext: boolean): Promise<void> 
       id: convId,
       participantUrns: [personUrn],
       participantNames: [fullName],
-      participantPictures: [''],
+      participantPictures: [person.picture],
       lastMessage: body,
       lastActivityAt: now,
       read: 0,
@@ -388,7 +401,7 @@ async function createIncomingConversation(scheduleNext: boolean): Promise<void> 
       conversationId: convId,
       senderUrn: personUrn,
       senderName: fullName,
-      senderPicture: '',
+      senderPicture: person.picture,
       body,
       createdAt: now,
       isFromMe: false,
@@ -403,7 +416,7 @@ async function createIncomingConversation(scheduleNext: boolean): Promise<void> 
       fullName,
       occupation: `${person.title} at ${person.company}`,
       location: '',
-      pictureUrl: '',
+      pictureUrl: person.picture,
       company: person.company,
       title: person.title,
     });
@@ -413,7 +426,7 @@ async function createIncomingConversation(scheduleNext: boolean): Promise<void> 
         detail: {
           id: `demo-inc-msg-${now}`,
           senderName: fullName,
-          senderPicture: '',
+          senderPicture: person.picture,
           body,
           conversationId: convId,
         },

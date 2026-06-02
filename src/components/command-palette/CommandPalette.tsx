@@ -1,8 +1,10 @@
+import { useState, useEffect } from 'react';
 import { Command } from 'cmdk';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { isDemoMode, enableDemoMode, disableDemoMode } from '@/lib/demo-mode';
+import { getAISuggestionsEnabled, setAISuggestionsEnabled } from '@/lib/ai-settings';
 import { buildCommands } from './commands';
 import type { Conversation } from '@/types/conversation';
 
@@ -12,6 +14,9 @@ interface CommandPaletteProps {
 }
 
 export function CommandPalette({ conversations, composeRef }: CommandPaletteProps) {
+  const [aiSuggestionsOn, setAiSuggestionsOn] = useState(true);
+  useEffect(() => { getAISuggestionsEnabled().then(setAiSuggestionsOn); }, []);
+
   const paletteOpen = useUIStore((s) => s.paletteOpen);
   const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
   const selectedIndex = useUIStore((s) => s.selectedIndex);
@@ -20,7 +25,8 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
   const closeThread = useUIStore((s) => s.closeThread);
   const setComposeActive = useUIStore((s) => s.setComposeActive);
   const toggleShortcutOverlay = useUIStore((s) => s.toggleShortcutOverlay);
-  const cycleTheme = useUIStore((s) => s.cycleTheme);
+  const setTheme = useUIStore((s) => s.setTheme);
+  const currentTheme = useUIStore((s) => s.theme);
   const setInboxTab = useUIStore((s) => s.setInboxTab);
 
   const { archiveConversation, moveToOther, moveToSpam, markRead, markUnread } = useOptimisticAction();
@@ -63,7 +69,10 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
     triggerSync: () => {
       sendBridgeMessage({ type: 'SYNC_CONVERSATIONS' });
     },
-    toggleTheme: () => cycleTheme(),
+    setThemeLight: () => setTheme('light'),
+    setThemeDark: () => setTheme('dark'),
+    setThemeSystem: () => setTheme('system'),
+    currentTheme,
     goToFocused: () => setInboxTab('focused'),
     goToOther: () => {
       setInboxTab('other');
@@ -97,6 +106,50 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       }
     },
     isDemoActive: isDemoMode(),
+    reportBug: async () => {
+      let logs = '';
+      try {
+        const res = await sendBridgeMessage({ type: 'GET_DEBUG_LOGS' });
+        if (res.success && Array.isArray(res.data)) {
+          logs = (res.data as { ts: number; level: string; message: string }[])
+            .slice(-50)
+            .map((e) => {
+              const t = new Date(e.ts).toISOString().slice(11, 23);
+              return `[${t}] ${e.level.toUpperCase()} ${e.message}`;
+            })
+            .join('\n');
+        }
+      } catch {}
+      const body = [
+        '## Bug Description',
+        '_Describe the bug clearly._',
+        '',
+        '## Steps to Reproduce',
+        '1. ',
+        '2. ',
+        '3. ',
+        '',
+        '## Expected Behavior',
+        '_What did you expect to happen?_',
+        '',
+        '## Debug Logs',
+        '```',
+        logs || 'No logs available',
+        '```',
+      ].join('\n');
+      const url = `https://github.com/grinich/inflow/issues/new?title=Bug:+&body=${encodeURIComponent(body)}`;
+      window.open(url, '_blank');
+    },
+    toggleAISuggestions: () => {
+      // Read the persisted value at click time so the toggle is correct even if
+      // the initial async load hasn't resolved yet.
+      getAISuggestionsEnabled().then((cur) => {
+        const next = !cur;
+        setAiSuggestionsOn(next);
+        setAISuggestionsEnabled(next);
+      });
+    },
+    aiSuggestionsEnabled: aiSuggestionsOn,
   });
 
   if (!paletteOpen) return null;

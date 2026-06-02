@@ -59,11 +59,15 @@ export function useRemoteSearch() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Load next page of results
+  // Load next page of results — use a ref to guard against concurrent calls
+  // so we don't need isSearching in the dependency array (which would make
+  // the callback identity unstable on every search cycle).
+  const isLoadingMoreRef = useRef(false);
   const loadMore = useCallback(async () => {
-    if (!searchQuery || !cursorRef.current || isSearching) return;
+    if (!searchQuery || !cursorRef.current || isLoadingMoreRef.current) return;
 
     const currentSearchId = searchIdRef.current;
+    isLoadingMoreRef.current = true;
     setIsSearching(true);
 
     try {
@@ -86,15 +90,16 @@ export function useRemoteSearch() {
     } catch {
       // Pagination failed — silently ignore
     } finally {
+      isLoadingMoreRef.current = false;
       if (searchIdRef.current === currentSearchId) {
         setIsSearching(false);
       }
     }
-  }, [searchQuery, isSearching]);
+  }, [searchQuery]);
 
   // Read the actual Conversation objects from IndexedDB by their IDs
   const remoteResults = useLiveQuery(async () => {
-    if (resultIds.length === 0) return [];
+    if (resultIds.length === 0 || !db) return [];
     const convs = await db.conversations.bulkGet(resultIds);
     return convs.filter((c): c is Conversation => c !== undefined);
   }, [resultIds]) ?? [];

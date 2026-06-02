@@ -46,3 +46,37 @@ export function shouldSuppressConversationUpdate(conversationId: string): boolea
 
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Mutation suppression — prevents SSE events from un-archiving / re-categorizing
+// conversations that were just mutated by the user (archive, move, star, etc.).
+//
+// This covers the "echo" period after the API call completes but before the
+// SSE stream stops sending stale events. The pending-action guard (Fix #1)
+// covers the in-flight period before the API call completes.
+// ---------------------------------------------------------------------------
+
+const MUTATION_TTL_MS = 15_000; // 15 seconds
+
+const _recentMutations = new Map<string, number>();
+
+/**
+ * Record that we just sent a mutation API call (archive, move, star, etc.)
+ * for this conversation. Call this from the action handlers in messages.ts.
+ */
+export function recordMutation(conversationId: string): void {
+  _recentMutations.set(conversationId, Date.now());
+}
+
+/**
+ * Check whether a conversation's category/archived state should be protected
+ * from SSE overwrites because we recently mutated it.
+ */
+export function isMutationSuppressed(conversationId: string): boolean {
+  const now = Date.now();
+  for (const [id, ts] of _recentMutations) {
+    if (now - ts > MUTATION_TTL_MS) _recentMutations.delete(id);
+  }
+  const mutatedAt = _recentMutations.get(conversationId);
+  return !!mutatedAt && now - mutatedAt <= MUTATION_TTL_MS;
+}

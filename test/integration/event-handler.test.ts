@@ -38,6 +38,9 @@ vi.mock('@/lib/feature-flags', () => ({
 
 vi.mock('../../entrypoints/background/realtime/mark-read-suppression', () => ({
   shouldSuppressConversationUpdate: vi.fn().mockReturnValue(false),
+  isMutationSuppressed: vi.fn().mockReturnValue(false),
+  recordMutation: vi.fn(),
+  recordMarkRead: vi.fn(),
 }));
 
 // Mock normalizeMessages so we can control its output in conversation update tests
@@ -499,14 +502,17 @@ describe('event-handler', () => {
   });
 
   describe('conversation update (RealtimeConversation)', () => {
-    it('marks conversation as read when unreadCount=0 (read on another client)', async () => {
+    it('does NOT use unreadCount=0 to mark a single conversation as read (fix #4)', async () => {
       const { handleRealtimeEvent } = await import(
         '../../entrypoints/background/realtime/event-handler'
       );
       const { fetchMessages } = await import(
         '../../entrypoints/background/api/messages'
       );
+      const { normalizeMessages } = await import('@/lib/voyager-normalizer');
       vi.mocked(fetchMessages).mockClear();
+      vi.mocked(fetchMessages).mockResolvedValue({ data: {}, included: [] });
+      vi.mocked(normalizeMessages).mockReturnValue([]);
 
       await testDb.conversations.put(makeConversation({ id: 'conv-noread', read: 0 }));
 
@@ -517,11 +523,15 @@ describe('event-handler', () => {
 
       await handleRealtimeEvent(eventType, data);
 
-      // Should not fetch messages (no new content)
-      expect(fetchMessages).not.toHaveBeenCalled();
-      // Should mark conversation as read
+      // unreadConversationsCount is inbox-wide, not per-conversation.
+      // The handler should fetch messages (to detect actual new messages)
+      // instead of blindly marking the conversation as read.
+      await vi.waitFor(async () => {
+        expect(fetchMessages).toHaveBeenCalled();
+      });
+      // read state should NOT have been changed by the unreadCount alone
       const conv = await testDb.conversations.get('conv-noread');
-      expect(conv.read).toBe(1);
+      expect(conv.read).toBe(0);
     });
 
     it('does not mark as read when unreadCount=0 and suppressed (our own echo)', async () => {
@@ -560,12 +570,9 @@ describe('event-handler', () => {
       const { fetchMessages } = await import(
         '../../entrypoints/background/api/messages'
       );
-      const { normalizeMessages } = await import('@/lib/voyager-normalizer');
 
       vi.mocked(shouldSuppressConversationUpdate).mockReturnValue(true);
       vi.mocked(fetchMessages).mockClear();
-      vi.mocked(fetchMessages).mockResolvedValue({ data: {}, included: [] });
-      vi.mocked(normalizeMessages).mockReturnValue([]);
 
       await testDb.conversations.put(makeConversation({
         id: 'conv-suppress',
@@ -580,12 +587,9 @@ describe('event-handler', () => {
 
       await handleRealtimeEvent(eventType, data);
 
-      // fetchMessages WILL still be called (the handler fetches but passes suppressed=true).
-      // The key behavior is that the conversation read status is NOT changed.
-      // We need to wait for the async fetchLatestForConversation to complete.
-      await vi.waitFor(async () => {
-        expect(fetchMessages).toHaveBeenCalled();
-      });
+      // Suppressed events should return early without fetching
+      await new Promise((r) => setTimeout(r, 50));
+      expect(fetchMessages).not.toHaveBeenCalled();
 
       // Reset for other tests
       vi.mocked(shouldSuppressConversationUpdate).mockReturnValue(false);

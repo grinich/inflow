@@ -8,7 +8,7 @@ import type { VoyagerResponse, VoyagerEntity } from '@/types/voyager';
  * "urn:li:msg_conversation:(urn:li:fsd_profile:XXX,2-abc123)" -> "2-abc123"
  */
 function extractConversationId(entityUrn: string): string {
-  const match = entityUrn.match(/,([\w-]+=*)[\)]*$/);
+  const match = entityUrn.match(/,([\w+-]+=*)[\)]*$/);
   return match ? match[1] : entityUrn;
 }
 
@@ -131,7 +131,15 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
       lastActivityAt: conv.lastActivityAt || 0,
       read: (conv.unreadCount || 0) === 0 ? 1 : 0,
       archived: conv.categories?.includes('ARCHIVE') ? 1 : 0,
-      category: conv.categories?.find((c: string) => c !== 'INBOX') || 'PRIMARY_INBOX',
+      // Only assign a category the inbox tabs can route to. INMAIL/OTHER-only
+      // threads would otherwise match no tab and silently vanish from the UI, so
+      // fold them into the "Other" (SECONDARY_INBOX) tab. ARCHIVE is surfaced via
+      // the `archived` flag, so its category value is not tab-queried.
+      category:
+        conv.categories?.find(
+          (c: string) => c === 'PRIMARY_INBOX' || c === 'SECONDARY_INBOX' || c === 'SPAM' || c === 'ARCHIVE',
+        ) ?? (conv.categories?.some((c: string) => c === 'INMAIL' || c === 'OTHER') ? 'SECONDARY_INBOX' : 'PRIMARY_INBOX'),
+      starred: conv.categories ? (conv.categories.includes('STARRED') ? 1 : 0) : undefined,
     };
   });
 
@@ -165,7 +173,11 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
     // Extract seen receipts — LinkedIn may include seenReceipts on the message entity
     let seenAt: number | undefined;
     if (entity.seenReceipts?.length) {
-      seenAt = entity.seenReceipts[0]?.seenAt || undefined;
+      // Use the latest receipt, not the first — in group threads receipts aren't ordered.
+      seenAt = entity.seenReceipts.reduce(
+        (mx: number, r: any) => Math.max(mx, r?.seenAt || 0),
+        0,
+      ) || undefined;
     } else if (entity['*seenReceipts']?.length) {
       // References to separate SeenReceipt entities — resolve below
     }

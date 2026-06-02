@@ -216,25 +216,11 @@ export function applySchema(database: Dexie): void {
     syncState: 'category',
     syncQueue: 'conversationId, status, priority, [status+priority]',
     draftAttachments: 'conversationId',
-  }).upgrade(async tx => {
-    // Migrate text drafts from localStorage into the draftAttachments table
-    try {
-      const raw = localStorage.getItem('inflow-drafts');
-      if (!raw) return;
-      const textDrafts: Record<string, string> = JSON.parse(raw);
-      const table = tx.table('draftAttachments');
-      for (const [convId, text] of Object.entries(textDrafts)) {
-        if (!text) continue;
-        const existing = await table.get(convId);
-        if (existing) {
-          await table.update(convId, { text });
-        } else {
-          await table.put({ conversationId: convId, text, files: [], names: [], types: [] });
-        }
-      }
-      localStorage.removeItem('inflow-drafts');
-    } catch {}
   });
+  // NOTE: the legacy localStorage→draftAttachments draft migration runs in the UI
+  // via migrateDraftsFromLocalStorage(). It cannot run here: this upgrade normally
+  // executes first in the service worker, where `localStorage` is undefined, so the
+  // migration silently no-oped and the version still advanced (never re-running).
 }
 
 function createDatabase(name: string): InflowDatabase {
@@ -268,7 +254,7 @@ export let db: InflowDatabase = null as any;
     if (typeof chrome !== 'undefined' && chrome.storage?.session) {
       const result = await chrome.storage.session.get(STORAGE_KEY);
       const stored = result[STORAGE_KEY] as string | undefined;
-      if (stored && !activeMemberId) {
+      if (stored && stored !== 'demo' && !activeMemberId) {
         activeMemberId = stored;
         _db = createDatabase(`InflowDB_${stored}`);
         db = _db;
@@ -287,7 +273,20 @@ export function getActiveAccountId(): string | null {
  * Each account gets its own IndexedDB: InflowDB_<memberId>
  * Persists the choice to chrome.storage.session so it survives restarts.
  */
-export async function switchDatabase(memberId: string): Promise<void> {
+// Serialize switches so concurrent callers (startup IIFE, cookie-change,
+// session refresh) can't interleave close()/open() on the shared handle and
+// leave `db` pointing at a half-open or wrong database.
+let _switchChain: Promise<void> = Promise.resolve();
+
+export function switchDatabase(memberId: string): Promise<void> {
+  _switchChain = _switchChain.then(
+    () => _doSwitchDatabase(memberId),
+    () => _doSwitchDatabase(memberId),
+  );
+  return _switchChain;
+}
+
+async function _doSwitchDatabase(memberId: string): Promise<void> {
   const newName = `InflowDB_${memberId}`;
 
   // Already on the right DB
@@ -319,6 +318,40 @@ export function memberIdFromUrn(memberUrn: string): string {
 }
 
 /**
+ * One-time, idempotent migration of legacy text drafts from localStorage into
+ * the draftAttachments table. Must run in a context where localStorage exists
+ * (the UI page) — not the service worker, where the old Dexie v11 upgrade tried
+ * (and failed) to do this. Safe to call repeatedly: it clears the localStorage
+ * key only after a successful migration.
+ */
+export async function migrateDraftsFromLocalStorage(): Promise<void> {
+  if (typeof localStorage === 'undefined' || !db) return;
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem('inflow-drafts');
+  } catch {
+    return;
+  }
+  if (!raw) return;
+  try {
+    const textDrafts: Record<string, string> = JSON.parse(raw);
+    for (const [convId, text] of Object.entries(textDrafts)) {
+      if (!text) continue;
+      const existing = await db.draftAttachments.get(convId);
+      if (existing) {
+        // Don't clobber a newer draft already saved in the table.
+        if (!existing.text) await db.draftAttachments.update(convId, { text });
+      } else {
+        await db.draftAttachments.put({ conversationId: convId, text, files: [], names: [], types: [] });
+      }
+    }
+    localStorage.removeItem('inflow-drafts');
+  } catch {
+    // Leave the localStorage key intact so a future run can retry.
+  }
+}
+
+/**
  * Upsert profiles while preserving enriched fields (company, title, location)
  * that the messaging API doesn't provide but were fetched from profile pages.
  */
@@ -329,10 +362,20 @@ export async function mergeProfiles(profiles: Profile[]): Promise<void> {
   for (let i = 0; i < profiles.length; i++) {
     const prev = existing[i];
     if (prev) {
-      if (prev.company && !profiles[i].company) profiles[i].company = prev.company;
-      if (prev.title && !profiles[i].title) profiles[i].title = prev.title;
-      if (prev.location && !profiles[i].location) profiles[i].location = prev.location;
-      if (prev.companyLogoUrl && !profiles[i].companyLogoUrl) profiles[i].companyLogoUrl = prev.companyLogoUrl;
+      const p = profiles[i];
+      // Never overwrite a previously-known value with an empty one. The Messenger
+      // API returns sparse profiles (often missing publicId/occupation/picture),
+      // so a routine poll must not wipe fields enriched from full profile pages.
+      if (prev.publicId && !p.publicId) p.publicId = prev.publicId;
+      if (prev.fullName && !p.fullName) p.fullName = prev.fullName;
+      if (prev.firstName && !p.firstName) p.firstName = prev.firstName;
+      if (prev.lastName && !p.lastName) p.lastName = prev.lastName;
+      if (prev.occupation && !p.occupation) p.occupation = prev.occupation;
+      if (prev.pictureUrl && !p.pictureUrl) p.pictureUrl = prev.pictureUrl;
+      if (prev.company && !p.company) p.company = prev.company;
+      if (prev.title && !p.title) p.title = prev.title;
+      if (prev.location && !p.location) p.location = prev.location;
+      if (prev.companyLogoUrl && !p.companyLogoUrl) p.companyLogoUrl = prev.companyLogoUrl;
     }
   }
   await db.profiles.bulkPut(profiles);

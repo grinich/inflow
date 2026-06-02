@@ -202,7 +202,9 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+    // Depend on `open`: the panel returns null while closed, so scrollRef.current
+    // is null on first mount; re-run when it opens to actually attach the listener.
+  }, [open]);
 
   if (!open) return null;
 

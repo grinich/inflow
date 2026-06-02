@@ -35,10 +35,19 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [lastSynced, setLastSynced] = useState<number | null>(null);
   const [sseConnected, setSseConnected] = useState(true);
+  const [, forceTick] = useState(0);
+
+  // Re-render periodically so the "Synced Xs ago" label stays current when idle
+  // (otherwise it freezes at its last value until some other state changes).
+  useEffect(() => {
+    if (!lastSynced) return;
+    const id = setInterval(() => forceTick((t) => t + 1), 15_000);
+    return () => clearInterval(id);
+  }, [lastSynced]);
 
   // Count queued actions for offline indicator
   const queuedCount = useLiveQuery(
-    () => db.pendingActions.where('status').equals('queued').count(),
+    () => db ? db.pendingActions.where('status').equals('queued').count() : 0,
     [],
     0
   );

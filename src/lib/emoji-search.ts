@@ -37,26 +37,25 @@ export function searchEmoji(query: string, limit = 8): EmojiResult[] {
 
   const q = query.toLowerCase();
 
-  // Partition into name-prefix matches and tag-prefix matches
-  const nameMatches: EmojiResult[] = [];
-  const tagMatches: EmojiResult[] = [];
-  const seen = new Set<string>();
-
+  // Rank each emoji by its BEST match: exact name (0) > name-prefix (1) > tag-prefix (2).
+  // Scan the full (small, in-memory) list — no early budget cutoff — so a perfect
+  // match can never be buried behind, or dropped before, weaker matches.
+  const best = new Map<string, { rank: number; name: string }>();
   for (const entry of entries) {
-    if (nameMatches.length + tagMatches.length >= limit * 3) break;
-
-    if (entry.name.startsWith(q)) {
-      if (!seen.has(entry.emoji)) {
-        seen.add(entry.emoji);
-        nameMatches.push({ emoji: entry.emoji, name: entry.name });
-      }
-    } else if (entry.tags.some((t) => t.startsWith(q))) {
-      if (!seen.has(entry.emoji)) {
-        seen.add(entry.emoji);
-        tagMatches.push({ emoji: entry.emoji, name: entry.name });
-      }
-    }
+    let rank = -1;
+    if (entry.name === q) rank = 0;
+    else if (entry.name.startsWith(q)) rank = 1;
+    else if (entry.tags.some((t) => t.startsWith(q))) rank = 2;
+    if (rank === -1) continue;
+    const cur = best.get(entry.emoji);
+    if (!cur || rank < cur.rank) best.set(entry.emoji, { rank, name: entry.name });
   }
 
-  return [...nameMatches, ...tagMatches].slice(0, limit);
+  // Map iteration preserves first-seen (gemoji) order; sort is stable, so within
+  // each rank tier the original ordering is kept.
+  return [...best.entries()]
+    .map(([emoji, v]) => ({ emoji, name: v.name, rank: v.rank }))
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, limit)
+    .map(({ emoji, name }) => ({ emoji, name }));
 }

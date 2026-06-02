@@ -95,22 +95,24 @@ export function useCachedImage(url: string | undefined): string {
  * when the images are no longer needed (e.g. row scrolls out of view).
  */
 export function preloadImages(urls: string[]): () => void {
-  const valid = urls.filter((u) => u && !mem.has(u) && !pending.has(u));
+  // De-duplicate within the call — a thread often repeats one sender's avatar
+  // many times. Without this, the same URL is ref-counted and fetched N times.
+  const unique = [...new Set(urls.filter((u) => !!u))];
+  const valid = unique.filter((u) => !mem.has(u) && !pending.has(u));
   for (const url of valid) {
     refCount.set(url, (refCount.get(url) || 0) + 1);
     pending.add(url);
     enqueueLoad(url);
   }
   // Also ref-count URLs that were already cached
-  for (const url of urls) {
-    if (url && !valid.includes(url)) {
+  for (const url of unique) {
+    if (!valid.includes(url)) {
       refCount.set(url, (refCount.get(url) || 0) + 1);
     }
   }
 
   return () => {
-    for (const url of urls) {
-      if (!url) continue;
+    for (const url of unique) {
       const count = (refCount.get(url) || 1) - 1;
       if (count <= 0) {
         refCount.delete(url);
@@ -127,8 +129,12 @@ async function loadAndCache(url: string): Promise<void> {
   try {
     const row = await db.imageCache.get(url);
     if (row?.dataUrl) {
-      mem.set(url, row.dataUrl);
-      scheduleNotify();
+      // Only retain in memory if a consumer is still mounted; otherwise the entry
+      // would be orphaned (no refCount will ever release it).
+      if ((refCount.get(url) || 0) > 0) {
+        mem.set(url, row.dataUrl);
+        scheduleNotify();
+      }
       return;
     }
   } catch {}
@@ -143,8 +149,12 @@ async function loadAndCache(url: string): Promise<void> {
       reader.onloadend = () => resolve(reader.result as string);
       reader.readAsDataURL(blob);
     });
-    mem.set(url, dataUrl);
-    scheduleNotify();
+    // Only retain in memory if a consumer is still mounted (the consumer may have
+    // unmounted while this fetch was in flight); IndexedDB still gets the durable copy.
+    if ((refCount.get(url) || 0) > 0) {
+      mem.set(url, dataUrl);
+      scheduleNotify();
+    }
     await db.imageCache.put({ url, dataUrl, cachedAt: Date.now() });
   } catch {
     // silently fail — original URL will continue to be used

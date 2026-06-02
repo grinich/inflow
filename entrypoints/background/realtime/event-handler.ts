@@ -18,7 +18,8 @@ import { normalizeMessages } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
-import { shouldSuppressConversationUpdate } from './mark-read-suppression';
+import { shouldSuppressConversationUpdate, isMutationSuppressed } from './mark-read-suppression';
+import { hasPendingAction } from '../sync/pending-guard';
 import type { Message, MessageAttachment, ReactionSummary } from '@/types/message';
 
 /** Enrich a single profile if it's missing company data. Non-blocking, fire-and-forget. */
@@ -36,7 +37,9 @@ function enrichProfileIfNeeded(urn: string): void {
     if (Object.keys(updates).length > 0) {
       await db.profiles.update(urn, updates);
     }
-  }).catch(() => {});
+  }).catch((err) => {
+    debugLog('warn', `[RT] Failed to enrich profile ${urn}: ${err}`);
+  });
 }
 
 /**
@@ -81,7 +84,9 @@ function backfillConversationParticipants(conversationId: string, memberUrn: str
       });
       debugLog('info', `[RT] Backfilled participants for ${conversationId.substring(0, 20)}...: ${participantNames.join(', ')}`);
     }
-  }).catch(() => {});
+  }).catch((err) => {
+    debugLog('warn', `[RT] Failed to backfill participants for ${conversationId}: ${err}`);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +306,11 @@ function extractIncluded(data: any): any[] | null {
  */
 function extractConversationId(entityUrn: string): string {
   const match = entityUrn.match(/,([\w-]+=*)[\)]*$/);
-  return match ? match[1] : entityUrn;
+  if (!match) {
+    debugLog('warn', `[RT] Could not extract conversation ID from URN: ${entityUrn.substring(0, 80)}`);
+    return '';
+  }
+  return match[1];
 }
 
 /**
@@ -477,7 +486,7 @@ async function handleVoyagerEvent(
         lastMessage: latest.body || 'New message',
         lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
       };
-      if (convMessages.some((m) => !m.isFromMe)) {
+      if (!isMutationSuppressed(convId) && !(await hasPendingAction(convId)) && existing.category !== 'SPAM' && convMessages.some((m) => !m.isFromMe)) {
         updates.read = 0;
         // Move to Focused and un-archive when someone replies
         if (existing.category !== 'PRIMARY_INBOX') {
@@ -618,29 +627,12 @@ async function handleConversationUpdate(
     return;
   }
 
-  const unreadCount = realtimeConv.unreadConversationsCount ?? 0;
-
-
-  // Suppress echoes from our own mark-as-read calls.
-  // LinkedIn sends RealtimeConversation events ~0.1-1s after our PATCH with
-  // unreadConversationsCount reflecting the inbox-wide count (not per-conversation).
-  // Without this, viewing an unread conversation creates an infinite loop:
-  // auto-mark-read → PATCH → SSE echo → set read:0 → auto-mark-read → ...
+  // unreadConversationsCount is an inbox-wide count, NOT per-conversation.
+  // Don't use it to mark individual conversations as read — that's handled
+  // by the Dash-format handleDashConversationUpdate and handleReadReceipt.
   const suppressed = shouldSuppressConversationUpdate(conversationId);
   if (suppressed) {
-    debugLog('info', `[RT] Suppressed read-change echo for ${conversationId.substring(0, 20)}... (recently marked read)`);
-  }
-
-  // When unreadCount is 0, the conversation was read (possibly from another
-  // client like LinkedIn web). Update the local read state unless suppressed.
-  if (unreadCount === 0) {
-    if (!suppressed) {
-      const conv = await db.conversations.get(conversationId);
-      if (conv && conv.read === 0) {
-        await db.conversations.update(conversationId, { read: 1 });
-        debugLog('info', `[RT] Marked conversation ${conversationId.substring(0, 20)}... as read (read on another client)`);
-      }
-    }
+    debugLog('info', `[RT] Suppressed echo for ${conversationId.substring(0, 20)}... (recently marked read)`);
     return;
   }
 
@@ -653,18 +645,17 @@ async function handleConversationUpdate(
     return;
   }
 
-  debugLog('info', `[RT] Conversation update: ${conversationId.substring(0, 20)}... unread=${unreadCount}`);
+  debugLog('info', `[RT] Conversation update: ${conversationId.substring(0, 20)}...`);
 
-  // Fetch latest messages so we don't miss genuine new messages.
-  // The suppressed flag is passed through so _doFetchLatest skips the
-  // read:0 update for mark-read echoes.
-  fetchLatestForConversation(conversationId, memberUrn, suppressed).catch((err) => {
+  // Fetch latest messages to detect genuinely new messages.
+  // _doFetchLatest has correct per-conversation read/unread logic.
+  fetchLatestForConversation(conversationId, memberUrn, false).catch((err) => {
     debugLog('error', `[RT] Failed to fetch messages for ${conversationId.substring(0, 20)}...: ${err}`);
   });
 }
 
 /** In-flight fetches — deduplicates concurrent fetchLatestForConversation calls for the same conversation. */
-const _inflightConvFetches = new Map<string, Promise<void>>();
+const _inflightConvFetches = new Map<string, { promise: Promise<void>; suppressed: boolean }>();
 
 /**
  * Fetch the latest page of messages for a conversation and store them.
@@ -673,6 +664,8 @@ const _inflightConvFetches = new Map<string, Promise<void>>();
  *
  * Deduplicated: if a fetch is already in-flight for this conversation,
  * the existing promise is returned instead of starting a new one.
+ * Exception: if the new call has a stronger intent (suppress=false) but
+ * the in-flight call uses suppress=true, a follow-up is scheduled.
  */
 async function fetchLatestForConversation(
   conversationId: string,
@@ -681,14 +674,21 @@ async function fetchLatestForConversation(
 ): Promise<void> {
   const existing = _inflightConvFetches.get(conversationId);
   if (existing) {
+    // If we need suppress=false but the in-flight request uses true,
+    // schedule a follow-up instead of reusing
+    if (!suppressReadChange && existing.suppressed) {
+      return existing.promise.then(() =>
+        fetchLatestForConversation(conversationId, memberUrn, false)
+      );
+    }
     debugLog('info', `[RT] Dedup: reusing in-flight fetch for conv ${conversationId.substring(0, 20)}...`);
-    return existing;
+    return existing.promise;
   }
 
   const promise = _doFetchLatest(conversationId, memberUrn, suppressReadChange).finally(() => {
     _inflightConvFetches.delete(conversationId);
   });
-  _inflightConvFetches.set(conversationId, promise);
+  _inflightConvFetches.set(conversationId, { promise, suppressed: suppressReadChange });
   return promise;
 }
 
@@ -723,7 +723,7 @@ async function _doFetchLatest(
     const hasNewInbound = messages.some(
       (m) => !m.isFromMe && m.createdAt > existing.lastActivityAt
     );
-    if (hasNewInbound) {
+    if (hasNewInbound && !isMutationSuppressed(conversationId) && existing.category !== 'SPAM') {
       // Always mark as unread for genuinely new messages, even during
       // suppression window — suppression is for read-echoes, not new messages.
       updates.read = 0;
@@ -734,11 +734,6 @@ async function _doFetchLatest(
       if (existing.archived === 1) {
         updates.archived = 0;
       }
-    } else if (!suppressReadChange && existing.read === 0) {
-      // No new inbound messages but we got a non-suppressed conversation
-      // update event — this was likely a read-status change from another
-      // client (e.g. LinkedIn web). Mark the conversation as read.
-      updates.read = 1;
     }
     await db.conversations.update(conversationId, updates);
   }
@@ -832,7 +827,7 @@ async function handleIncludedMessage(
         lastMessage: latest.body || 'New message',
         lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
       };
-      if (convMessages.some((m) => !m.isFromMe)) {
+      if (!isMutationSuppressed(convId) && !(await hasPendingAction(convId)) && existing.category !== 'SPAM' && convMessages.some((m) => !m.isFromMe)) {
         updates.read = 0;
         // Move to Focused and un-archive when someone replies
         if (existing.category !== 'PRIMARY_INBOX') {
@@ -956,7 +951,7 @@ async function handleSingleMessageEntity(
       lastMessage: message.body || 'New message',
       lastActivityAt: Math.max(message.createdAt, existing.lastActivityAt),
     };
-    if (!message.isFromMe) {
+    if (!message.isFromMe && !isMutationSuppressed(conversationId)) {
       updates.read = 0;
       // Move to Focused and un-archive when someone replies
       if (existing.category !== 'PRIMARY_INBOX') {
@@ -982,30 +977,47 @@ async function cleanupOptimisticMessages(messages: Message[]): Promise<void> {
   const myMessages = messages.filter((m) => m.isFromMe);
   if (myMessages.length === 0) return;
 
-  // Group by conversation to minimise DB reads
-  const byConv = new Map<string, Set<string>>();
+  // Group by conversation, counting how many SSE messages have each body.
+  // This prevents sending "ok" twice → first SSE "ok" deleting both temp messages.
+  const byConv = new Map<string, Map<string, number>>();
   for (const m of myMessages) {
-    let bodies = byConv.get(m.conversationId);
-    if (!bodies) {
-      bodies = new Set();
-      byConv.set(m.conversationId, bodies);
+    let bodyCounts = byConv.get(m.conversationId);
+    if (!bodyCounts) {
+      bodyCounts = new Map();
+      byConv.set(m.conversationId, bodyCounts);
     }
-    bodies.add(m.body);
+    bodyCounts.set(m.body, (bodyCounts.get(m.body) || 0) + 1);
   }
 
-  for (const [convId, bodies] of byConv) {
+  for (const [convId, bodyCounts] of byConv) {
     const all = await db.messages
       .where('conversationId')
       .equals(convId)
       .toArray();
 
-    const tempMessages = all.filter((m) => m.id.startsWith('temp-') && bodies.has(m.body));
+    // Exclude failed/queued temps — those have no server echo, so a body match
+    // here would wrongly drop a send the user still needs to see or retry.
+    const tempMessages = all.filter(
+      (m) => m.id.startsWith('temp-') && m.status !== 'failed' && m.status !== 'queued'
+    );
+    const toDelete: string[] = [];
+    // Track remaining count per body to limit deletions
+    const remaining = new Map(bodyCounts);
 
-    if (tempMessages.length > 0) {
+    for (const temp of tempMessages) {
+      const count = remaining.get(temp.body);
+      if (count && count > 0) {
+        toDelete.push(temp.id);
+        remaining.set(temp.body, count - 1);
+      }
+    }
+
+    if (toDelete.length > 0) {
       // Preserve repliedMessage from temp messages onto the SSE replacements
       // (SSE events often lack renderContent, so the reply quote would vanish)
       const sseMessages = myMessages.filter((m) => m.conversationId === convId);
-      for (const temp of tempMessages) {
+      const tempsToDelete = tempMessages.filter((m) => toDelete.includes(m.id));
+      for (const temp of tempsToDelete) {
         if (temp.repliedMessage) {
           const sseMatch = sseMessages.find((s) => s.body === temp.body && !s.repliedMessage);
           if (sseMatch) {
@@ -1014,8 +1026,8 @@ async function cleanupOptimisticMessages(messages: Message[]): Promise<void> {
         }
       }
 
-      await db.messages.bulkDelete(tempMessages.map((m) => m.id));
-      debugLog('info', `[RT] Replaced ${tempMessages.length} optimistic temp message(s) in ${convId}`);
+      await db.messages.bulkDelete(toDelete);
+      debugLog('info', `[RT] Replaced ${toDelete.length} optimistic temp message(s) in ${convId}`);
     }
   }
 }
