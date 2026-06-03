@@ -469,7 +469,7 @@ async function handleVoyagerEvent(
       }
     }
 
-    const isFromMe = senderUrn === memberUrn;
+    const self = await resolveSelfSender(conversationId, senderUrn, memberUrn, !!senderProfile);
 
     // Extract editedAt — Voyager events carry it inside eventContent, not on the entity
     const editedAt = ec.editedAt || ec.lastEditedAt || entity.editedAt || entity.lastEditedAt || undefined;
@@ -481,12 +481,12 @@ async function handleVoyagerEvent(
     messages.push({
       id: messageId,
       conversationId,
-      senderUrn,
-      senderName,
+      senderUrn: self.senderUrn,
+      senderName: self.isFromMe ? 'You' : senderName,
       senderPicture,
       body,
       createdAt: entity.createdAt || Date.now(),
-      isFromMe,
+      isFromMe: self.isFromMe,
       ...(editedAt ? { editedAt } : {}),
     });
   }
@@ -743,6 +743,37 @@ async function _doFetchLatest(
 // Included message handler (new Messenger API format)
 // ---------------------------------------------------------------------------
 
+/**
+ * Decide whether an SSE message is the viewer's own outbound echo.
+ *
+ * LinkedIn reliably includes the *sender* participant for inbound messages, but
+ * frequently OMITS the viewer's own participant from outbound echo events. So a
+ * message whose sender we couldn't resolve from the payload, and whose best-effort
+ * senderUrn isn't a known OTHER participant of the conversation, is almost
+ * certainly ours — including the very first message to a brand-new contact, where
+ * the conversation has no stored participants yet.
+ *
+ * Returns the corrected isFromMe and a senderUrn aligned to the member URN when
+ * self (so the SSE entry dedups against the REST-fetched canonical copy).
+ */
+async function resolveSelfSender(
+  conversationId: string,
+  senderUrn: string,
+  memberUrn: string,
+  resolvedFromPayload: boolean,
+): Promise<{ isFromMe: boolean; senderUrn: string }> {
+  if (senderUrn === memberUrn) return { isFromMe: true, senderUrn: memberUrn };
+  // A sender we successfully resolved from the payload that isn't us is genuinely
+  // someone else — trust it.
+  if (resolvedFromPayload) return { isFromMe: false, senderUrn };
+  // Unresolved sender: if it matches a known other participant, keep it as
+  // inbound; otherwise treat it as our own omitted-self echo.
+  const conv = await db.conversations.get(conversationId);
+  if (conv?.participantUrns?.includes(senderUrn)) return { isFromMe: false, senderUrn };
+  debugLog('info', `[RT] Unresolved sender treated as self for conv ${conversationId.substring(0, 20)}...`);
+  return { isFromMe: true, senderUrn: memberUrn };
+}
+
 async function handleIncludedMessage(
   included: any[],
   memberUrn: string
@@ -775,25 +806,30 @@ async function handleIncludedMessage(
     const senderProfileId = extractProfileId(
       sender?.hostIdentityUrn || senderRef
     );
-    const senderUrn = `urn:li:fsd_profile:${senderProfileId}`;
+    const self = await resolveSelfSender(
+      conversationId,
+      `urn:li:fsd_profile:${senderProfileId}`,
+      memberUrn,
+      !!member,
+    );
 
     const attachments = extractAttachments(entity.renderContent, included);
     const repliedMessage = extractRepliedMessage(entity.renderContent);
     const reactions = extractReactions(entity.reactionSummaries);
 
-
+    const resolvedName = member
+      ? `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim()
+      : '';
 
     messages.push({
       id: entity.entityUrn,
       conversationId,
-      senderUrn,
-      senderName: member
-        ? `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim()
-        : 'Unknown',
+      senderUrn: self.senderUrn,
+      senderName: self.isFromMe ? 'You' : (resolvedName || 'Unknown'),
       senderPicture: sender ? getParticipantPicture(sender) : '',
       body: entity.body?.text || '',
       createdAt: entity.deliveredAt || Date.now(),
-      isFromMe: senderUrn === memberUrn,
+      isFromMe: self.isFromMe,
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(repliedMessage ? { repliedMessage } : {}),
       ...(entity.editedAt ? { editedAt: entity.editedAt } : {}),
@@ -862,7 +898,13 @@ async function handleSingleMessageEntity(
 
   const senderRef = entity['*sender'] || entity['*actor'] || '';
   const senderProfileId = extractProfileId(senderRef);
-  const senderUrn = `urn:li:fsd_profile:${senderProfileId}`;
+  // Flat events carry no participant data, so the sender is never resolvable here.
+  const self = await resolveSelfSender(
+    conversationId,
+    `urn:li:fsd_profile:${senderProfileId}`,
+    memberUrn,
+    false,
+  );
 
   const attachments = extractAttachments(entity.renderContent);
   const repliedMessage = extractRepliedMessage(entity.renderContent);
@@ -876,12 +918,12 @@ async function handleSingleMessageEntity(
   const message: Message = {
     id: entity.entityUrn,
     conversationId,
-    senderUrn,
-    senderName: 'Unknown', // no participant data in flat events
+    senderUrn: self.senderUrn,
+    senderName: self.isFromMe ? 'You' : 'Unknown', // no participant data in flat events
     senderPicture: '',
     body: entity.body?.text || '',
     createdAt: entity.deliveredAt || Date.now(),
-    isFromMe: senderUrn === memberUrn,
+    isFromMe: self.isFromMe,
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(repliedMessage ? { repliedMessage } : {}),
     ...(entity.editedAt ? { editedAt: entity.editedAt } : {}),
