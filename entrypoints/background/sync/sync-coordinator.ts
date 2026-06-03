@@ -137,8 +137,7 @@ async function _onSyncTickInner(): Promise<void> {
 
   // Helper: broadcast fresh progress from current DB state
   const emitProgress = async () => {
-    const states = await db.syncState.toArray();
-    broadcastProgress(new Map(states.map((s) => [s.category, s])));
+    await emitSyncProgress();
   };
 
   // 2. Immediate backfill: pick up newly-pending items from the quick poll
@@ -217,8 +216,7 @@ async function _onSyncTickInner(): Promise<void> {
         });
 
         // Broadcast progress so UI updates during discovery
-        const updatedStates = await db.syncState.toArray();
-        broadcastProgress(new Map(updatedStates.map((s) => [s.category, s])));
+        await emitSyncProgress();
 
         await discoveryDelay();
       }
@@ -391,8 +389,7 @@ export async function burstDiscover(
   if (pending > 0) {
     try {
       const emitProgress = async () => {
-        const states = await db.syncState.toArray();
-        broadcastProgress(new Map(states.map((s) => [s.category, s])));
+        await emitSyncProgress();
       };
       await backfillBatch(BACKFILL_BATCH_SIZE, emitProgress);
     } catch (err) {
@@ -428,6 +425,12 @@ async function initializeSync(): Promise<void> {
 /**
  * Broadcast sync progress to any open tabs.
  */
+/** Read the latest sync state from the DB and broadcast it to the UI. */
+async function emitSyncProgress(): Promise<void> {
+  const states = await db.syncState.toArray();
+  broadcastProgress(new Map(states.map((s) => [s.category, s])));
+}
+
 export function broadcastProgress(
   stateMap: Map<string, SyncState>
 ): void {
