@@ -13,6 +13,7 @@ import {
   searchConversations,
 } from './api/conversations';
 import { fetchMessages, fetchAllMessages, sendMessage, editMessage, createConversation, reactWithEmoji, recallMessage } from './api/messages';
+import { enqueueSend } from './send-queue';
 import { searchTypeahead } from './api/typeahead';
 import { fetchProfileByUrn } from './api/profiles';
 import { getSession, getMemberUrn } from './auth/session';
@@ -33,16 +34,6 @@ import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression
 import { getSSEStatus } from './realtime/sse-client';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
-
-/** Per-conversation in-flight send tracking to prevent duplicate messages.
- *  Stores conversation ID → start timestamp. Entries older than 5 minutes
- *  are automatically expired to prevent permanent blocks from hung requests. */
-/**
- * Per-conversation send chain — serializes sends so a rapid second message
- * queues behind the first instead of being rejected (which the optimistic UI
- * would otherwise mark as 'failed').
- */
-const _sendChains = new Map<string, Promise<unknown>>();
 
 export function setupMessageRouter() {
   chrome.runtime.onMessage.addListener(
@@ -171,24 +162,12 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
       return { success: true };
     }
     case 'SEND_MESSAGE': {
-      // Chain after any in-flight send to the same conversation (regardless of
-      // its outcome) so a legitimate second message is delivered in order rather
-      // than rejected.
-      const prev = _sendChains.get(msg.conversationId) ?? Promise.resolve();
-      const run = prev.then(
-        () => sendMessage(msg.conversationId, msg.body, msg.attachments, msg.replyTo),
-        () => sendMessage(msg.conversationId, msg.body, msg.attachments, msg.replyTo),
+      // Serialize per conversation (shared with the offline drainer) so a rapid
+      // second message is delivered in order rather than racing/rejected.
+      await enqueueSend(msg.conversationId, () =>
+        sendMessage(msg.conversationId, msg.body, msg.attachments, msg.replyTo),
       );
-      _sendChains.set(msg.conversationId, run);
-      try {
-        await run;
-        return { success: true };
-      } finally {
-        // Drop the entry once drained (only if no newer send queued behind us).
-        if (_sendChains.get(msg.conversationId) === run) {
-          _sendChains.delete(msg.conversationId);
-        }
-      }
+      return { success: true };
     }
     case 'ARCHIVE': {
       recordMutation(msg.conversationId);
