@@ -24,22 +24,19 @@ const WINDOW_MS: Record<BackfillWindow, number> = {
 
 /** Get the cutoff timestamp — conversations older than this should skip backfill. Returns 0 for 'all'. */
 export async function getBackfillCutoff(): Promise<number> {
-  try {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    const window = (result[STORAGE_KEY] as BackfillWindow) || DEFAULT_WINDOW;
-    const ms = WINDOW_MS[window];
-    return ms > 0 ? Date.now() - ms : 0;
-  } catch {
-    const ms = WINDOW_MS[DEFAULT_WINDOW];
-    return Date.now() - ms;
-  }
+  const window = await getBackfillWindow();
+  const ms = WINDOW_MS[window];
+  return ms > 0 ? Date.now() - ms : 0;
 }
 
 /** Get the current backfill window setting. */
 export async function getBackfillWindow(): Promise<BackfillWindow> {
   try {
     const result = await chrome.storage.local.get(STORAGE_KEY);
-    return (result[STORAGE_KEY] as BackfillWindow) || DEFAULT_WINDOW;
+    const stored = result[STORAGE_KEY];
+    // Validate against known windows — an unknown value must NOT fall through to
+    // WINDOW_MS[x]=undefined (which getBackfillCutoff would read as "sync everything").
+    return stored && stored in WINDOW_MS ? (stored as BackfillWindow) : DEFAULT_WINDOW;
   } catch {
     return DEFAULT_WINDOW;
   }

@@ -58,16 +58,12 @@ async function hasSessionCookieChanged(): Promise<boolean> {
   try {
     const cookies = await getLinkedInCookies();
     if (!cookies) return true; // no cookies = definitely changed
-    if (lastLiAtValue === null) {
-      // First check — record it, don't treat as changed
-      lastLiAtValue = cookies.liAt;
-      return false;
-    }
-    if (cookies.liAt !== lastLiAtValue) {
-      lastLiAtValue = cookies.liAt;
-      return true;
-    }
-    return false;
+    // Read-only: do NOT advance lastLiAtValue here. Only getSession() records it
+    // after a SUCCESSFUL /me — if we advanced it before confirming the new
+    // identity and /me then failed, the detector could never fire again and we'd
+    // stay wedged on the old account.
+    if (lastLiAtValue === null) return false; // first check — getSession will record it
+    return cookies.liAt !== lastLiAtValue;
   } catch {
     return false;
   }
