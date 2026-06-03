@@ -9,6 +9,19 @@ const refCount = new Map<string, number>();  // url → number of active consume
 const pending = new Set<string>();           // in-flight fetches
 const subscribers = new Set<() => void>();   // useSyncExternalStore listeners
 
+// Bound the durable IndexedDB image cache so it can't grow without limit. Pruned
+// lazily (every Nth write) using the cachedAt index, evicting the oldest entries.
+const IMAGE_CACHE_MAX = 1000;
+let _putsSincePrune = 0;
+async function pruneImageCache(): Promise<void> {
+  try {
+    const count = await db.imageCache.count();
+    if (count <= IMAGE_CACHE_MAX) return;
+    const oldest = await db.imageCache.orderBy('cachedAt').limit(count - IMAGE_CACHE_MAX).primaryKeys();
+    if (oldest.length) await db.imageCache.bulkDelete(oldest as string[]);
+  } catch {}
+}
+
 // Batch notify: coalesce multiple synchronous cache fills into one re-render
 let notifyScheduled = false;
 function scheduleNotify() {
@@ -156,6 +169,7 @@ async function loadAndCache(url: string): Promise<void> {
       scheduleNotify();
     }
     await db.imageCache.put({ url, dataUrl, cachedAt: Date.now() });
+    if (++_putsSincePrune >= 50) { _putsSincePrune = 0; void pruneImageCache(); }
   } catch {
     // silently fail — original URL will continue to be used
   }
