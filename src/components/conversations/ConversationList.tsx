@@ -175,7 +175,6 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
             conversation={conv}
             selected={conv.id === selectedConversationId}
             onClick={() => handleRowClick(conv, i)}
-            // onArchive={() => archiveConversation(conv)}
           />
         ))}
         {/* Keep the infinite-scroll sentinel mounted whenever a search/discovery
