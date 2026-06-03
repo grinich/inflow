@@ -43,13 +43,17 @@ export function toggleSyncPause(): boolean {
  * Replaces the old poller's direct syncConversations() approach.
  */
 export function setupSyncCoordinator() {
-  // Run initial tick on service worker startup
-  db.open()
-    .then(() => recoverStuckItems())
-    .then(() => onSyncTick())
-    .catch((err) => {
-      debugLog('error', `Initial sync tick failed: ${err}`);
-    });
+  // Run initial tick on service worker startup — only if a DB is open. On an
+  // unauthenticated start `db` is null until switchDatabase() runs, and calling
+  // db.open() on null throws synchronously, aborting realtime + queue startup.
+  if (db) {
+    db.open()
+      .then(() => recoverStuckItems())
+      .then(() => onSyncTick())
+      .catch((err) => {
+        debugLog('error', `Initial sync tick failed: ${err}`);
+      });
+  }
 
   // Set up recurring alarm
   chrome.alarms.create(ALARM_NAME, {
@@ -77,6 +81,7 @@ export function setupSyncCoordinator() {
  * 5. Staleness — re-discover categories not checked in 15 min
  */
 async function onSyncTick(): Promise<void> {
+  if (!db) return; // unauthenticated — no DB open yet; a later alarm tick retries once it is
   if (paused) {
     debugLog('info', '[COORDINATOR] Tick skipped (paused)');
     return;
