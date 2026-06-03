@@ -730,6 +730,18 @@ export function useOptimisticAction() {
     const msg = await db.messages.get(messageId);
     if (!msg) return;
 
+    // Snapshot the conversation preview so a failed recall can restore it along
+    // with the message (the optimistic delete below rewinds it to the prior msg).
+    const prevConv = await db.conversations.get(conversationId);
+    const restorePreview = async () => {
+      if (prevConv) {
+        await db.conversations.update(conversationId, {
+          lastMessage: prevConv.lastMessage,
+          lastActivityAt: prevConv.lastActivityAt,
+        });
+      }
+    };
+
     // Optimistic delete
     await db.messages.delete(messageId);
 
@@ -767,6 +779,7 @@ export function useOptimisticAction() {
       .then(async (res) => {
         if (!res.success) {
           await db.messages.put(msg);
+          await restorePreview();
           showToast({ message: res.error || 'Failed to unsend — message restored' });
         }
       })
@@ -781,6 +794,7 @@ export function useOptimisticAction() {
           return;
         }
         await db.messages.put(msg);
+        await restorePreview();
         showToast({ message: 'Failed to unsend — message restored' });
       });
   }
