@@ -62,15 +62,25 @@ export function App() {
         document.dispatchEvent(new CustomEvent('inflow:attach-files', { detail: files }));
       }
     }
+    // A drag that ends outside the window (or the window losing focus) fires
+    // neither drop nor a balancing dragleave, leaving the overlay stuck — reset.
+    function resetDrag() {
+      dragCounter.current = 0;
+      setDragging(false);
+    }
     window.addEventListener('dragenter', onDragEnter);
     window.addEventListener('dragover', onDragOver);
     window.addEventListener('dragleave', onDragLeave);
     window.addEventListener('drop', onDrop);
+    window.addEventListener('dragend', resetDrag);
+    window.addEventListener('blur', resetDrag);
     return () => {
       window.removeEventListener('dragenter', onDragEnter);
       window.removeEventListener('dragover', onDragOver);
       window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('drop', onDrop);
+      window.removeEventListener('dragend', resetDrag);
+      window.removeEventListener('blur', resetDrag);
     };
   }, []);
 
