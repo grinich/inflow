@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useCachedImage } from '@/hooks/useCachedImage';
 
 interface GroupAvatarProps {
@@ -9,12 +10,14 @@ interface GroupAvatarProps {
 
 function AvatarCircle({ url, name, size }: { url: string; name: string; size: number }) {
   const src = useCachedImage(url || undefined);
+  const [failed, setFailed] = useState(false);
   const initial = (name || '?').charAt(0).toUpperCase();
 
-  return src ? (
+  return src && !failed ? (
     <img
       src={src}
       alt={name}
+      onError={() => setFailed(true)}
       className="h-full w-full rounded-full object-cover"
       style={{ width: size, height: size }}
     />
