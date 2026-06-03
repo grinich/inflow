@@ -1,5 +1,7 @@
 import type { Message } from '@/types/message';
 
+/** Minimum draft length before autocomplete kicks in (shared with useAutocomplete). */
+export const MIN_BODY_LENGTH = 5;
 const MAX_MESSAGES = 8;
 const MAX_MSG_LENGTH = 100;
 
@@ -12,7 +14,7 @@ export function buildAutocompletePrompt(
   participantNames: string[],
   currentBody: string,
 ): string | null {
-  if (!currentBody || currentBody.trim().length < 5) return null;
+  if (!currentBody || currentBody.trim().length < MIN_BODY_LENGTH) return null;
 
   const fallbackName = participantNames.length > 0 ? participantNames[0] : 'Them';
   // Strip the delimiter tags from untrusted bodies so a crafted message can't

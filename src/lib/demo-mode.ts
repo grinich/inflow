@@ -254,7 +254,7 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
       return { success: true, data: [] };
 
     case 'COUNT_DUPLICATE_CONVERSATIONS':
-      return { success: true, data: { count: 0 } };
+      return { success: true, data: { count: 0, duplicates: [] } };
 
     case 'DIAGNOSTIC_SYNC':
       return { success: true, data: { status: 'demo' } };

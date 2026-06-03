@@ -39,7 +39,7 @@ function getParticipantPicture(participant: VoyagerEntity): string {
   // Format 1: artifacts with fileUrl
   if (pic.artifacts?.length) {
     const artifacts = pic.artifacts;
-    const artifact = artifacts.sort((a: any, b: any) => (a.width || 0) - (b.width || 0)).find((a: any) => (a.width || 0) >= 100) || artifacts[0];
+    const artifact = [...artifacts].sort((a: any, b: any) => (a.width || 0) - (b.width || 0)).find((a: any) => (a.width || 0) >= 100) || artifacts[0];
     if (artifact?.fileUrl) return artifact.fileUrl;
     // Format 2: rootUrl + fileIdentifyingUrlPathSegment
     if (pic.rootUrl && artifact?.fileIdentifyingUrlPathSegment) {
@@ -50,7 +50,7 @@ function getParticipantPicture(participant: VoyagerEntity): string {
   // Format 3: displayImageReference or displayImageUrn with vectorImage
   const vectorImage = pic.displayImageReference?.vectorImage || pic.vectorImage;
   if (vectorImage?.rootUrl && vectorImage?.artifacts?.length) {
-    const artifact = vectorImage.artifacts.sort((a: any, b: any) => (a.width || 0) - (b.width || 0)).find((a: any) => (a.width || 0) >= 100) || vectorImage.artifacts[0];
+    const artifact = [...vectorImage.artifacts].sort((a: any, b: any) => (a.width || 0) - (b.width || 0)).find((a: any) => (a.width || 0) >= 100) || vectorImage.artifacts[0];
     if (artifact?.fileIdentifyingUrlPathSegment) {
       return `${vectorImage.rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
     }

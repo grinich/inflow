@@ -369,6 +369,8 @@ export async function migrateDraftsFromLocalStorage(): Promise<void> {
  */
 export async function mergeProfiles(profiles: Profile[]): Promise<void> {
   if (profiles.length === 0) return;
+  // Work on copies so we never mutate the caller's Profile objects in place.
+  profiles = profiles.map((p) => ({ ...p }));
   const urns = profiles.map((p) => p.urn);
   const existing = await db.profiles.bulkGet(urns);
   for (let i = 0; i < profiles.length; i++) {

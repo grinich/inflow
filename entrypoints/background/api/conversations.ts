@@ -1,6 +1,6 @@
 import { voyagerFetch } from './client';
 import { getMemberUrn } from '../auth/session';
-import { linkedInVariables, raw, encodeConversationUrn, type RawValue } from './encode';
+import { linkedInVariables, raw, encodeConversationUrn, encodeUrnChars, type RawValue } from './encode';
 import { debugLog } from '@/lib/debug-log';
 import { extractConversationId } from '@/lib/conversation-urn';
 import type { VoyagerResponse } from './types';
@@ -24,7 +24,7 @@ export async function findConversationByRecipients(
 
   // Build recipients List with encoded URNs (colons → %3A)
   const encodedRecipients = recipientUrns
-    .map(u => u.replace(/:/g, '%3A'))
+    .map((u) => encodeUrnChars(u))
     .join(',');
 
   const variables = linkedInVariables({

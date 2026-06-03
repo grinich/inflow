@@ -197,7 +197,7 @@ export async function realtimeFetch(
   const csrfToken = cookies.jsessionId.replace(/"/g, '');
   const url = `https://www.linkedin.com${path.startsWith('/') ? path : `/${path}`}`;
 
-  return fetch(url, {
+  const res = await fetch(url, {
     ...options,
     headers: {
       'csrf-token': csrfToken,
@@ -209,4 +209,7 @@ export async function realtimeFetch(
       ...options.headers,
     },
   });
+  // Invalidate the session cache on auth failure, mirroring voyagerFetch.
+  if (res.status === 401 || res.status === 403) invalidateSessionCache();
+  return res;
 }

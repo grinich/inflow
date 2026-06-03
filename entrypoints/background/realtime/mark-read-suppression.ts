@@ -80,3 +80,10 @@ export function isMutationSuppressed(conversationId: string): boolean {
   const mutatedAt = _recentMutations.get(conversationId);
   return !!mutatedAt && now - mutatedAt <= MUTATION_TTL_MS;
 }
+
+/** Clear both suppression windows — call on account switch so one account's
+ *  recent mutations can't suppress updates for the next account. */
+export function clearSuppression(): void {
+  _recentlyMarkedRead.clear();
+  _recentMutations.clear();
+}

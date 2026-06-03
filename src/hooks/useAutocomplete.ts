@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAISession } from './useAISession';
-import { buildAutocompletePrompt } from '@/lib/autocomplete-prompt';
+import { buildAutocompletePrompt, MIN_BODY_LENGTH } from '@/lib/autocomplete-prompt';
 import { ENABLE_AI_AUTOCOMPLETE } from '@/lib/feature-flags';
 import type { Message } from '@/types/message';
 
 const DEBOUNCE_MS = 80;
-const MIN_BODY_LENGTH = 5;
 
 interface UseAutocompleteOptions {
   body: string;
