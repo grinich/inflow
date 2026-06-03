@@ -4,3 +4,7 @@ dist/
 .wxt/
 *.zip
 .DS_Store
+
+# local scratch
+.audit_out.txt
+.cctmp/
