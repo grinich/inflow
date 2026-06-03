@@ -21,6 +21,8 @@ export function ShortcutOverlay() {
 
   return (
     <div
+      aria-hidden={!isOpen}
+      inert={!isOpen}
       className={`fixed inset-x-0 bottom-0 z-40 border-t border-edge bg-surface-raised transition-transform duration-200 ease-out ${
         isOpen ? 'translate-y-0' : 'translate-y-full'
       }`}

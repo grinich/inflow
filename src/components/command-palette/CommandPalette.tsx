@@ -29,7 +29,8 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
   const currentTheme = useUIStore((s) => s.theme);
   const setInboxTab = useUIStore((s) => s.setInboxTab);
 
-  const { archiveConversation, moveToOther, moveToSpam, markRead, markUnread } = useOptimisticAction();
+  const inboxTab = useUIStore((s) => s.inboxTab);
+  const { archiveConversation, moveToFocused, moveToOther, moveToSpam, markRead, markUnread } = useOptimisticAction();
 
   const selectedConv = selectedConversationId
     ? conversations.find((c) => c.id === selectedConversationId)
@@ -37,7 +38,10 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
 
   const commands = buildCommands({
     archiveSelected: () => {
-      if (selectedConv) archiveConversation(selectedConv);
+      if (!selectedConv) return;
+      // In the Archived tab the action un-archives (mirrors the 'e' shortcut).
+      if (inboxTab === 'archived') moveToFocused(selectedConv);
+      else archiveConversation(selectedConv);
     },
     moveToOtherSelected: () => {
       if (selectedConv) moveToOther(selectedConv);
