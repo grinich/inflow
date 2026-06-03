@@ -281,7 +281,7 @@ function startHeartbeat(): void {
         contextUrns: [],
       });
 
-      await realtimeFetch(
+      const res = await realtimeFetch(
         '/realtime/realtimeFrontendClientConnectivityTracking?action=sendHeartbeat',
         {
           method: 'POST',
@@ -289,6 +289,19 @@ function startHeartbeat(): void {
           body,
         }
       );
+      // A non-OK heartbeat means LinkedIn likely dropped the realtime session
+      // (e.g. expired auth) even though the stream read() is still blocked — force
+      // a reconnect instead of treating the connection as healthy.
+      if (!res.ok) {
+        debugLog('warn', `[SSE] Heartbeat returned ${res.status} — forcing reconnect`);
+        connected = false;
+        broadcastSSEStatus();
+        stopHeartbeat();
+        if (abortController) { abortController.abort(); abortController = null; }
+        if (reader) { reader.cancel().catch(() => {}); reader = null; }
+        scheduleReconnect();
+        return;
+      }
     } catch (err) {
       debugLog('error', `[SSE] Heartbeat failed: ${err}`);
     }

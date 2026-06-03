@@ -104,12 +104,15 @@ export async function enqueueConversations(
         existing.status !== 'syncing' &&
         !tooOld
       ) {
-        // Conversation has new activity since last message sync — re-queue
+        // Conversation has new activity since last message sync — re-queue with
+        // a fresh retry budget (a previously-failed item gets its full retries again).
         await db.syncQueue.update(conv.id, {
           status: 'pending',
           lastActivityAt: conv.lastActivityAt,
           priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
           category,
+          failCount: 0,
+          lastFailedAt: 0,
         });
         enqueued++;
       } else {

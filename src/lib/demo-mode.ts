@@ -245,8 +245,12 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
       return { success: true, data: null };
 
     case 'SEARCH_CONVERSATIONS':
+      // useRemoteSearch reads data.conversationIds / data.nextCursor.
+      return { success: true, data: { conversationIds: [], nextCursor: null } };
+
     case 'TYPEAHEAD_SEARCH':
-      return { success: true, data: { results: [] } };
+      // searchTypeahead callers expect an array of results.
+      return { success: true, data: [] };
 
     case 'COUNT_DUPLICATE_CONVERSATIONS':
       return { success: true, data: { count: 0 } };

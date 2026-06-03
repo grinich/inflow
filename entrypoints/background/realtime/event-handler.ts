@@ -582,7 +582,10 @@ async function handleDashConversationUpdate(convEntity: any): Promise<void> {
   if (!convId) return;
 
   const isRead = convEntity.read === true;
-  const suppressed = shouldSuppressConversationUpdate(convId);
+  // Honor BOTH suppression windows: mark-read (recordMarkRead) AND mutation
+  // (recordMutation, e.g. MARK_UNREAD) — otherwise a stale read=true Dash echo
+  // reverts a just-applied optimistic Mark-Unread.
+  const suppressed = shouldSuppressConversationUpdate(convId) || isMutationSuppressed(convId);
 
   debugLog(
     'info',

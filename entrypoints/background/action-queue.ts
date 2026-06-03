@@ -85,13 +85,14 @@ export async function drainActionQueue(): Promise<void> {
       try {
         await replayAction(action);
         replayed = true;
-        await db.pendingActions.update(action.id, { status: 'confirmed' });
 
-        // For send actions, update the temp message status
+        // Complete send-specific bookkeeping BEFORE marking the action confirmed,
+        // so a failure here can't leave a delivered message stuck as 'queued'.
         if (action.type === 'send' && action.tempMessageId) {
           await db.messages.update(action.tempMessageId, { status: 'sent' });
           await db.draftAttachments.delete(action.tempMessageId).catch(() => {});
         }
+        await db.pendingActions.update(action.id, { status: 'confirmed' });
 
         debugLog('info', `[ACTION-QUEUE] Replayed ${action.type} for ${action.conversationId}`);
       } catch (err) {
