@@ -70,10 +70,9 @@ interface ConversationRowProps {
   conversation: Conversation;
   selected: boolean;
   onClick: () => void;
-  onArchive?: () => void;
 }
 
-export function ConversationRow({ conversation, selected, onClick, onArchive }: ConversationRowProps) {
+export function ConversationRow({ conversation, selected, onClick }: ConversationRowProps) {
   const ref = useRef<HTMLDivElement>(null);
   const searchQuery = useUIStore((s) => s.searchQuery);
   const draft = useDraft(conversation.id);
@@ -196,24 +195,6 @@ export function ConversationRow({ conversation, selected, onClick, onArchive }: 
             : conversation.lastMessage || <em className="text-fg-faint">image</em>}
         </p>
       </div>
-
-      {/* Archive button — overlaid on hover (disabled for now)
-      {onArchive && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onArchive(); }}
-          title="Archive"
-          className="absolute inset-y-0 right-0 hidden cursor-pointer items-center px-3 group-hover:flex"
-        >
-          <span className="flex items-center rounded-md border border-border bg-surface p-1.5 text-fg-muted shadow-sm transition-all hover:border-fg-muted hover:bg-surface-hover hover:text-fg-strong hover:shadow">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="3" width="20" height="5" rx="1" />
-              <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
-              <path d="M10 12h4" />
-            </svg>
-          </span>
-        </button>
-      )}
-      */}
     </div>
   );
 }

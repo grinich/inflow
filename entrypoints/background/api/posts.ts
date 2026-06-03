@@ -37,7 +37,7 @@ export async function fetchPost(urn: string): Promise<LinkedInPost | null> {
   // Try multiple strategies in order
   const strategies = [
     () => fetchViaFeedUpdate(activityUrn),
-    () => fetchViaSocialDetail(activityUrn),
+    () => fetchViaFeedUpdateV2(activityUrn),
     () => fetchViaUgcPost(activityUrn),
   ];
 
@@ -70,8 +70,8 @@ async function fetchViaFeedUpdate(urn: string): Promise<LinkedInPost | null> {
   return extractPostData(data, urn);
 }
 
-/** Strategy 2: /voyagerSocialGraphQL socialDetail */
-async function fetchViaSocialDetail(urn: string): Promise<LinkedInPost | null> {
+/** Strategy 2: /feed/updatesV2/{urn} feed-details endpoint */
+async function fetchViaFeedUpdateV2(urn: string): Promise<LinkedInPost | null> {
   const encoded = encodeURIComponent(urn);
   const res = await voyagerFetch(
     `/feed/updatesV2/${encoded}?moduleKey=feed_details&showLatestComments=false`
