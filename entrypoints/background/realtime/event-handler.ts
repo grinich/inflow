@@ -36,19 +36,29 @@ async function applyInboundMessageToConversation(
   memberUrn: string,
 ): Promise<void> {
   const latest = convMessages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+  const hasInbound = convMessages.some((m) => !m.isFromMe);
+  // Read pending-actions (a different table) outside the conversations transaction.
+  const pending = await hasPendingAction(convId);
   const existing = await db.conversations.get(convId);
   if (existing) {
-    const updates: Record<string, any> = {
-      lastMessage: latest.body || 'New message',
-      lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
-    };
-    if (!isMutationSuppressed(convId) && !(await hasPendingAction(convId)) && existing.category !== 'SPAM' && convMessages.some((m) => !m.isFromMe)) {
-      updates.read = 0;
-      // Move to Focused and un-archive when someone replies
-      if (existing.category !== 'PRIMARY_INBOX') updates.category = 'PRIMARY_INBOX';
-      if (existing.archived === 1) updates.archived = 0;
-    }
-    await db.conversations.update(convId, updates);
+    // Atomic read-modify-write: the detached RealtimeConversation fetch can write
+    // the same conversation concurrently, so re-read inside the transaction to
+    // avoid clobbering read/category/lastActivityAt.
+    await db.transaction('rw', db.conversations, async () => {
+      const conv = await db.conversations.get(convId);
+      if (!conv) return;
+      const updates: Record<string, any> = {
+        lastMessage: latest.body || 'New message',
+        lastActivityAt: Math.max(latest.createdAt, conv.lastActivityAt),
+      };
+      if (!isMutationSuppressed(convId) && !pending && conv.category !== 'SPAM' && hasInbound) {
+        updates.read = 0;
+        // Move to Focused and un-archive when someone replies
+        if (conv.category !== 'PRIMARY_INBOX') updates.category = 'PRIMARY_INBOX';
+        if (conv.archived === 1) updates.archived = 0;
+      }
+      await db.conversations.update(convId, updates);
+    });
     // Heal a conversation previously seeded from an unresolved SSE echo
     // (participants left as "Unknown" / a garbage URN).
     if (needsParticipantRepair(existing)) backfillConversationParticipants(convId, memberUrn);
@@ -680,15 +690,20 @@ async function _doFetchLatest(
   // Update conversation preview text, timestamp, and read status.
   // Only mark as unread if there is a genuinely new inbound message
   // (createdAt newer than what we had, and not from us).
+  //
+  // This fetch runs detached from the SSE event-serialization chain, so the
+  // read-modify-write is wrapped in a transaction and re-reads the row inside it.
+  // That keeps it atomic against a concurrent message/conversation handler writing
+  // the same fields (read/category/lastActivityAt) and reconciles hasNewInbound
+  // against the current lastActivityAt rather than a pre-write snapshot.
   const latest = messages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
-  const existing = await db.conversations.get(conversationId);
-  if (existing) {
+  await db.transaction('rw', db.conversations, async () => {
+    const existing = await db.conversations.get(conversationId);
+    if (!existing) return;
     const updates: Record<string, any> = {
       lastMessage: latest.body || 'New message',
       lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
     };
-    // Check if any fetched message is newer than what the conversation had
-    // and is from someone else — only then mark as unread.
     const hasNewInbound = messages.some(
       (m) => !m.isFromMe && m.createdAt > existing.lastActivityAt
     );
@@ -705,7 +720,7 @@ async function _doFetchLatest(
       }
     }
     await db.conversations.update(conversationId, updates);
-  }
+  });
 
   debugLog('info', `[RT] Fetched ${messages.length} messages for conv ${conversationId.substring(0, 20)}...`);
 }
