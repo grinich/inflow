@@ -654,7 +654,7 @@ function Linkify({ text, isMe }: { text: string; isMe: boolean }) {
     );
     if (overlapsEmail) continue;
 
-    const href = cleaned.startsWith('http') ? cleaned : `https://${cleaned}`;
+    const href = sanitizeUrl(cleaned.startsWith('http') ? cleaned : `https://${cleaned}`);
     matches.push({ index: start, length: raw.length, href, display: cleaned });
   }
 

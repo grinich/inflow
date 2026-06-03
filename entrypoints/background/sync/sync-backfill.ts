@@ -3,7 +3,7 @@ import { getMemberUrn } from '../auth/session';
 import { normalizeMessages } from '@/lib/voyager-normalizer';
 import { prefetchSharedPosts } from './prefetch-posts';
 import { debugLog } from '@/lib/debug-log';
-import { db } from '@/db/database';
+import { db, getDbGeneration } from '@/db/database';
 
 /** Small delay between backfill conversations to yield the event loop. */
 function backfillDelay(): Promise<void> {
@@ -42,8 +42,10 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
   debugLog('info', `[BACKFILL] Processing batch of ${pending.length} conversations`);
 
   let completed = 0;
+  const gen = getDbGeneration();
 
   for (const item of pending) {
+    if (getDbGeneration() !== gen) break; // account switched mid-backfill — don't write into the new DB
     // Mark as syncing before API call (crash recovery: will be reset on startup)
     await db.syncQueue.update(item.conversationId, { status: 'syncing' });
 

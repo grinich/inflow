@@ -296,8 +296,20 @@ async function _doSwitchDatabase(memberId: string): Promise<void> {
   _db = createDatabase(newName);
   db = _db;
   activeMemberId = memberId;
+  _dbGeneration++;
   persistAccountId(memberId);
   await _db.open();
+}
+
+/**
+ * Monotonic counter bumped on every account/database switch. Long-running
+ * background loops (backfill, drain, discovery) capture it and bail if it
+ * changes mid-loop, so an account switch can't redirect their writes into the
+ * newly-active account's database.
+ */
+let _dbGeneration = 0;
+export function getDbGeneration(): number {
+  return _dbGeneration;
 }
 
 /** Persist account ID to chrome.storage.session (fire-and-forget). */

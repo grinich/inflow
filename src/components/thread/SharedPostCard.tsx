@@ -111,7 +111,7 @@ export function SharedPostCard({ attachment, isMe }: SharedPostCardProps) {
         }`}>
           {post.authorPicture ? (
             <img
-              src={post.authorPicture}
+              src={sanitizeUrl(post.authorPicture)}
               alt={post.authorName}
               className="h-6 w-6 rounded-full object-cover"
             />
@@ -150,7 +150,7 @@ export function SharedPostCard({ attachment, isMe }: SharedPostCardProps) {
         {post.imageUrl && (
           <div className="px-3 pb-2">
             <img
-              src={post.imageUrl}
+              src={sanitizeUrl(post.imageUrl)}
               alt=""
               className="max-w-full rounded object-contain"
               style={{ maxHeight: '200px' }}
