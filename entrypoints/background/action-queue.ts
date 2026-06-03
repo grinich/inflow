@@ -21,7 +21,7 @@ import {
 import { sendMessage, editMessage, reactWithEmoji, recallMessage } from './api/messages';
 import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression';
 import { debugLog } from '@/lib/debug-log';
-import { db } from '@/db/database';
+import { db, getDbGeneration } from '@/db/database';
 import type { PendingAction } from '@/db/database';
 
 let draining = false;
@@ -72,7 +72,9 @@ export async function drainActionQueue(): Promise<void> {
 
     debugLog('info', `[ACTION-QUEUE] Draining ${queued.length} queued action(s)`);
 
+    const gen = getDbGeneration();
     for (const action of queued) {
+      if (getDbGeneration() !== gen) break; // account switched mid-drain — don't replay into the new DB
       // Stop if we've gone offline mid-drain
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         debugLog('info', '[ACTION-QUEUE] Went offline — pausing drain');

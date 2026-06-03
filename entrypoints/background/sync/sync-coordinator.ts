@@ -5,7 +5,7 @@ import { backfillBatch, recoverStuckItems } from './sync-backfill';
 import { isRealtimeConnected } from '../realtime/sse-client';
 import { drainActionQueue } from '../action-queue';
 import { debugLog } from '@/lib/debug-log';
-import { db, type SyncState } from '@/db/database';
+import { db, getDbGeneration, type SyncState } from '@/db/database';
 import type { Conversation } from '@/types/conversation';
 
 const ALARM_NAME = 'inflow-sync';
@@ -172,8 +172,10 @@ async function onSyncTick(): Promise<void> {
 
     try {
       const MAX_DISCOVERY_PAGES = 1000; // hard backstop against a runaway cursor
+      const gen = getDbGeneration();
       let pageCount = 0;
       while (!paused) {
+        if (getDbGeneration() !== gen) break; // account switched mid-discovery — don't write into the new DB
         const { conversations, isLastPage, nextCursor } = await discoverPage(cat, cursor);
         await enqueueConversations(conversations, cat);
         totalDiscovered += conversations.length;
