@@ -2,15 +2,7 @@ import type { Conversation } from '@/types/conversation';
 import type { Message, MessageAttachment, RepliedMessage, ReactionSummary } from '@/types/message';
 import type { Profile } from '@/types/profile';
 import type { VoyagerResponse, VoyagerEntity } from '@/types/voyager';
-
-/**
- * Extract conversation thread ID from a full entityUrn.
- * "urn:li:msg_conversation:(urn:li:fsd_profile:XXX,2-abc123)" -> "2-abc123"
- */
-function extractConversationId(entityUrn: string): string {
-  const match = entityUrn.match(/,([\w+-]+=*)[\)]*$/);
-  return match ? match[1] : entityUrn;
-}
+import { extractConversationId } from './conversation-urn';
 
 /**
  * Extract profile member ID from various URN formats.
@@ -136,7 +128,7 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
     const latestMsg = messageMap.get(conv.entityUrn);
     const lastMessage = latestMsg?.body?.text || lastMessageFallback(latestMsg);
 
-    const convId = extractConversationId(conv.entityUrn);
+    const convId = extractConversationId(conv.entityUrn) || conv.entityUrn;
 
     return {
       id: convId,

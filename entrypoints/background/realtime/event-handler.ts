@@ -20,6 +20,7 @@ import { db } from '@/db/database';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { shouldSuppressConversationUpdate, isMutationSuppressed } from './mark-read-suppression';
 import { hasPendingAction } from '../sync/pending-guard';
+import { extractConversationId } from '@/lib/conversation-urn';
 import type { Message, MessageAttachment, ReactionSummary } from '@/types/message';
 
 /** Enrich a single profile if it's missing company data. Non-blocking, fire-and-forget. */
@@ -304,14 +305,7 @@ function extractIncluded(data: any): any[] | null {
  * Extract conversation ID from an entityUrn.
  * "urn:li:msg_conversation:(urn:li:fsd_profile:XXX,2-abc123)" -> "2-abc123"
  */
-function extractConversationId(entityUrn: string): string {
-  const match = entityUrn.match(/,([\w-]+=*)[\)]*$/);
-  if (!match) {
-    debugLog('warn', `[RT] Could not extract conversation ID from URN: ${entityUrn.substring(0, 80)}`);
-    return '';
-  }
-  return match[1];
-}
+// extractConversationId is shared from '@/lib/conversation-urn' (imported above).
 
 /**
  * Extract profile member ID from URN.

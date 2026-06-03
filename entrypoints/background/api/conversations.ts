@@ -2,6 +2,7 @@ import { voyagerFetch } from './client';
 import { getMemberUrn } from '../auth/session';
 import { linkedInVariables, raw, encodeConversationUrn, type RawValue } from './encode';
 import { debugLog } from '@/lib/debug-log';
+import { extractConversationId } from '@/lib/conversation-urn';
 import type { VoyagerResponse } from './types';
 
 /** LinkedIn inbox categories mapped to their API values. */
@@ -48,8 +49,7 @@ export async function findConversationByRecipients(
   if (!conv?.entityUrn) return null;
 
   // Extract conversation ID from URN: urn:li:msg_conversation:(memberUrn,convId)
-  const match = conv.entityUrn.match(/,([\w\-+=]+)\)$/);
-  return match ? match[1] : null;
+  return extractConversationId(conv.entityUrn) || null;
 }
 
 // ---------------------------------------------------------------------------
