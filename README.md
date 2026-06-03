@@ -56,15 +56,22 @@ Starts a dev server with hot reload. The extension auto-reloads in Chrome on sav
 ## Features
 
 ### Messaging
-- Send, receive, and edit messages with file attachments
-- Optimistic sending with instant UI updates
-- Read receipts, shared post previews, and draft auto-save
-- Paste-to-attach for images
-- New conversation composer with typeahead search
+- Send, receive, edit, and unsend messages with file attachments
+- Optimistic sending with instant UI updates; offline actions queue and replay when back online
+- Emoji reactions, read receipts, shared-post previews, and draft auto-save
+- Reply to a specific message, with reply-to indicators and edited-message timestamps
+- Emoji shortcode autocomplete (`:smile`) and paste-to-attach for images
+- New conversation composer with typeahead recipient search
+
+### AI assist (optional, Gemini)
+- Reply suggestions for incoming messages
+- Inline autocomplete while composing
+- Bring your own Gemini API key (set it in the app); off until configured
 
 ### Inbox
 - Four tabs: Focused, Other, Archived, Spam
-- Star, archive, move, mark read/unread, delete
+- Star, archive, move to Other, mark read/unread, mark as spam, delete
+- One-click unread quick-filter toggle
 - Undo for destructive actions
 - Per-account IndexedDB (supports multiple LinkedIn accounts)
 
@@ -76,29 +83,43 @@ Starts a dev server with hot reload. The extension auto-reloads in Chrome on sav
 | Filter | Description |
 |--------|-------------|
 | `is:unread` | Unread conversations |
+| `is:read` | Read conversations |
 | `is:starred` | Starred conversations |
 | `is:group` | Group conversations |
 | `has:attachment` | Has attachments |
+| `has:draft` | Has an unsent draft |
 | `from:name` | Filter by sender |
 | `company:name` | Filter by company |
 | `after:YYYY-MM-DD` | Active after date |
-| `newer:Nd` | Active within N days |
+| `before:YYYY-MM-DD` | Active before date |
+| `newer:Nd` | Active within the last N days |
+| `older:Nd` | Inactive for at least N days |
 
 ### Keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
 | `J` / `K` | Navigate conversations |
-| `Enter` | Open thread |
-| `R` | Reply |
+| `Enter` | Open conversation |
+| `1` / `2` / `3` / `4` | Jump to Focused / Other / Archived / Spam |
+| `G S` / `G U` | Go to starred / unread |
+| `R` | Reply (focus compose) |
+| `Enter` | Send message (in compose) |
+| `⌘+Enter` | Send + archive |
+| `Shift+Enter` | New line |
 | `Escape` | Back to list |
-| `E` | Archive |
+| `E` | Archive (un-archive / move to Focused in Archived tab) |
+| `O` | Move to Other |
 | `S` | Star / unstar |
 | `U` | Toggle read / unread |
+| `Shift+U` | Mark unread & go back (in thread) |
+| `!` | Mark as spam |
+| `P` | Open sender's LinkedIn profile |
+| `D` | Delete conversation |
 | `C` | Compose new message |
 | `/` | Focus search |
 | `Cmd+K` | Command palette |
-| `Z` | Undo |
+| `Z` | Undo last action |
 | `?` | Show all shortcuts |
 
 ### Sync engine
@@ -110,9 +131,9 @@ Starts a dev server with hot reload. The extension auto-reloads in Chrome on sav
 
 ### Thread view
 - Grouped message bubbles with time separators
+- Emoji reactions and read-receipt indicators
 - Image lightbox, file downloads, audio/video attachments
-- Profile enrichment: company, title, logo badge, location
-- Reply-to indicators and edited message timestamps
+- Light / dark / system theme
 
 ### Debug panel
 - Real-time sync progress and error logs
