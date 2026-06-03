@@ -14,7 +14,7 @@
 import { getMemberUrn } from '../auth/session';
 import { fetchProfileByUrn } from '../api/profiles';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages } from '@/lib/voyager-normalizer';
+import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
@@ -362,10 +362,7 @@ function extractIncluded(data: any): any[] | null {
  * Extract profile member ID from URN.
  * "urn:li:fsd_profile:ABC" -> "ABC"
  */
-function extractProfileId(urn: string): string {
-  const match = urn.match(/fsd_profile:([^,)]+)/);
-  return match ? match[1] : urn;
-}
+// extractProfileId is shared from '@/lib/voyager-normalizer' (imported above).
 
 // ---------------------------------------------------------------------------
 // New message handler
@@ -782,7 +779,7 @@ async function handleIncludedMessage(
 
     const attachments = extractAttachments(entity.renderContent, included);
     const repliedMessage = extractRepliedMessage(entity.renderContent);
-    const reactions = extractReactionSummaries(entity.reactionSummaries);
+    const reactions = extractReactions(entity.reactionSummaries);
 
 
 
@@ -869,7 +866,7 @@ async function handleSingleMessageEntity(
 
   const attachments = extractAttachments(entity.renderContent);
   const repliedMessage = extractRepliedMessage(entity.renderContent);
-  const reactions = extractReactionSummaries(entity.reactionSummaries);
+  const reactions = extractReactions(entity.reactionSummaries);
 
   // DEBUG: log edit/reaction fields from raw entity
   if (entity.editedAt || entity.lastEditedAt || entity.reactionSummaries) {
@@ -1137,56 +1134,6 @@ function extractRepliedMessage(
   return undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Reaction summary extraction
-// ---------------------------------------------------------------------------
-
-function extractReactionSummaries(reactionSummaries: any[] | undefined): ReactionSummary[] {
-  if (!reactionSummaries || !Array.isArray(reactionSummaries)) return [];
-  return reactionSummaries
-    .filter((r: any) => r.emoji)
-    .map((r: any) => ({
-      emoji: r.emoji,
-      count: r.count || 1,
-      firstReactedAt: r.firstReactedAt || 0,
-      viewerReacted: !!r.viewerReacted,
-    }));
-}
-
-// ---------------------------------------------------------------------------
-// Participant picture extraction (mirrors voyager-normalizer.ts)
-// ---------------------------------------------------------------------------
-
-function getParticipantPicture(participant: any): string {
-  const member = participant.participantType?.member;
-  if (!member?.profilePicture) return '';
-
-  const pic = member.profilePicture;
-
-  if (pic.artifacts?.length) {
-    const artifacts = pic.artifacts;
-    const artifact =
-      artifacts
-        .sort((a: any, b: any) => (a.width || 0) - (b.width || 0))
-        .find((a: any) => (a.width || 0) >= 100) || artifacts[0];
-    if (artifact?.fileUrl) return artifact.fileUrl;
-    if (pic.rootUrl && artifact?.fileIdentifyingUrlPathSegment) {
-      return `${pic.rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
-    }
-  }
-
-  const vectorImage =
-    pic.displayImageReference?.vectorImage || pic.vectorImage;
-  if (vectorImage?.rootUrl && vectorImage?.artifacts?.length) {
-    const artifact =
-      vectorImage.artifacts
-        .sort((a: any, b: any) => (a.width || 0) - (b.width || 0))
-        .find((a: any) => (a.width || 0) >= 100) ||
-      vectorImage.artifacts[0];
-    if (artifact?.fileIdentifyingUrlPathSegment) {
-      return `${vectorImage.rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
-    }
-  }
-
-  return '';
-}
+// extractReactions + getParticipantPicture are shared from '@/lib/voyager-normalizer'
+// (imported above). (extractAttachments/extractRepliedMessage intentionally stay
+// local — the SSE variants differ: no participantMap, no included[] resolution.)

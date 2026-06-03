@@ -43,8 +43,11 @@ vi.mock('../../entrypoints/background/realtime/mark-read-suppression', () => ({
   recordMarkRead: vi.fn(),
 }));
 
-// Mock normalizeMessages so we can control its output in conversation update tests
-vi.mock('@/lib/voyager-normalizer', () => ({
+// Mock normalizeMessages so we can control its output in conversation update tests.
+// Keep the real pure helpers (extractProfileId/getParticipantPicture/extractReactions),
+// which event-handler now imports from this module.
+vi.mock('@/lib/voyager-normalizer', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/voyager-normalizer')>()),
   normalizeMessages: vi.fn().mockReturnValue([]),
 }));
 
