@@ -298,6 +298,91 @@ describe('event-handler', () => {
       expect(msg.isFromMe).toBe(true);
     });
 
+    it('treats an unresolvable sender (omitted-self echo) as our own message, not "Unknown"', async () => {
+      // Regression: first message to a brand-new contact, sent from the LinkedIn
+      // web UI. LinkedIn omits the viewer's own MessagingParticipant from the echo,
+      // so the sender can't be resolved and there is no stored conversation yet.
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+
+      const data = {
+        'com.linkedin.realtimefrontend.DecoratedEvent': {
+          topic: '/messaging',
+          payload: {
+            data: {
+              included: [
+                // NOTE: no MessagingParticipant for the sender (self) — omitted.
+                {
+                  $type: 'com.linkedin.messenger.Message',
+                  entityUrn: 'urn:li:msg_message:OUTBOUND1',
+                  body: { text: 'First message to a new contact' },
+                  deliveredAt: 7000,
+                  '*sender': 'urn:li:msg_messagingParticipant:(2-newconv,SELFPART)',
+                  '*conversation': 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,2-newconv)',
+                },
+              ],
+            },
+          },
+        },
+      };
+
+      await handleRealtimeEvent('event', data);
+
+      const msg = await testDb.messages.get('urn:li:msg_message:OUTBOUND1');
+      expect(msg).toBeDefined();
+      expect(msg.isFromMe).toBe(true);
+      expect(msg.senderName).toBe('You');
+      // senderUrn aligned to the member URN so it dedups against the REST canonical.
+      expect(msg.senderUrn).toBe(MEMBER_URN);
+
+      // The auto-created conversation must not be labeled "Unknown" or marked unread.
+      const conv = await testDb.conversations.get('2-newconv');
+      expect(conv).toBeDefined();
+      expect(conv.participantNames).not.toContain('Unknown');
+      expect(conv.read).toBe(1);
+    });
+
+    it('keeps an unresolved sender that matches a known participant as inbound', async () => {
+      // Guard against over-eagerly claiming inbound messages as our own: if the
+      // unresolved senderUrn is a known OTHER participant, it stays inbound.
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+
+      const otherUrn = 'urn:li:fsd_profile:urn:li:msg_messagingParticipant:(2-known,OTHERPART)';
+      await testDb.conversations.put(makeConversation({
+        id: '2-known',
+        participantUrns: [otherUrn],
+        participantNames: ['Ada Lovelace'],
+      }));
+
+      const data = {
+        'com.linkedin.realtimefrontend.DecoratedEvent': {
+          topic: '/messaging',
+          payload: {
+            data: {
+              included: [
+                {
+                  $type: 'com.linkedin.messenger.Message',
+                  entityUrn: 'urn:li:msg_message:INBOUND1',
+                  body: { text: 'reply' },
+                  deliveredAt: 8000,
+                  '*sender': 'urn:li:msg_messagingParticipant:(2-known,OTHERPART)',
+                  '*conversation': 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,2-known)',
+                },
+              ],
+            },
+          },
+        },
+      };
+
+      await handleRealtimeEvent('event', data);
+
+      const msg = await testDb.messages.get('urn:li:msg_message:INBOUND1');
+      expect(msg.isFromMe).toBe(false);
+    });
+
     it('marks conversation as unread (read=0) for inbound messages', async () => {
       const { handleRealtimeEvent } = await import(
         '../../entrypoints/background/realtime/event-handler'
