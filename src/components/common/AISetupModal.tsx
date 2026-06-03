@@ -146,6 +146,7 @@ export function AISetupModal() {
                   setTestStatus('idle');
                   setTestError('');
                 }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && apiKey.trim()) handleSave(); }}
                 placeholder="Paste your Gemini API key"
                 className="w-full rounded-md bg-surface px-3 py-2 pr-16 text-sm text-fg placeholder-fg-faint ring-1 ring-ring focus:outline-none focus:ring-2 focus:ring-blue-500"
                 autoFocus

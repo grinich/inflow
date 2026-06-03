@@ -30,7 +30,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
   const setInboxTab = useUIStore((s) => s.setInboxTab);
 
   const inboxTab = useUIStore((s) => s.inboxTab);
-  const { archiveConversation, moveToFocused, moveToOther, moveToSpam, markRead, markUnread } = useOptimisticAction();
+  const { archiveConversation, moveToFocused, moveToOther, markRead, markUnread } = useOptimisticAction();
 
   const selectedConv = selectedConversationId
     ? conversations.find((c) => c.id === selectedConversationId)
@@ -47,7 +47,8 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       if (selectedConv) moveToOther(selectedConv);
     },
     moveToSpamSelected: () => {
-      if (selectedConv) moveToSpam(selectedConv);
+      // Route through the confirmation modal, like the keyboard shortcut does.
+      if (selectedConv) useUIStore.getState().setSpamConfirmId(selectedConv.id);
     },
     markReadSelected: () => {
       if (selectedConv) markRead(selectedConv.id);

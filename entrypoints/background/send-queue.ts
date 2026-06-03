@@ -19,3 +19,8 @@ export function enqueueSend<T>(conversationId: string, fn: () => Promise<T>): Pr
   run.then(cleanup, cleanup);
   return run;
 }
+
+/** Drop all pending send chains — call on account switch. */
+export function clearSendQueue(): void {
+  _chains.clear();
+}

@@ -17,7 +17,7 @@ export default defineConfig({
     description: 'A keyboard-driven LinkedIn messaging client',
     version: '0.1.0',
     permissions: ['cookies', 'storage', 'alarms', 'tabs', 'declarativeNetRequest'],
-    host_permissions: ['https://www.linkedin.com/*'],
+    host_permissions: ['https://www.linkedin.com/*', 'https://generativelanguage.googleapis.com/*'],
     action: {
       default_icon: {
         '16': 'icon-16.png',

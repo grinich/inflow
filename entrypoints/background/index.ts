@@ -6,6 +6,8 @@ import { debugLog } from '@/lib/debug-log';
 import { db, switchDatabase, memberIdFromUrn } from '@/db/database';
 import { getSession, invalidateSessionCache, clearCachedMemberUrn } from './auth/session';
 import { invalidateCookieRule } from './api/client';
+import { clearSuppression } from './realtime/mark-read-suppression';
+import { clearSendQueue } from './send-queue';
 
 /** Count unread non-draft focused-inbox conversations and update the toolbar badge. */
 async function updateBadge() {
@@ -96,6 +98,8 @@ export default defineBackground(() => {
     invalidateSessionCache();
     clearCachedMemberUrn();
     invalidateCookieRule();
+    clearSuppression();
+    clearSendQueue();
 
     // 2. Re-fetch identity from /me
     try {

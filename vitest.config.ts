@@ -21,6 +21,8 @@ export default defineConfig({
       provider: 'v8',
       include: [
         'src/lib/**',
+        'src/hooks/**',
+        'src/store/**',
         'entrypoints/background/**',
         'src/db/**',
       ],

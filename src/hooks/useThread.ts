@@ -75,11 +75,14 @@ export function useThread(conversationId: string | null, mergedIds?: string[]) {
     function onVisible() {
       if (document.visibilityState === 'visible') {
         sendBridgeMessage({ type: 'FETCH_MESSAGES', conversationId: conversationId! });
+        for (const id of mergedIds || []) {
+          sendBridgeMessage({ type: 'FETCH_MESSAGES', conversationId: id });
+        }
       }
     }
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [conversationId]);
+  }, [conversationId, mergedIds?.join(',')]);
 
   return messages;
 }

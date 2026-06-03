@@ -65,7 +65,7 @@ async function hasSessionCookieChanged(): Promise<boolean> {
     if (lastLiAtValue === null) return false; // first check — getSession will record it
     return cookies.liAt !== lastLiAtValue;
   } catch {
-    return false;
+    return true; // on error, force a re-check rather than trusting a possibly-stale identity
   }
 }
 
@@ -131,7 +131,7 @@ export async function getSession(): Promise<Session> {
     const session: Session = {
       authenticated: true,
       memberUrn,
-      displayName: `${miniProfile?.firstName || ''} ${miniProfile?.lastName || ''}`.trim(),
+      displayName: `${miniProfile?.firstName || ''} ${miniProfile?.lastName || ''}`.trim() || undefined,
       publicId: miniProfile?.publicIdentifier,
       profilePicture,
     };
