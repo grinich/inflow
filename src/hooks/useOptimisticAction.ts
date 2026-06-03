@@ -364,178 +364,119 @@ export function useOptimisticAction() {
     }
   }
 
-  async function moveToFocused(conversation: Conversation) {
+  // Bridge action that restores a conversation to a given category (used by undo).
+  const RESTORE_BRIDGE: Record<string, 'ARCHIVE' | 'MOVE_TO_OTHER' | 'MOVE_TO_SPAM' | 'MOVE_TO_FOCUSED'> = {
+    ARCHIVE: 'ARCHIVE',
+    SECONDARY_INBOX: 'MOVE_TO_OTHER',
+    SPAM: 'MOVE_TO_SPAM',
+    PRIMARY_INBOX: 'MOVE_TO_FOCUSED',
+  };
+
+  /**
+   * Shared optimistic category-move flow for moveToFocused/Other/Spam.
+   * Applies the optimistic patch, records a pending action, shows an undo toast
+   * (whose undo restores the previous category and fires the inverse bridge),
+   * and reconciles with the server — queueing for replay when offline and
+   * rolling back on failure.
+   */
+  async function categoryMove(
+    conversation: Conversation,
+    opts: {
+      type: PendingAction['type'];
+      bridgeType: 'MOVE_TO_FOCUSED' | 'MOVE_TO_OTHER' | 'MOVE_TO_SPAM';
+      patch: Partial<Conversation>;
+      toastMessage: string;
+      failMessage: string;
+    }
+  ) {
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
-    const bridgeMsg = { type: 'MOVE_TO_FOCUSED' as const, conversationId: conversation.id };
+    const bridgeMsg = { type: opts.bridgeType, conversationId: conversation.id };
 
-    await db.conversations.update(conversation.id, { archived: 0, category: 'PRIMARY_INBOX' });
+    // Restore the previous category; also restore archived iff the patch touched it.
+    const rollbackData: Partial<Conversation> =
+      'archived' in opts.patch
+        ? { archived: conversation.archived, category: previousCategory }
+        : { category: previousCategory };
+
+    await db.conversations.update(conversation.id, opts.patch);
     await db.pendingActions.put({
       id: actionId,
+      type: opts.type,
+      conversationId: conversation.id,
+      status: 'pending',
+      timestamp: Date.now(),
+      rollbackData,
+    });
+
+    showToast({
+      message: opts.toastMessage,
+      undoConversationId: conversation.id,
+      undoAction: async () => {
+        await db.conversations.update(conversation.id, rollbackData);
+        await db.pendingActions.delete(actionId);
+        if (!navigator.onLine) return;
+        const restoreType = RESTORE_BRIDGE[previousCategory] || 'MOVE_TO_FOCUSED';
+        sendBridgeMessage({ type: restoreType, conversationId: conversation.id }).catch(() => {});
+      },
+    });
+
+    if (!navigator.onLine) {
+      await queueAction(actionId, bridgeMsg);
+      return;
+    }
+
+    const rollback = async () => {
+      await db.conversations.update(conversation.id, rollbackData);
+      await db.pendingActions.update(actionId, { status: 'failed' });
+      showToast({ message: opts.failMessage });
+    };
+
+    sendBridgeMessage(bridgeMsg)
+      .then(async (res) => {
+        if (res.success) {
+          await db.pendingActions.update(actionId, { status: 'confirmed' });
+        } else {
+          await rollback();
+        }
+      })
+      .catch(async () => {
+        if (!navigator.onLine) {
+          await queueAction(actionId, bridgeMsg);
+          return;
+        }
+        await rollback();
+      });
+  }
+
+  function moveToFocused(conversation: Conversation) {
+    return categoryMove(conversation, {
       type: 'move_to_focused',
-      conversationId: conversation.id,
-      status: 'pending',
-      timestamp: Date.now(),
-      rollbackData: { archived: conversation.archived, category: previousCategory },
+      bridgeType: 'MOVE_TO_FOCUSED',
+      patch: { archived: 0, category: 'PRIMARY_INBOX' },
+      toastMessage: 'Moved to Focused',
+      failMessage: 'Failed to move — rolled back',
     });
-
-    showToast({
-      message: 'Moved to Focused',
-      undoConversationId: conversation.id,
-      undoAction: async () => {
-        await db.conversations.update(conversation.id, { archived: conversation.archived, category: previousCategory });
-        await db.pendingActions.delete(actionId);
-        if (!navigator.onLine) return;
-        if (previousCategory === 'ARCHIVE') {
-          sendBridgeMessage({ type: 'ARCHIVE', conversationId: conversation.id }).catch(() => {});
-        } else if (previousCategory === 'SECONDARY_INBOX') {
-          sendBridgeMessage({ type: 'MOVE_TO_OTHER', conversationId: conversation.id }).catch(() => {});
-        } else if (previousCategory === 'SPAM') {
-          sendBridgeMessage({ type: 'MOVE_TO_SPAM', conversationId: conversation.id }).catch(() => {});
-        }
-      },
-    });
-
-    if (!navigator.onLine) {
-      await queueAction(actionId, bridgeMsg);
-      return;
-    }
-
-    sendBridgeMessage(bridgeMsg)
-      .then(async (res) => {
-        if (res.success) {
-          await db.pendingActions.update(actionId, { status: 'confirmed' });
-        } else {
-          await db.conversations.update(conversation.id, { archived: conversation.archived, category: previousCategory });
-          await db.pendingActions.update(actionId, { status: 'failed' });
-          showToast({ message: 'Failed to move — rolled back' });
-        }
-      })
-      .catch(async () => {
-        if (!navigator.onLine) {
-          await queueAction(actionId, bridgeMsg);
-          return;
-        }
-        await db.conversations.update(conversation.id, { archived: conversation.archived, category: previousCategory });
-        await db.pendingActions.update(actionId, { status: 'failed' });
-        showToast({ message: 'Failed to move — rolled back' });
-      });
   }
 
-  async function moveToOther(conversation: Conversation) {
-    const actionId = nanoid();
-    const previousCategory = conversation.category || 'PRIMARY_INBOX';
-    const bridgeMsg = { type: 'MOVE_TO_OTHER' as const, conversationId: conversation.id };
-
-    await db.conversations.update(conversation.id, { category: 'SECONDARY_INBOX' });
-    await db.pendingActions.put({
-      id: actionId,
+  function moveToOther(conversation: Conversation) {
+    return categoryMove(conversation, {
       type: 'move_to_other',
-      conversationId: conversation.id,
-      status: 'pending',
-      timestamp: Date.now(),
-      rollbackData: { category: previousCategory },
+      bridgeType: 'MOVE_TO_OTHER',
+      patch: { category: 'SECONDARY_INBOX' },
+      toastMessage: 'Moved to Other',
+      failMessage: 'Failed to move — rolled back',
     });
-
-    showToast({
-      message: 'Moved to Other',
-      undoConversationId: conversation.id,
-      undoAction: async () => {
-        await db.conversations.update(conversation.id, { category: previousCategory });
-        await db.pendingActions.delete(actionId);
-        if (!navigator.onLine) return;
-        if (previousCategory === 'ARCHIVE') {
-          sendBridgeMessage({ type: 'ARCHIVE', conversationId: conversation.id }).catch(() => {});
-        } else if (previousCategory === 'SPAM') {
-          sendBridgeMessage({ type: 'MOVE_TO_SPAM', conversationId: conversation.id }).catch(() => {});
-        } else {
-          sendBridgeMessage({ type: 'MOVE_TO_FOCUSED', conversationId: conversation.id }).catch(() => {});
-        }
-      },
-    });
-
-    if (!navigator.onLine) {
-      await queueAction(actionId, bridgeMsg);
-      return;
-    }
-
-    sendBridgeMessage(bridgeMsg)
-      .then(async (res) => {
-        if (res.success) {
-          await db.pendingActions.update(actionId, { status: 'confirmed' });
-        } else {
-          await db.conversations.update(conversation.id, { category: previousCategory });
-          await db.pendingActions.update(actionId, { status: 'failed' });
-          showToast({ message: 'Failed to move — rolled back' });
-        }
-      })
-      .catch(async () => {
-        if (!navigator.onLine) {
-          await queueAction(actionId, bridgeMsg);
-          return;
-        }
-        await db.conversations.update(conversation.id, { category: previousCategory });
-        await db.pendingActions.update(actionId, { status: 'failed' });
-        showToast({ message: 'Failed to move — rolled back' });
-      });
   }
 
-  async function moveToSpam(conversation: Conversation) {
-    const actionId = nanoid();
-    const previousCategory = conversation.category || 'PRIMARY_INBOX';
-    const bridgeMsg = { type: 'MOVE_TO_SPAM' as const, conversationId: conversation.id };
-
-    await db.conversations.update(conversation.id, { category: 'SPAM' });
-    await db.pendingActions.put({
-      id: actionId,
+  function moveToSpam(conversation: Conversation) {
+    return categoryMove(conversation, {
       type: 'move_to_spam',
-      conversationId: conversation.id,
-      status: 'pending',
-      timestamp: Date.now(),
-      rollbackData: { category: previousCategory },
+      bridgeType: 'MOVE_TO_SPAM',
+      patch: { category: 'SPAM' },
+      toastMessage: 'Marked as spam',
+      failMessage: 'Failed to mark as spam — rolled back',
     });
-
-    showToast({
-      message: 'Marked as spam',
-      undoConversationId: conversation.id,
-      undoAction: async () => {
-        await db.conversations.update(conversation.id, { category: previousCategory });
-        await db.pendingActions.delete(actionId);
-        if (!navigator.onLine) return;
-        if (previousCategory === 'ARCHIVE') {
-          sendBridgeMessage({ type: 'ARCHIVE', conversationId: conversation.id }).catch(() => {});
-        } else if (previousCategory === 'SECONDARY_INBOX') {
-          sendBridgeMessage({ type: 'MOVE_TO_OTHER', conversationId: conversation.id }).catch(() => {});
-        } else {
-          sendBridgeMessage({ type: 'MOVE_TO_FOCUSED', conversationId: conversation.id }).catch(() => {});
-        }
-      },
-    });
-
-    if (!navigator.onLine) {
-      await queueAction(actionId, bridgeMsg);
-      return;
-    }
-
-    sendBridgeMessage(bridgeMsg)
-      .then(async (res) => {
-        if (res.success) {
-          await db.pendingActions.update(actionId, { status: 'confirmed' });
-        } else {
-          await db.conversations.update(conversation.id, { category: previousCategory });
-          await db.pendingActions.update(actionId, { status: 'failed' });
-          showToast({ message: 'Failed to mark as spam — rolled back' });
-        }
-      })
-      .catch(async () => {
-        if (!navigator.onLine) {
-          await queueAction(actionId, bridgeMsg);
-          return;
-        }
-        await db.conversations.update(conversation.id, { category: previousCategory });
-        await db.pendingActions.update(actionId, { status: 'failed' });
-        showToast({ message: 'Failed to mark as spam — rolled back' });
-      });
   }
 
   async function deleteConversation(conversation: Conversation) {
