@@ -95,17 +95,21 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
       // with the same body + sender + timestamp. Preserve editedAt and reactions
       // from the SSE entry onto the canonical version (the Messenger API doesn't
       // return these fields).
-      const allMsgs = await db.messages
-        .where('conversationId')
-        .equals(item.conversationId)
-        .toArray();
-      const plan = planSseDedup(allMsgs);
-      if (plan.deleteIds.length > 0) {
+      // Read + reconcile in one transaction so a concurrent FETCH_MESSAGES write
+      // can't interleave between the read and the delete (which would let a freshly
+      // re-fetched SSE/canonical pair race this cleanup).
+      await db.transaction('rw', db.messages, async () => {
+        const allMsgs = await db.messages
+          .where('conversationId')
+          .equals(item.conversationId)
+          .toArray();
+        const plan = planSseDedup(allMsgs);
+        if (plan.deleteIds.length === 0) return;
         for (const u of plan.updates) {
           await db.messages.update(u.id, u.updates);
         }
         await db.messages.bulkDelete(plan.deleteIds);
-      }
+      });
 
       // Mark as done
       await db.syncQueue.update(item.conversationId, {

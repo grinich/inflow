@@ -5,6 +5,7 @@ import { GroupAvatar } from '../common/GroupAvatar';
 import { useUIStore } from '@/store/ui-store';
 import { db } from '@/db/database';
 import { preloadImages, useCachedImage } from '@/hooks/useCachedImage';
+import { stripFilterTokens } from '@/lib/search-filters';
 import type { Conversation } from '@/types/conversation';
 
 interface DraftInfo {
@@ -219,7 +220,7 @@ export function ConversationRow({ conversation, selected, onClick, onArchive }: 
 
 /** Highlight the first occurrence of `query` in a name string. */
 function highlightName(text: string, query: string): React.ReactNode {
-  const q = query.toLowerCase().replace(/has:\S+/gi, '').trim();
+  const q = stripFilterTokens(query).toLowerCase();
   if (!q) return text;
 
   const idx = text.toLowerCase().indexOf(q);
@@ -241,7 +242,7 @@ function highlightName(text: string, query: string): React.ReactNode {
  */
 function highlightMatch(text: string, query: string): React.ReactNode {
   const lower = text.toLowerCase();
-  const q = query.toLowerCase().replace(/has:\S+/gi, '').trim();
+  const q = stripFilterTokens(query).toLowerCase();
   if (!q) return text;
 
   const idx = lower.lastIndexOf(q);

@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { useUIStore } from '@/store/ui-store';
+import { registerSendObjectUrls } from '@/lib/send-object-urls';
 import type { Conversation } from '@/types/conversation';
 import type { Message, ReactionSummary } from '@/types/message';
 import type { PendingAction } from '@/db/database';
@@ -198,6 +199,12 @@ export function useOptimisticAction() {
       ...(replyTo ? { repliedMessage: { senderName: replyTo.senderName, body: replyTo.body, messageId: replyTo.messageUrn, senderUrn: replyTo.senderUrn, sentAt: replyTo.sentAt } } : {}),
     });
 
+    // Register preview object URLs against the temp id. They're revoked by the
+    // app-root reaper once this temp message leaves the DB (sent + cleaned up,
+    // deleted, or retried) — covering the offline-queue path the inline success/
+    // fail revokes never reached, and keeping the blob alive while it's on screen.
+    registerSendObjectUrls(tempId, objectUrls);
+
     // Stash files in IndexedDB so retry/drainer can recover them
     if (files?.length) {
       await db.draftAttachments.put({
@@ -259,13 +266,12 @@ export function useOptimisticAction() {
 
       if (res.success) {
         await db.messages.update(tempId, { status: 'sent' });
-        // Clean up stashed files and revoke object URLs on success
+        // Clean up stashed files; the reaper revokes the preview URLs once the
+        // temp message is replaced by the canonical one.
         await db.draftAttachments.delete(tempId).catch(() => {});
-        for (const url of objectUrls) URL.revokeObjectURL(url);
         return true;
       } else {
         const failReason = res.error || undefined;
-        for (const url of objectUrls) URL.revokeObjectURL(url);
         await db.messages.update(tempId, { status: 'failed', failReason });
         document.dispatchEvent(new CustomEvent('inflow:failed-change', { detail: conversationId }));
         return false;
@@ -273,7 +279,6 @@ export function useOptimisticAction() {
     } catch {
       // If we went offline during the call, queue instead of failing
       if (!navigator.onLine) {
-        for (const url of objectUrls) URL.revokeObjectURL(url);
         await db.messages.update(tempId, { status: 'queued' });
         await createQueuedAction({
           type: 'send',
@@ -283,7 +288,6 @@ export function useOptimisticAction() {
         });
         return true; // optimistic success
       }
-      for (const url of objectUrls) URL.revokeObjectURL(url);
       await db.messages.update(tempId, { status: 'failed' });
       document.dispatchEvent(new CustomEvent('inflow:failed-change', { detail: conversationId }));
       return false;

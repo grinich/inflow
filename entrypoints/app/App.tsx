@@ -16,6 +16,7 @@ import { useConversations } from '@/hooks/useConversations';
 import { useRemoteSearch } from '@/hooks/useRemoteSearch';
 import { useKeyboard } from '@/hooks/useKeyboard';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
+import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useUIStore } from '@/store/ui-store';
 
 export function App() {
@@ -31,6 +32,7 @@ export function App() {
   const spamConfirmId = useUIStore((s) => s.spamConfirmId);
   const setSpamConfirmId = useUIStore((s) => s.setSpamConfirmId);
   const actions = useOptimisticAction();
+  useSendObjectUrlReaper();
   const [debugOpen, setDebugOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragCounter = useRef(0);
