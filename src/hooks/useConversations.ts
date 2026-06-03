@@ -23,6 +23,10 @@ export function useConversations() {
 
   const conversations = useLiveQuery(async () => {
     if (!db) return [];
+    // Drop any stale is:unread snapshot once the search box is cleared, so a
+    // later identical 'is:unread' query rebuilds a fresh set instead of reusing
+    // conversations that have since been read.
+    if (!searchQuery) filterSnapshotRef.current = null;
     let results;
 
     if (inboxTab === 'focused') {

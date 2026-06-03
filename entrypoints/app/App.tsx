@@ -95,8 +95,12 @@ export function App() {
     if (conversations.length === 0) return;
     const store = useUIStore.getState();
 
-    // Don't interfere with the composer when it's open
-    if (store.composeNewActive) return;
+    // Don't interfere with the composer when it's open — but drop any stale
+    // pending tab-restore so it can't fire a wrong auto-select after it closes.
+    if (store.composeNewActive) {
+      if (store._pendingRestore) useUIStore.setState({ _pendingRestore: null });
+      return;
+    }
 
     // Helper: find first non-draft conversation for auto-select
     const firstNonDraft = () => {
