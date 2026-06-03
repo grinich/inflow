@@ -24,6 +24,7 @@ import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts } from './sync/prefetch-posts';
 import { normalizeConversations, normalizeMessages } from '@/lib/voyager-normalizer';
+import { planSseDedup } from '@/lib/message-dedup';
 import { debugLog, getDebugLogs, clearDebugLogs } from '@/lib/debug-log';
 import { getBackfillCutoff } from '@/lib/sync-settings';
 import { db, mergeProfiles } from '@/db/database';
@@ -121,40 +122,16 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
         .where('[conversationId+createdAt]')
         .between([msg.conversationId, Dexie.minKey], [msg.conversationId, Dexie.maxKey])
         .toArray();
-      const canonicalKeys = new Set<string>();
-      for (const m of allConvMessages) {
-        if (m.id.startsWith('urn:li:msg_message:')) {
-          canonicalKeys.add(`${m.body}|${m.senderUrn}|${m.createdAt}`);
+      // Preserve editedAt and reactions from SSE-delivered entries onto canonical
+      // versions before deleting the duplicates. The Messenger API doesn't return
+      // editedAt — it only comes via SSE Voyager events on the fsd_message entry.
+      // Also clears optimistic temp- messages that have been confirmed sent.
+      const plan = planSseDedup(allConvMessages, { includeSentTemps: true });
+      if (plan.deleteIds.length > 0) {
+        for (const u of plan.updates) {
+          await db.messages.update(u.id, u.updates);
         }
-      }
-      const staleMessages = allConvMessages.filter((m) =>
-        (m.id.startsWith('temp-') && m.status === 'sent') ||
-        ((m.id.startsWith('urn:li:fsd_message:') || m.id.startsWith('urn:li:fs_event:')) &&
-          canonicalKeys.has(`${m.body}|${m.senderUrn}|${m.createdAt}`))
-      );
-      if (staleMessages.length > 0) {
-        // Preserve editedAt and reactions from SSE-delivered entries onto canonical versions.
-        // The Messenger API doesn't return editedAt — it only comes via SSE Voyager events
-        // on the fsd_message entry, which gets deleted here as a duplicate.
-        for (const stale of staleMessages) {
-          if (!stale.editedAt && !stale.reactions?.length) continue;
-          if (!stale.id.startsWith('urn:li:fsd_message:') && !stale.id.startsWith('urn:li:fs_event:')) continue;
-          const canonical = allConvMessages.find(m =>
-            m.id.startsWith('urn:li:msg_message:') &&
-            m.body === stale.body &&
-            m.senderUrn === stale.senderUrn &&
-            m.createdAt === stale.createdAt
-          );
-          if (canonical) {
-            const updates: Record<string, any> = {};
-            if (stale.editedAt && !canonical.editedAt) updates.editedAt = stale.editedAt;
-            if (stale.reactions?.length && !canonical.reactions?.length) updates.reactions = stale.reactions;
-            if (Object.keys(updates).length > 0) {
-              await db.messages.update(canonical.id, updates);
-            }
-          }
-        }
-        await db.messages.bulkDelete(staleMessages.map((m) => m.id));
+        await db.messages.bulkDelete(plan.deleteIds);
       }
       if (hasAttachments) {
         await db.conversations.update(msg.conversationId, { hasAttachments: 1 });

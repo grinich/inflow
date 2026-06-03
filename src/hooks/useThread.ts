@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef } from 'react';
 import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
+import { dedupeMessagesForDisplay } from '@/lib/message-dedup';
 
 const DEBOUNCE_MS = 150; // debounce rapid thread switches
 
@@ -19,22 +20,10 @@ export function useThread(conversationId: string | null, mergedIds?: string[]) {
             .toArray()
         )
       );
-      const all = chunks.flat();
-
       // Deduplicate: SSE events store messages with non-canonical IDs
       // (urn:li:fsd_message: / urn:li:fs_event:) while the Messenger API
       // uses urn:li:msg_message:. When both exist, drop the non-canonical one.
-      const canonicalKeys = new Set<string>();
-      for (const msg of all) {
-        if (msg.id.startsWith('urn:li:msg_message:')) {
-          canonicalKeys.add(`${msg.body}|${msg.senderUrn}|${msg.createdAt}`);
-        }
-      }
-      if (canonicalKeys.size === 0) return all.sort((a, b) => a.createdAt - b.createdAt);
-      return all.filter((msg) => {
-        if (msg.id.startsWith('urn:li:msg_message:') || msg.id.startsWith('temp-')) return true;
-        return !canonicalKeys.has(`${msg.body}|${msg.senderUrn}|${msg.createdAt}`);
-      }).sort((a, b) => a.createdAt - b.createdAt);
+      return dedupeMessagesForDisplay(chunks.flat());
     },
     [conversationId, mergedIds?.join(',')],
     []

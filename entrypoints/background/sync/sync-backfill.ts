@@ -1,6 +1,7 @@
 import { fetchAllMessages } from '../api/messages';
 import { getMemberUrn } from '../auth/session';
 import { normalizeMessages } from '@/lib/voyager-normalizer';
+import { planSseDedup } from '@/lib/message-dedup';
 import { prefetchSharedPosts } from './prefetch-posts';
 import { debugLog } from '@/lib/debug-log';
 import { db, getDbGeneration } from '@/db/database';
@@ -98,36 +99,12 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
         .where('conversationId')
         .equals(item.conversationId)
         .toArray();
-      const canonicalKeys = new Set<string>();
-      for (const m of allMsgs) {
-        if (m.id.startsWith('urn:li:msg_message:')) {
-          canonicalKeys.add(`${m.body}|${m.senderUrn}|${m.createdAt}`);
+      const plan = planSseDedup(allMsgs);
+      if (plan.deleteIds.length > 0) {
+        for (const u of plan.updates) {
+          await db.messages.update(u.id, u.updates);
         }
-      }
-      const sseOrphans = allMsgs.filter((m) =>
-        (m.id.startsWith('urn:li:fsd_message:') || m.id.startsWith('urn:li:fs_event:')) &&
-        canonicalKeys.has(`${m.body}|${m.senderUrn}|${m.createdAt}`)
-      );
-      if (sseOrphans.length > 0) {
-        // Preserve editedAt and reactions from SSE entries onto canonical versions
-        for (const stale of sseOrphans) {
-          if (!stale.editedAt && !stale.reactions?.length) continue;
-          const canonical = allMsgs.find(m =>
-            m.id.startsWith('urn:li:msg_message:') &&
-            m.body === stale.body &&
-            m.senderUrn === stale.senderUrn &&
-            m.createdAt === stale.createdAt
-          );
-          if (canonical) {
-            const updates: Record<string, any> = {};
-            if (stale.editedAt && !canonical.editedAt) updates.editedAt = stale.editedAt;
-            if (stale.reactions?.length && !canonical.reactions?.length) updates.reactions = stale.reactions;
-            if (Object.keys(updates).length > 0) {
-              await db.messages.update(canonical.id, updates);
-            }
-          }
-        }
-        await db.messages.bulkDelete(sseOrphans.map((m) => m.id));
+        await db.messages.bulkDelete(plan.deleteIds);
       }
 
       // Mark as done
