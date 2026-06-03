@@ -62,6 +62,9 @@ export function useReplySuggestions({
   useEffect(() => {
     if (body.length > 0) {
       setSuggestions([]);
+    } else {
+      // Draft cleared — let the fetch effect serve/refetch suggestions again.
+      fetchedRef.current = null;
     }
   }, [body]);
 
@@ -135,7 +138,8 @@ export function useReplySuggestions({
       if (!controller.signal.aborted) setIsLoading(false);
     });
 
-  }, [conversationId, messages.length, aiSession.available, enabled]);
+    return () => controller.abort(); // abort the in-flight request on unmount / dep change
+  }, [conversationId, messages.length, aiSession.available, enabled, body]);
 
   const clear = useCallback(() => {
     dismissedRef.current = conversationId;
