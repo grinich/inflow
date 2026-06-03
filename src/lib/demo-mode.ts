@@ -289,9 +289,15 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
 
 // ── Auto-reply ─────────────────────────────────────────────────────────────
 
+// Track pending auto-reply timers so they can be cancelled on teardown and don't
+// fire (writing to the DB / dispatching events) after demo mode is stopped.
+const autoReplyTimers = new Set<ReturnType<typeof setTimeout>>();
+
 function scheduleAutoReply(conversationId: string): void {
   const delay = randInt(1000, 5000);
-  setTimeout(async () => {
+  let timer: ReturnType<typeof setTimeout>;
+  timer = setTimeout(async () => {
+    autoReplyTimers.delete(timer);
     try {
       const database = getDb();
       if (!database) return;
@@ -338,6 +344,7 @@ function scheduleAutoReply(conversationId: string): void {
       // Silently ignore errors in demo auto-reply
     }
   }, delay);
+  autoReplyTimers.add(timer);
 }
 
 // ── Incoming conversation simulator ────────────────────────────────────────
@@ -358,6 +365,9 @@ export function stopDemoIncoming(): void {
     clearTimeout(incomingTimer);
     incomingTimer = null;
   }
+  // Cancel any pending auto-replies so they don't fire after teardown.
+  for (const t of autoReplyTimers) clearTimeout(t);
+  autoReplyTimers.clear();
   usedPeopleIndexes.clear();
 }
 
