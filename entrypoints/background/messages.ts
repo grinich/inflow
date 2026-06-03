@@ -25,6 +25,7 @@ import { fetchPost } from './api/posts';
 import { prefetchSharedPosts } from './sync/prefetch-posts';
 import { normalizeConversations, normalizeMessages } from '@/lib/voyager-normalizer';
 import { planSseDedup } from '@/lib/message-dedup';
+import { repairConversationParticipants } from './sync/repair-participants';
 import { debugLog, getDebugLogs, clearDebugLogs } from '@/lib/debug-log';
 import { getBackfillCutoff } from '@/lib/sync-settings';
 import { db, mergeProfiles } from '@/db/database';
@@ -94,6 +95,7 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
         await db.messages.bulkPut(messages);
         if (messages.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
         prefetchSharedPosts(messages).catch(() => {});
+        await repairConversationParticipants(msg.conversationId, rawPage.included || [], memberUrn);
       } else {
         // New conversation — fetch page by page, writing each to DB immediately
         // so useLiveQuery renders the first 20 messages without waiting for all pages.
@@ -109,6 +111,9 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
           await db.messages.bulkPut(messages);
           if (messages.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
           prefetchSharedPosts(messages).catch(() => {});
+          if (page === 0) {
+            await repairConversationParticipants(msg.conversationId, rawPage.included || [], memberUrn);
+          }
 
           const messageCount = (rawPage.included || []).filter(
             (e: any) => e.$type === 'com.linkedin.messenger.Message'

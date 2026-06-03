@@ -15,6 +15,75 @@ export function extractProfileId(urn: string): string {
   return match ? match[1] : urn;
 }
 
+const VALID_PROFILE_URN = /^urn:li:fsd_profile:[A-Za-z0-9_-]+$/;
+
+/**
+ * True when a conversation's stored participant data is missing or unusable and
+ * should be re-derived from a fresh fetch: no participants, a non-profile (garbage)
+ * URN, or an "Unknown"/blank name. This happens when an SSE outbound echo couldn't
+ * resolve the sender and seeded the conversation with placeholder participant data.
+ */
+export function needsParticipantRepair(
+  conv: { participantUrns?: string[]; participantNames?: string[] } | undefined,
+): boolean {
+  if (!conv) return false;
+  const urns = conv.participantUrns || [];
+  if (urns.length === 0) return true;
+  if (urns.some((u) => !VALID_PROFILE_URN.test(u))) return true;
+  const names = conv.participantNames || [];
+  if (names.length === 0 || names.some((n) => !n || n === 'Unknown')) return true;
+  return false;
+}
+
+export interface ExtractedParticipants {
+  participantUrns: string[];
+  participantNames: string[];
+  participantPictures: string[];
+  profiles: Profile[];
+}
+
+/**
+ * Build the conversation participant fields + Profile records from the
+ * MessagingParticipant entities in a fetched `included` array, excluding the
+ * viewer. Shared by the participant-repair paths (SSE backfill + thread fetch).
+ */
+export function extractParticipantsFromIncluded(
+  included: any[],
+  myMemberUrn: string,
+): ExtractedParticipants {
+  const participantUrns: string[] = [];
+  const participantNames: string[] = [];
+  const participantPictures: string[] = [];
+  const profiles: Profile[] = [];
+
+  for (const entity of included || []) {
+    if (entity.$type !== 'com.linkedin.messenger.MessagingParticipant') continue;
+    const member = entity.participantType?.member;
+    if (!member) continue;
+    const profileId = extractProfileId(entity.hostIdentityUrn || entity.entityUrn);
+    const urn = `urn:li:fsd_profile:${profileId}`;
+    if (myMemberUrn && urn === myMemberUrn) continue;
+
+    const name = `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim() || 'Unknown';
+    const pic = getParticipantPicture(entity);
+    participantUrns.push(urn);
+    participantNames.push(name);
+    participantPictures.push(pic);
+    profiles.push({
+      urn,
+      publicId: member.profileUrl?.split('/in/')?.[1]?.split(/[/?#]/)[0] || profileId,
+      firstName: member.firstName?.text || '',
+      lastName: member.lastName?.text || '',
+      fullName: name,
+      occupation: member.headline?.text || '',
+      location: member.location?.text || member.geoLocation?.text || '',
+      pictureUrl: pic,
+    });
+  }
+
+  return { participantUrns, participantNames, participantPictures, profiles };
+}
+
 /**
  * Pick the single inbox category the UI can route to, priority-ordered so the
  * result doesn't depend on LinkedIn's (unspecified) category array order.
