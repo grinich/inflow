@@ -21,6 +21,57 @@ import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { shouldSuppressConversationUpdate, isMutationSuppressed } from './mark-read-suppression';
 import { hasPendingAction } from '../sync/pending-guard';
 import { extractConversationId } from '@/lib/conversation-urn';
+
+/**
+ * Apply an inbound SSE message batch to its parent conversation: bump
+ * lastMessage/lastActivityAt and (unless suppressed or a pending optimistic
+ * action exists) mark unread + move to Focused + un-archive on a reply. Creates
+ * a minimal conversation if none exists yet. Shared by handleNewMessage and
+ * handleIncludedMessage (previously copy-pasted in both).
+ */
+async function applyInboundMessageToConversation(
+  convId: string,
+  convMessages: any[],
+  memberUrn: string,
+): Promise<void> {
+  const latest = convMessages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+  const existing = await db.conversations.get(convId);
+  if (existing) {
+    const updates: Record<string, any> = {
+      lastMessage: latest.body || 'New message',
+      lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
+    };
+    if (!isMutationSuppressed(convId) && !(await hasPendingAction(convId)) && existing.category !== 'SPAM' && convMessages.some((m) => !m.isFromMe)) {
+      updates.read = 0;
+      // Move to Focused and un-archive when someone replies
+      if (existing.category !== 'PRIMARY_INBOX') updates.category = 'PRIMARY_INBOX';
+      if (existing.archived === 1) updates.archived = 0;
+    }
+    await db.conversations.update(convId, updates);
+  } else {
+    // Create a minimal conversation so it appears in the list immediately. Use
+    // the other party's info (non-self messages). If all messages are from us,
+    // backfill participant data from the messages API.
+    const senders = convMessages.filter((m) => !m.isFromMe);
+    const sender = senders[0];
+    await db.conversations.put({
+      id: convId,
+      participantUrns: sender ? [sender.senderUrn] : [],
+      participantNames: sender ? [sender.senderName] : [],
+      participantPictures: sender ? [sender.senderPicture] : [],
+      lastMessage: latest.body || 'New message',
+      lastActivityAt: latest.createdAt,
+      read: senders.length > 0 ? 0 : 1,
+      archived: 0,
+      category: 'PRIMARY_INBOX',
+      hasAttachments: convMessages.some((m) => m.attachments?.length) ? 1 : 0,
+      starred: 0,
+    });
+    debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
+    // If we don't have participant data (outbound-only), fetch it immediately
+    if (!sender) backfillConversationParticipants(convId, memberUrn);
+  }
+}
 import type { Message, MessageAttachment, ReactionSummary } from '@/types/message';
 
 /** Enrich a single profile if it's missing company data. Non-blocking, fire-and-forget. */
@@ -470,54 +521,7 @@ async function handleVoyagerEvent(
   // Update parent conversations
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
-    const latest = convMessages.reduce((a, b) =>
-      a.createdAt > b.createdAt ? a : b
-    );
-
-    const existing = await db.conversations.get(convId);
-    if (existing) {
-      const updates: Record<string, any> = {
-        lastMessage: latest.body || 'New message',
-        lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
-      };
-      if (!isMutationSuppressed(convId) && !(await hasPendingAction(convId)) && existing.category !== 'SPAM' && convMessages.some((m) => !m.isFromMe)) {
-        updates.read = 0;
-        // Move to Focused and un-archive when someone replies
-        if (existing.category !== 'PRIMARY_INBOX') {
-          updates.category = 'PRIMARY_INBOX';
-        }
-        if (existing.archived === 1) {
-          updates.archived = 0;
-        }
-      }
-      await db.conversations.update(convId, updates);
-    } else {
-      // Create a minimal conversation so it appears in the list immediately.
-      // Use the other party's info (non-self messages). If all messages are
-      // from us (e.g. we just sent a new outbound message), immediately
-      // backfill participant data from the messages API.
-      const senders = convMessages.filter((m) => !m.isFromMe);
-      const sender = senders[0];
-      await db.conversations.put({
-        id: convId,
-        participantUrns: sender ? [sender.senderUrn] : [],
-        participantNames: sender ? [sender.senderName] : [],
-        participantPictures: sender ? [sender.senderPicture] : [],
-        lastMessage: latest.body || 'New message',
-        lastActivityAt: latest.createdAt,
-        read: senders.length > 0 ? 0 : 1,
-        archived: 0,
-        category: 'PRIMARY_INBOX',
-        hasAttachments: convMessages.some((m) => m.attachments?.length) ? 1 : 0,
-        starred: 0,
-      });
-      debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
-
-      // If we don't have participant data (outbound-only), fetch it immediately
-      if (!sender) {
-        backfillConversationParticipants(convId, memberUrn);
-      }
-    }
+    await applyInboundMessageToConversation(convId, convMessages, memberUrn);
   }
 
   // Notify UI of inbound messages for toast notifications
@@ -814,53 +818,7 @@ async function handleIncludedMessage(
   // Update parent conversations
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
-    const latest = convMessages.reduce((a, b) =>
-      a.createdAt > b.createdAt ? a : b
-    );
-
-    const existing = await db.conversations.get(convId);
-    if (existing) {
-      const updates: Record<string, any> = {
-        lastMessage: latest.body || 'New message',
-        lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
-      };
-      if (!isMutationSuppressed(convId) && !(await hasPendingAction(convId)) && existing.category !== 'SPAM' && convMessages.some((m) => !m.isFromMe)) {
-        updates.read = 0;
-        // Move to Focused and un-archive when someone replies
-        if (existing.category !== 'PRIMARY_INBOX') {
-          updates.category = 'PRIMARY_INBOX';
-        }
-        if (existing.archived === 1) {
-          updates.archived = 0;
-        }
-      }
-      await db.conversations.update(convId, updates);
-    } else {
-      // Create a minimal conversation so it appears in the list immediately.
-      // Use the other party's info (non-self messages). If all messages are
-      // from us, immediately backfill participant data from the messages API.
-      const senders = convMessages.filter((m) => !m.isFromMe);
-      const sender = senders[0];
-      await db.conversations.put({
-        id: convId,
-        participantUrns: sender ? [sender.senderUrn] : [],
-        participantNames: sender ? [sender.senderName] : [],
-        participantPictures: sender ? [sender.senderPicture] : [],
-        lastMessage: latest.body || 'New message',
-        lastActivityAt: latest.createdAt,
-        read: senders.length > 0 ? 0 : 1,
-        archived: 0,
-        category: 'PRIMARY_INBOX',
-        hasAttachments: convMessages.some((m) => m.attachments?.length) ? 1 : 0,
-        starred: 0,
-      });
-      debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
-
-      // If we don't have participant data (outbound-only), fetch it immediately
-      if (!sender) {
-        backfillConversationParticipants(convId, memberUrn);
-      }
-    }
+    await applyInboundMessageToConversation(convId, convMessages, memberUrn);
   }
 
   // Update hasAttachments flag if any messages have attachments
