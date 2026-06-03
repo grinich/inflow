@@ -1,4 +1,5 @@
 import type { Message } from '@/types/message';
+import { stripConversationTags, truncate } from './prompt-utils';
 
 const MAX_MESSAGES = 20;
 const MAX_MSG_LENGTH = 200;
@@ -41,20 +42,16 @@ export function buildReplySuggestionsPrompt(
   // to (e.g. an attachment-only image / GIF / shared post).
   if (lastMsg.isFromMe || !lastMsg.body.trim()) return null;
 
-  // Strip the delimiter tags from message text so a crafted body can't break out
-  // of the data block and inject instructions.
-  const clean = (s: string) => s.replace(/<\/?conversation>/gi, '').trim();
-  const truncate = (s: string) =>
-    s.length > MAX_MSG_LENGTH ? s.slice(0, MAX_MSG_LENGTH) + '...' : s;
+  const clean = (s: string) => stripConversationTags(s).trim();
 
   // Attribute each line to its actual sender (group threads have several).
   const lines = recent.map((msg) => {
     const sender = msg.isFromMe ? 'You' : (msg.senderName || fallbackName);
-    return `[${sender}]: ${truncate(clean(msg.body))}`;
+    return `[${sender}]: ${truncate(clean(msg.body), MAX_MSG_LENGTH)}`;
   });
 
   const lastSender = lastMsg.senderName || fallbackName;
-  const lastText = truncate(clean(lastMsg.body));
+  const lastText = truncate(clean(lastMsg.body), MAX_MSG_LENGTH);
 
   return [
     'LinkedIn DM conversation:',

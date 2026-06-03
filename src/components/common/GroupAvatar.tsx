@@ -19,7 +19,6 @@ function AvatarCircle({ url, name, size }: { url: string; name: string; size: nu
       alt={name}
       onError={() => setFailed(true)}
       className="h-full w-full rounded-full object-cover"
-      style={{ width: size, height: size }}
     />
   ) : (
     <div
