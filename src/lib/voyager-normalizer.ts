@@ -9,7 +9,7 @@ import { extractConversationId } from './conversation-urn';
  * "urn:li:fsd_profile:ABC" -> "ABC"
  * "urn:li:msg_messagingParticipant:urn:li:fsd_profile:ABC" -> "ABC"
  */
-function extractProfileId(urn: string): string {
+export function extractProfileId(urn: string): string {
   const match = urn.match(/fsd_profile:([^,)]+)/);
   return match ? match[1] : urn;
 }
@@ -30,7 +30,7 @@ function pickInboxCategory(categories?: string[]): string {
   return 'PRIMARY_INBOX';
 }
 
-function getParticipantPicture(participant: VoyagerEntity): string {
+export function getParticipantPicture(participant: VoyagerEntity): string {
   const member = participant.participantType?.member;
   if (!member?.profilePicture) return '';
 
@@ -366,7 +366,7 @@ function extractAttachments(renderContent: any[] | undefined, included?: any[]):
 /**
  * Extract reaction summaries from a message entity's reactionSummaries field.
  */
-function extractReactions(reactionSummaries: any[] | undefined): ReactionSummary[] {
+export function extractReactions(reactionSummaries: any[] | undefined): ReactionSummary[] {
   if (!reactionSummaries || !Array.isArray(reactionSummaries)) return [];
   return reactionSummaries
     .filter((r: any) => r.emoji)
