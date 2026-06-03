@@ -16,7 +16,7 @@ export default defineConfig({
     name: 'inƒlow — LinkedIn Messaging',
     description: 'A keyboard-driven LinkedIn messaging client',
     version: '0.1.0',
-    permissions: ['cookies', 'storage', 'alarms', 'tabs', 'notifications', 'declarativeNetRequest'],
+    permissions: ['cookies', 'storage', 'alarms', 'tabs', 'declarativeNetRequest'],
     host_permissions: ['https://www.linkedin.com/*'],
     action: {
       default_icon: {

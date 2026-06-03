@@ -47,7 +47,3 @@ export type BridgeResponse = {
   data?: any;
   error?: string;
 };
-
-export function sendBridgeMessage(message: BridgeMessage): Promise<BridgeResponse> {
-  return chrome.runtime.sendMessage(message);
-}
