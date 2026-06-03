@@ -24,29 +24,66 @@ interface AISession {
   predict: (prompt: string, options?: AbortSignal | PredictOptions) => Promise<string | null>;
 }
 
+// ---------------------------------------------------------------------------
+// Module-level singleton: resolve the Gemini key once and register a single
+// chrome.storage listener for the whole app, rather than one per hook instance.
+// Hooks subscribe for `available` updates; `predict` reads the cached key.
+// ---------------------------------------------------------------------------
+
 // Cache the key in memory so we don't hit chrome.storage on every keystroke
 let cachedKey: string | null = null;
+let initialized = false;
+const availabilitySubscribers = new Set<(available: boolean) => void>();
 
-export function useAISession(): AISession {
-  const [available, setAvailable] = useState(false);
+function notifyAvailability(): void {
+  const available = !!cachedKey;
+  for (const cb of availabilitySubscribers) cb(available);
+}
 
-  useEffect(() => {
-    getGeminiApiKey().then((key) => {
-      cachedKey = key;
-      setAvailable(!!key);
-    });
+/** Lazily resolve the key and attach the single storage listener (idempotent). */
+function ensureKeySync(): void {
+  if (initialized) return;
+  initialized = true;
 
-    const listener = (changes: Record<string, chrome.storage.StorageChange>) => {
+  getGeminiApiKey().then((key) => {
+    cachedKey = key;
+    notifyAvailability();
+  });
+
+  // Keep the cached key in sync; one listener serves every hook instance.
+  chrome?.storage?.local?.onChanged?.addListener?.(
+    (changes: Record<string, chrome.storage.StorageChange>) => {
       if ('geminiApiKey' in changes) {
         cachedKey = changes.geminiApiKey.newValue ?? null;
-        setAvailable(!!cachedKey);
+        notifyAvailability();
       }
+    },
+  );
+}
+
+export function useAISession(): AISession {
+  const [available, setAvailable] = useState(!!cachedKey);
+
+  useEffect(() => {
+    ensureKeySync();
+    const cb = (a: boolean) => setAvailable(a);
+    availabilitySubscribers.add(cb);
+    // Sync immediately in case the key already resolved before this mount.
+    cb(!!cachedKey);
+    return () => {
+      availabilitySubscribers.delete(cb);
     };
-    chrome.storage.local.onChanged.addListener(listener);
-    return () => chrome.storage.local.onChanged.removeListener(listener);
   }, []);
 
-  const predict = async (prompt: string, options?: AbortSignal | PredictOptions): Promise<string | null> => {
+  return { available, predict };
+}
+
+/**
+ * Run a Gemini streaming prediction. Module-scoped (reads only the cached key
+ * and constants), so its identity is stable across renders. Supports both the
+ * legacy AbortSignal argument and the newer options object.
+ */
+async function predict(prompt: string, options?: AbortSignal | PredictOptions): Promise<string | null> {
     // Support both old (AbortSignal) and new (options object) signatures
     const isOpts = options && !(options instanceof AbortSignal);
     const signal = isOpts ? options.signal : (options as AbortSignal | undefined);
@@ -110,7 +147,4 @@ export function useAISession(): AISession {
       console.warn('[inflow] AI autocomplete error:', e);
       return null;
     }
-  };
-
-  return { available, predict };
 }

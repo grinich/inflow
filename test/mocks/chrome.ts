@@ -35,6 +35,14 @@ function createChromeMock() {
         set: vi.fn(async (obj: Record<string, any>) => {
           Object.assign(localStore, obj);
         }),
+        onChanged: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      },
+      onChanged: {
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
       },
     },
     cookies: {
