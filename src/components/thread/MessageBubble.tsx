@@ -1,7 +1,5 @@
-import { useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
+import { memo, useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/db/database';
 import { useCachedImage } from '@/hooks/useCachedImage';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
@@ -18,11 +16,13 @@ interface MessageBubbleProps {
   grouped?: boolean;
   /** Whether this is the last message from the user in a consecutive group. */
   isLastInGroup?: boolean;
+  /** Sender's LinkedIn profile URL, resolved once by the parent thread. */
+  senderProfileUrl?: string | null;
   onRetry?: () => void;
   onDelete?: () => void;
 }
 
-export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDelete }: MessageBubbleProps) {
+function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl = null, onRetry, onDelete }: MessageBubbleProps) {
   const isMe = message.isFromMe;
   const avatarUrl = useCachedImage(message.senderPicture);
   const hasBody = message.body.trim().length > 0;
@@ -30,14 +30,6 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
 
   const showAvatar = !isMe && !grouped;
 
-  // Look up sender's publicId for profile link (only when avatar is visible)
-  const senderProfile = useLiveQuery(
-    () => (showAvatar && message.senderUrn && db) ? db.profiles.get(message.senderUrn) : undefined,
-    [showAvatar, message.senderUrn]
-  );
-  const senderProfileUrl = senderProfile?.publicId
-    ? `https://www.linkedin.com/in/${senderProfile.publicId}`
-    : null;
   const canEdit = isMe && message.status !== 'sending' && message.status !== 'failed' && message.status !== 'queued'
     && Date.now() - message.createdAt < 60 * 60 * 1000;
   const canUnsend = canEdit;
@@ -435,6 +427,46 @@ export function MessageBubble({ message, grouped, isLastInGroup, onRetry, onDele
     </div>
   );
 }
+
+/**
+ * Memoization comparator. useThread returns fresh message objects on every live
+ * query, so the default shallow `message` reference check would never skip a
+ * render. Compare the specific fields the bubble actually renders instead. The
+ * onRetry/onDelete callbacks are recreated each parent render but their behavior
+ * is keyed on the (compared) message, so only their presence matters.
+ */
+export function arePropsEqual(a: MessageBubbleProps, b: MessageBubbleProps): boolean {
+  if (
+    a.grouped !== b.grouped ||
+    a.isLastInGroup !== b.isLastInGroup ||
+    a.senderProfileUrl !== b.senderProfileUrl ||
+    !!a.onRetry !== !!b.onRetry ||
+    !!a.onDelete !== !!b.onDelete
+  ) {
+    return false;
+  }
+  const m = a.message;
+  const n = b.message;
+  return (
+    m.id === n.id &&
+    m.conversationId === n.conversationId &&
+    m.senderUrn === n.senderUrn &&
+    m.senderName === n.senderName &&
+    m.senderPicture === n.senderPicture &&
+    m.body === n.body &&
+    m.createdAt === n.createdAt &&
+    m.isFromMe === n.isFromMe &&
+    m.status === n.status &&
+    m.failReason === n.failReason &&
+    m.editedAt === n.editedAt &&
+    m.seenAt === n.seenAt &&
+    JSON.stringify(m.reactions) === JSON.stringify(n.reactions) &&
+    JSON.stringify(m.attachments) === JSON.stringify(n.attachments) &&
+    JSON.stringify(m.repliedMessage) === JSON.stringify(n.repliedMessage)
+  );
+}
+
+export const MessageBubble = memo(MessageBubbleImpl, arePropsEqual);
 
 /** Time gap (ms) before showing a separator between message groups. */
 export const TIME_GAP_MS = 5 * 60 * 1000; // 5 minutes
