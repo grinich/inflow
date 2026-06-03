@@ -2,6 +2,7 @@ import { voyagerFetch } from './client';
 import { getMemberUrn } from '../auth/session';
 import { encodeUrnChars } from './encode';
 import { debugLog } from '@/lib/debug-log';
+import { pickArtifact } from '@/lib/voyager-image';
 
 export interface TypeaheadResult {
   name: string;
@@ -45,8 +46,7 @@ export async function searchTypeahead(query: string): Promise<TypeaheadResult[]>
     let pictureUrl = '';
     const vectorImage = entity.profilePicture?.displayImageReferenceResolutionResult?.vectorImage;
     if (vectorImage?.rootUrl && vectorImage?.artifacts?.length) {
-      const artifact = vectorImage.artifacts.sort((a: any, b: any) => (a.width || 0) - (b.width || 0))
-        .find((a: any) => (a.width || 0) >= 100) || vectorImage.artifacts[0];
+      const artifact = pickArtifact(vectorImage.artifacts, 100);
       if (artifact?.fileIdentifyingUrlPathSegment) {
         pictureUrl = `${vectorImage.rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
       }

@@ -1,3 +1,5 @@
+import { readLocal } from './storage';
+
 /** Backfill window options — how far back to sync message contents. */
 export type BackfillWindow = '7d' | '30d' | '90d' | '180d' | '365d' | 'all';
 
@@ -31,15 +33,11 @@ export async function getBackfillCutoff(): Promise<number> {
 
 /** Get the current backfill window setting. */
 export async function getBackfillWindow(): Promise<BackfillWindow> {
-  try {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    const stored = result[STORAGE_KEY];
-    // Validate against known windows — an unknown value must NOT fall through to
-    // WINDOW_MS[x]=undefined (which getBackfillCutoff would read as "sync everything").
-    return stored && stored in WINDOW_MS ? (stored as BackfillWindow) : DEFAULT_WINDOW;
-  } catch {
-    return DEFAULT_WINDOW;
-  }
+  const stored = await readLocal<string>(STORAGE_KEY);
+  // Validate against known windows — an unknown value (or read error → undefined)
+  // must NOT fall through to WINDOW_MS[x]=undefined (which getBackfillCutoff would
+  // read as "sync everything").
+  return stored && stored in WINDOW_MS ? (stored as BackfillWindow) : DEFAULT_WINDOW;
 }
 
 /** Set the backfill window. */

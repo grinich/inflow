@@ -5,6 +5,13 @@ export interface EmojiResult {
   name: string;
 }
 
+/**
+ * Matches an in-progress emoji shortcode at the end of the text being typed,
+ * e.g. ":smi" -> captures "smi". Used by the compose box and message editor to
+ * trigger emoji autocomplete. Anchored to the end; capture group 1 is the query.
+ */
+export const EMOJI_SHORTCODE_RE = /:([a-z0-9_+-]*)$/;
+
 interface EmojiEntry {
   emoji: string;
   name: string;
