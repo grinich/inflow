@@ -516,6 +516,12 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
                 setEmojiQuery(null);
               }
             }}
+            onSelect={(e) => {
+              // Keep cursorAtEnd fresh on caret movement without a text change
+              // (arrow keys, click) so autocomplete gating doesn't go stale.
+              const ta = e.currentTarget;
+              setCursorAtEnd((ta.selectionStart ?? ta.value.length) === ta.value.length);
+            }}
             onFocus={() => setComposeActive(true)}
             onBlur={() => { setComposeActive(false); setEmojiQuery(null); }}
             placeholder="Reply..."
