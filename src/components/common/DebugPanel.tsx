@@ -53,7 +53,7 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
   // Fetch sync progress and settings on open
   useEffect(() => {
     if (!open) return;
-    chrome.runtime.sendMessage({ type: 'GET_SYNC_PROGRESS' }).then((res) => {
+    sendBridgeMessage({ type: 'GET_SYNC_PROGRESS' }).then((res) => {
       if (res?.success) {
         setSyncProgress(res.data);
       }
@@ -161,7 +161,7 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
   const fetchLogs = async () => {
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'GET_DEBUG_LOGS' });
+      const res = await sendBridgeMessage({ type: 'GET_DEBUG_LOGS' });
       if (res?.success) {
         setLogs(res.data || []);
       }
@@ -284,7 +284,7 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
   const handleClear = async () => {
     try {
-      await chrome.runtime.sendMessage({ type: 'CLEAR_DEBUG_LOGS' });
+      await sendBridgeMessage({ type: 'CLEAR_DEBUG_LOGS' });
       setLogs([]);
     } catch {}
   };
@@ -292,7 +292,7 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
   const handleResetDB = async () => {
     setResetting(true);
     try {
-      await chrome.runtime.sendMessage({ type: 'RESET_DB' });
+      await sendBridgeMessage({ type: 'RESET_DB' });
       setLogs([]);
     } catch {}
     setResetting(false);
@@ -302,7 +302,7 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
     setDiagRunning(true);
     setDiagReport(null);
     try {
-      const res = await chrome.runtime.sendMessage({ type: 'DIAGNOSTIC_SYNC' });
+      const res = await sendBridgeMessage({ type: 'DIAGNOSTIC_SYNC' });
       if (res?.success) {
         setDiagReport(res.data);
       } else {
@@ -324,7 +324,7 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
   const handleResetSync = async () => {
     try {
-      await chrome.runtime.sendMessage({ type: 'RESET_SYNC_STATE' });
+      await sendBridgeMessage({ type: 'RESET_SYNC_STATE' });
       setSyncProgress(null);
     } catch {}
   };
@@ -567,7 +567,7 @@ export function DebugPanel({ open, onClose }: { open: boolean; onClose: () => vo
                     const v = e.target.value as BackfillWindow;
                     setBackfillWindowState(v);
                     setBackfillWindow(v).then(() => {
-                      chrome.runtime.sendMessage({ type: 'REEVAL_BACKFILL_WINDOW' }).catch(() => {});
+                      sendBridgeMessage({ type: 'REEVAL_BACKFILL_WINDOW' }).catch(() => {});
                     });
                   }}
                   className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300 outline-none ring-1 ring-zinc-700 focus:ring-zinc-500"
