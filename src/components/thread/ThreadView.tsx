@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useThread } from '@/hooks/useThread';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { preloadImages } from '@/hooks/useCachedImage';
@@ -17,6 +18,31 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
   const messages = useThread(conversation.id, conversation.mergedIds);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { sendMessage, markRead } = useOptimisticAction();
+
+  // Resolve sender profile links once for the whole thread instead of holding a
+  // separate live DB subscription inside every MessageBubble. Keyed on the set of
+  // sender URNs so it only re-queries when a new sender appears.
+  const senderUrns = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of messages) {
+      if (!m.isFromMe && m.senderUrn) set.add(m.senderUrn);
+    }
+    return [...set];
+  }, [messages]);
+  const senderUrnKey = senderUrns.join(',');
+  const senderProfileUrls = useLiveQuery(
+    async () => {
+      const map = new Map<string, string>();
+      if (!db || senderUrns.length === 0) return map;
+      const profiles = await db.profiles.bulkGet(senderUrns);
+      profiles.forEach((p, i) => {
+        if (p?.publicId) map.set(senderUrns[i], `https://www.linkedin.com/in/${p.publicId}`);
+      });
+      return map;
+    },
+    [senderUrnKey],
+    new Map<string, string>(),
+  );
 
   // Suppress auto mark-read when the user explicitly marks unread with 'u'.
   // Reset when navigating to a different conversation.
@@ -215,6 +241,7 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
                       message={msg}
                       grouped={layout[i].grouped}
                       isLastInGroup={layout[i].isLastInGroup}
+                      senderProfileUrl={msg.isFromMe ? null : senderProfileUrls.get(msg.senderUrn) ?? null}
                       onRetry={msg.status === 'failed' ? () => handleRetry(msg.id, msg.body) : undefined}
                       onDelete={msg.status === 'failed' ? () => handleDeleteFailed(msg.id) : undefined}
                     />
