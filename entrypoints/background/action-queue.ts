@@ -30,6 +30,31 @@ let draining = false;
 /** Age threshold after which confirmed/failed actions are cleaned up. */
 const ACTION_CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 1 day
 
+function replayPriority(action: PendingAction): number {
+  // LinkedIn moves a thread back to Focused when a new message lands. For
+  // offline send+archive / send+move flows, replay sends before later category
+  // mutations for the same conversation so the user's final folder state wins.
+  if (action.type === 'send') return 0;
+  if (
+    action.type === 'archive' ||
+    action.type === 'unarchive' ||
+    action.type === 'move_to_focused' ||
+    action.type === 'move_to_other' ||
+    action.type === 'move_to_spam'
+  ) {
+    return 1;
+  }
+  return 0;
+}
+
+function orderQueuedActions(a: PendingAction, b: PendingAction): number {
+  if (a.conversationId === b.conversationId) {
+    const priority = replayPriority(a) - replayPriority(b);
+    if (priority !== 0) return priority;
+  }
+  return a.timestamp - b.timestamp;
+}
+
 /**
  * Remove old confirmed/failed pending actions to prevent unbounded table growth.
  * Called at the start of every drain cycle.
@@ -68,6 +93,7 @@ export async function drainActionQueue(): Promise<void> {
       .where('status')
       .equals('queued')
       .sortBy('timestamp');
+    queued.sort(orderQueuedActions);
 
     if (queued.length === 0) return;
 

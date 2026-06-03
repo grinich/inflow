@@ -17,11 +17,24 @@ import { fetchMessages } from '../api/messages';
 import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair } from '@/lib/voyager-normalizer';
 import { repairConversationParticipants } from '../sync/repair-participants';
 import { debugLog } from '@/lib/debug-log';
-import { db } from '@/db/database';
+import { db, getDbGeneration } from '@/db/database';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { shouldSuppressConversationUpdate, isMutationSuppressed } from './mark-read-suppression';
 import { hasPendingAction } from '../sync/pending-guard';
 import { extractConversationId } from '@/lib/conversation-urn';
+
+interface RealtimeContext {
+  database: typeof db;
+  dbGeneration: number;
+}
+
+function createRealtimeContext(): RealtimeContext {
+  return { database: db, dbGeneration: getDbGeneration() };
+}
+
+function isStaleContext(ctx: RealtimeContext): boolean {
+  return getDbGeneration() !== ctx.dbGeneration;
+}
 
 /**
  * Apply an inbound SSE message batch to its parent conversation: bump
@@ -31,21 +44,25 @@ import { extractConversationId } from '@/lib/conversation-urn';
  * handleIncludedMessage (previously copy-pasted in both).
  */
 async function applyInboundMessageToConversation(
+  ctx: RealtimeContext,
   convId: string,
   convMessages: any[],
   memberUrn: string,
 ): Promise<void> {
+  if (isStaleContext(ctx)) return;
+  const database = ctx.database;
   const latest = convMessages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
   const hasInbound = convMessages.some((m) => !m.isFromMe);
   // Read pending-actions (a different table) outside the conversations transaction.
   const pending = await hasPendingAction(convId);
-  const existing = await db.conversations.get(convId);
+  const existing = await database.conversations.get(convId);
   if (existing) {
     // Atomic read-modify-write: the detached RealtimeConversation fetch can write
     // the same conversation concurrently, so re-read inside the transaction to
     // avoid clobbering read/category/lastActivityAt.
-    await db.transaction('rw', db.conversations, async () => {
-      const conv = await db.conversations.get(convId);
+    await database.transaction('rw', database.conversations, async () => {
+      if (isStaleContext(ctx)) return;
+      const conv = await database.conversations.get(convId);
       if (!conv) return;
       const updates: Record<string, any> = {
         lastMessage: latest.body || 'New message',
@@ -57,18 +74,19 @@ async function applyInboundMessageToConversation(
         if (conv.category !== 'PRIMARY_INBOX') updates.category = 'PRIMARY_INBOX';
         if (conv.archived === 1) updates.archived = 0;
       }
-      await db.conversations.update(convId, updates);
+      await database.conversations.update(convId, updates);
     });
     // Heal a conversation previously seeded from an unresolved SSE echo
     // (participants left as "Unknown" / a garbage URN).
-    if (needsParticipantRepair(existing)) backfillConversationParticipants(convId, memberUrn);
+    if (needsParticipantRepair(existing)) backfillConversationParticipants(ctx, convId, memberUrn);
   } else {
     // Create a minimal conversation so it appears in the list immediately. Use
     // the other party's info (non-self messages). If all messages are from us,
     // backfill participant data from the messages API.
     const senders = convMessages.filter((m) => !m.isFromMe);
     const sender = senders[0];
-    await db.conversations.put({
+    if (isStaleContext(ctx)) return;
+    await database.conversations.put({
       id: convId,
       participantUrns: sender ? [sender.senderUrn] : [],
       participantNames: sender ? [sender.senderName] : [],
@@ -83,17 +101,20 @@ async function applyInboundMessageToConversation(
     });
     debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
     // If we don't have participant data (outbound-only), fetch it immediately
-    if (!sender) backfillConversationParticipants(convId, memberUrn);
+    if (!sender) backfillConversationParticipants(ctx, convId, memberUrn);
   }
 }
 import type { Message, MessageAttachment, ReactionSummary } from '@/types/message';
 
 /** Enrich a single profile if it's missing company data. Non-blocking, fire-and-forget. */
-function enrichProfileIfNeeded(urn: string): void {
+function enrichProfileIfNeeded(ctx: RealtimeContext, urn: string): void {
   if (!ENABLE_PROFILE_ENRICHMENT) return;
-  db.profiles.get(urn).then(async (p) => {
+  const database = ctx.database;
+  database.profiles.get(urn).then(async (p) => {
+    if (isStaleContext(ctx)) return;
     if (!p || p.company) return;
     const data = await fetchProfileByUrn(urn);
+    if (isStaleContext(ctx)) return;
     if (!data) return;
     const updates: Record<string, string> = {};
     if (data.company) updates.company = data.company;
@@ -101,7 +122,7 @@ function enrichProfileIfNeeded(urn: string): void {
     if (data.companyLogoUrl) updates.companyLogoUrl = data.companyLogoUrl;
     if (data.locationName && !p.location) updates.location = data.locationName;
     if (Object.keys(updates).length > 0) {
-      await db.profiles.update(urn, updates);
+      await database.profiles.update(urn, updates);
     }
   }).catch((err) => {
     debugLog('warn', `[RT] Failed to enrich profile ${urn}: ${err}`);
@@ -114,9 +135,12 @@ function enrichProfileIfNeeded(urn: string): void {
  * and we don't have the other party's profile data from the event itself.
  * Fire-and-forget — called async, errors are swallowed.
  */
-function backfillConversationParticipants(conversationId: string, memberUrn: string): void {
+function backfillConversationParticipants(ctx: RealtimeContext, conversationId: string, memberUrn: string): void {
   fetchMessages(conversationId, 1, 0, { skipJitter: true })
-    .then((raw) => repairConversationParticipants(conversationId, raw.included || [], memberUrn))
+    .then((raw) => {
+      if (isStaleContext(ctx)) return;
+      return repairConversationParticipants(conversationId, raw.included || [], memberUrn);
+    })
     .catch((err) => {
       debugLog('warn', `[RT] Failed to backfill participants for ${conversationId}: ${err}`);
     });
@@ -130,6 +154,7 @@ export async function handleRealtimeEvent(
   eventType: string,
   data: any
 ): Promise<void> {
+  const ctx = createRealtimeContext();
   try {
     // LinkedIn's server heartbeat — just a keep-alive, ignore silently
     if (data['com.linkedin.realtimefrontend.Heartbeat']) {
@@ -164,15 +189,15 @@ export async function handleRealtimeEvent(
         );
 
         if (hasMessages) {
-          await handleIncludedMessage(included, await getMemberUrn());
+          await handleIncludedMessage(ctx, included, await getMemberUrn());
           return;
         }
         if (hasVoyagerEvents) {
-          await handleVoyagerEvent(included, decorated.payload?.data?.value, await getMemberUrn());
+          await handleVoyagerEvent(ctx, included, decorated.payload?.data?.value, await getMemberUrn());
           return;
         }
         if (hasReceipts) {
-          await handleReadReceipt({ included });
+          await handleReadReceipt(ctx, { included });
           return;
         }
 
@@ -199,7 +224,7 @@ export async function handleRealtimeEvent(
           (e: any) => e.$type === 'com.linkedin.voyager.messaging.realtime.RealtimeConversation'
         );
         if (realtimeConv) {
-          await handleConversationUpdate(realtimeConv, included, await getMemberUrn());
+          await handleConversationUpdate(ctx, realtimeConv, included, await getMemberUrn());
           return;
         }
       }
@@ -211,7 +236,7 @@ export async function handleRealtimeEvent(
       if (topic.includes('conversationsTopic')) {
         const convEntity = extractDashConversationResult(payload);
         if (convEntity) {
-          await handleDashConversationUpdate(convEntity);
+          await handleDashConversationUpdate(ctx, convEntity);
           return;
         }
       }
@@ -226,9 +251,9 @@ export async function handleRealtimeEvent(
 
     // Non-decorated events (legacy shapes)
     if (isNewMessageEvent(data)) {
-      await handleNewMessage(data);
+      await handleNewMessage(ctx, data);
     } else if (isReadReceiptEvent(data)) {
-      await handleReadReceipt(data);
+      await handleReadReceipt(ctx, data);
     } else if (isTypingEvent(data)) {
       const typingData = data.data || data.typingIndicator || extractIncluded(data)?.[0] || {};
       debugLog('info', `[RT] Typing indicator (legacy): ${JSON.stringify(typingData).substring(0, 300)}`);
@@ -349,12 +374,12 @@ function extractIncluded(data: any): any[] | null {
 // New message handler
 // ---------------------------------------------------------------------------
 
-async function handleNewMessage(data: any): Promise<void> {
+async function handleNewMessage(ctx: RealtimeContext, data: any): Promise<void> {
   const memberUrn = await getMemberUrn();
   const included = extractIncluded(data);
 
   if (included) {
-    await handleIncludedMessage(included, memberUrn);
+    await handleIncludedMessage(ctx, included, memberUrn);
     return;
   }
 
@@ -362,7 +387,7 @@ async function handleNewMessage(data: any): Promise<void> {
   const msgEntity =
     data['com.linkedin.messenger.Message'] || data.data || data.message;
   if (msgEntity?.entityUrn) {
-    await handleSingleMessageEntity(msgEntity, memberUrn);
+    await handleSingleMessageEntity(ctx, msgEntity, memberUrn);
   }
 }
 
@@ -371,6 +396,7 @@ async function handleNewMessage(data: any): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function handleVoyagerEvent(
+  ctx: RealtimeContext,
   included: any[],
   value: any,
   memberUrn: string
@@ -450,7 +476,7 @@ async function handleVoyagerEvent(
       }
     }
 
-    const self = await resolveSelfSender(conversationId, senderUrn, memberUrn, !!senderProfile);
+    const self = await resolveSelfSender(ctx, conversationId, senderUrn, memberUrn, !!senderProfile);
 
     // Extract editedAt — Voyager events carry it inside eventContent, not on the entity
     const editedAt = ec.editedAt || ec.lastEditedAt || entity.editedAt || entity.lastEditedAt || undefined;
@@ -487,19 +513,20 @@ async function handleVoyagerEvent(
   for (const m of messages) {
     debugLog(
       'info',
-      `[RT] SSE message: "${m.body.substring(0, 60)}" from ${m.senderName} (isFromMe=${m.isFromMe}) in conv ${m.conversationId.substring(0, 20)}...`
+      `[RT] SSE message: bodyLength=${m.body.length} from ${m.senderName} (isFromMe=${m.isFromMe}) in conv ${m.conversationId.substring(0, 20)}...`
     );
   }
 
   if (messages.length > 0) {
-    await db.messages.bulkPut(messages);
-    await cleanupOptimisticMessages(messages);
+    if (isStaleContext(ctx)) return;
+    await ctx.database.messages.bulkPut(messages);
+    await cleanupOptimisticMessages(ctx, messages);
   }
 
   // Update parent conversations
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
-    await applyInboundMessageToConversation(convId, convMessages, memberUrn);
+    await applyInboundMessageToConversation(ctx, convId, convMessages, memberUrn);
   }
 
   // Notify UI of inbound messages for toast notifications
@@ -519,7 +546,7 @@ async function handleVoyagerEvent(
   // Enrich sender profiles for inbound messages (non-blocking)
   const senderUrns = new Set(inbound.map((m) => m.senderUrn));
   for (const urn of senderUrns) {
-    enrichProfileIfNeeded(urn);
+    enrichProfileIfNeeded(ctx, urn);
   }
 }
 
@@ -553,7 +580,7 @@ function extractDashConversationResult(payload: any): any | null {
  * and `lastReadAt` fields — unlike the old Voyager RealtimeConversation events
  * which only have the inbox-wide `unreadConversationsCount`.
  */
-async function handleDashConversationUpdate(convEntity: any): Promise<void> {
+async function handleDashConversationUpdate(ctx: RealtimeContext, convEntity: any): Promise<void> {
   const convId = extractConversationId(convEntity.entityUrn || '');
   if (!convId) return;
 
@@ -570,12 +597,13 @@ async function handleDashConversationUpdate(convEntity: any): Promise<void> {
 
   if (suppressed) return;
 
-  const existing = await db.conversations.get(convId);
+  if (isStaleContext(ctx)) return;
+  const existing = await ctx.database.conversations.get(convId);
   if (!existing) return;
 
   const newRead = isRead ? 1 : 0;
   if (existing.read !== newRead) {
-    await db.conversations.update(convId, { read: newRead });
+    await ctx.database.conversations.update(convId, { read: newRead });
     debugLog('info', `[RT] Updated conversation ${convId.substring(0, 20)}... read=${newRead} (from another client)`);
   }
 }
@@ -593,13 +621,16 @@ async function handleDashConversationUpdate(convEntity: any): Promise<void> {
  * so the UI picks up the new content immediately.
  */
 async function handleConversationUpdate(
+  ctx: RealtimeContext,
   realtimeConv: any,
   included: any[],
   memberUrn: string
 ): Promise<void> {
   const convEntityUrn = realtimeConv['*conversation'] || realtimeConv.entityUrn || '';
-  const convIdMatch = convEntityUrn.match(/(?:fs_conversation:|msg_conversation:.*,)([\w\-+=]+)\)?$/);
-  const conversationId = convIdMatch ? convIdMatch[1] : '';
+  const conversationId =
+    extractConversationId(convEntityUrn) ||
+    convEntityUrn.match(/fs_conversation:([\w\-+=/]+)\)?$/)?.[1] ||
+    '';
 
   if (!conversationId) {
     debugLog('warn', `[RT] RealtimeConversation: no conversation ID from ${convEntityUrn}`);
@@ -618,7 +649,8 @@ async function handleConversationUpdate(
   // Skip fetching for archived conversations — these are echoes from our own
   // archive actions and would starve on-demand message loads for the conversation
   // the user is actually viewing.
-  const conv = await db.conversations.get(conversationId);
+  if (isStaleContext(ctx)) return;
+  const conv = await ctx.database.conversations.get(conversationId);
   if (conv?.archived === 1) {
     debugLog('info', `[RT] Skipping fetch for archived conv ${conversationId.substring(0, 20)}...`);
     return;
@@ -628,7 +660,7 @@ async function handleConversationUpdate(
 
   // Fetch latest messages to detect genuinely new messages.
   // _doFetchLatest has correct per-conversation read/unread logic.
-  fetchLatestForConversation(conversationId, memberUrn, false).catch((err) => {
+  fetchLatestForConversation(ctx, conversationId, memberUrn, false).catch((err) => {
     debugLog('error', `[RT] Failed to fetch messages for ${conversationId.substring(0, 20)}...: ${err}`);
   });
 }
@@ -647,36 +679,41 @@ const _inflightConvFetches = new Map<string, { promise: Promise<void>; suppresse
  * the in-flight call uses suppress=true, a follow-up is scheduled.
  */
 async function fetchLatestForConversation(
+  ctx: RealtimeContext,
   conversationId: string,
   memberUrn: string,
   suppressReadChange = false
 ): Promise<void> {
-  const existing = _inflightConvFetches.get(conversationId);
+  const key = `${ctx.dbGeneration}:${conversationId}`;
+  const existing = _inflightConvFetches.get(key);
   if (existing) {
     // If we need suppress=false but the in-flight request uses true,
     // schedule a follow-up instead of reusing
     if (!suppressReadChange && existing.suppressed) {
       return existing.promise.then(() =>
-        fetchLatestForConversation(conversationId, memberUrn, false)
+        fetchLatestForConversation(ctx, conversationId, memberUrn, false)
       );
     }
     debugLog('info', `[RT] Dedup: reusing in-flight fetch for conv ${conversationId.substring(0, 20)}...`);
     return existing.promise;
   }
 
-  const promise = _doFetchLatest(conversationId, memberUrn, suppressReadChange).finally(() => {
-    _inflightConvFetches.delete(conversationId);
+  const promise = _doFetchLatest(ctx, conversationId, memberUrn, suppressReadChange).finally(() => {
+    _inflightConvFetches.delete(key);
   });
-  _inflightConvFetches.set(conversationId, { promise, suppressed: suppressReadChange });
+  _inflightConvFetches.set(key, { promise, suppressed: suppressReadChange });
   return promise;
 }
 
 async function _doFetchLatest(
+  ctx: RealtimeContext,
   conversationId: string,
   memberUrn: string,
   suppressReadChange = false
 ): Promise<void> {
+  if (isStaleContext(ctx)) return;
   const rawPage = await fetchMessages(conversationId, 20, 0, { skipJitter: true });
+  if (isStaleContext(ctx)) return;
   const messages = normalizeMessages(rawPage, conversationId);
 
   for (const m of messages) {
@@ -685,7 +722,7 @@ async function _doFetchLatest(
 
   if (messages.length === 0) return;
 
-  await db.messages.bulkPut(messages);
+  await ctx.database.messages.bulkPut(messages);
 
   // Update conversation preview text, timestamp, and read status.
   // Only mark as unread if there is a genuinely new inbound message
@@ -697,8 +734,9 @@ async function _doFetchLatest(
   // the same fields (read/category/lastActivityAt) and reconciles hasNewInbound
   // against the current lastActivityAt rather than a pre-write snapshot.
   const latest = messages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
-  await db.transaction('rw', db.conversations, async () => {
-    const existing = await db.conversations.get(conversationId);
+  await ctx.database.transaction('rw', ctx.database.conversations, async () => {
+    if (isStaleContext(ctx)) return;
+    const existing = await ctx.database.conversations.get(conversationId);
     if (!existing) return;
     const updates: Record<string, any> = {
       lastMessage: latest.body || 'New message',
@@ -719,7 +757,7 @@ async function _doFetchLatest(
         updates.archived = 0;
       }
     }
-    await db.conversations.update(conversationId, updates);
+    await ctx.database.conversations.update(conversationId, updates);
   });
 
   debugLog('info', `[RT] Fetched ${messages.length} messages for conv ${conversationId.substring(0, 20)}...`);
@@ -743,6 +781,7 @@ async function _doFetchLatest(
  * self (so the SSE entry dedups against the REST-fetched canonical copy).
  */
 async function resolveSelfSender(
+  ctx: RealtimeContext,
   conversationId: string,
   senderUrn: string,
   memberUrn: string,
@@ -754,13 +793,14 @@ async function resolveSelfSender(
   if (resolvedFromPayload) return { isFromMe: false, senderUrn };
   // Unresolved sender: if it matches a known other participant, keep it as
   // inbound; otherwise treat it as our own omitted-self echo.
-  const conv = await db.conversations.get(conversationId);
+  const conv = await ctx.database.conversations.get(conversationId);
   if (conv?.participantUrns?.includes(senderUrn)) return { isFromMe: false, senderUrn };
   debugLog('info', `[RT] Unresolved sender treated as self for conv ${conversationId.substring(0, 20)}...`);
   return { isFromMe: true, senderUrn: memberUrn };
 }
 
 async function handleIncludedMessage(
+  ctx: RealtimeContext,
   included: any[],
   memberUrn: string
 ): Promise<void> {
@@ -793,6 +833,7 @@ async function handleIncludedMessage(
       sender?.hostIdentityUrn || senderRef
     );
     const self = await resolveSelfSender(
+      ctx,
       conversationId,
       `urn:li:fsd_profile:${senderProfileId}`,
       memberUrn,
@@ -831,13 +872,14 @@ async function handleIncludedMessage(
   );
 
   // Write messages to DB
-  await db.messages.bulkPut(messages);
-  await cleanupOptimisticMessages(messages);
+  if (isStaleContext(ctx)) return;
+  await ctx.database.messages.bulkPut(messages);
+  await cleanupOptimisticMessages(ctx, messages);
 
   // Update parent conversations
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
-    await applyInboundMessageToConversation(convId, convMessages, memberUrn);
+    await applyInboundMessageToConversation(ctx, convId, convMessages, memberUrn);
   }
 
   // Update hasAttachments flag if any messages have attachments
@@ -846,7 +888,7 @@ async function handleIncludedMessage(
       (m) => m.conversationId === convId && m.attachments?.length
     );
     if (hasAttach) {
-      await db.conversations.update(convId, { hasAttachments: 1 });
+      await ctx.database.conversations.update(convId, { hasAttachments: 1 });
     }
   }
 
@@ -867,11 +909,12 @@ async function handleIncludedMessage(
   // Enrich sender profiles for inbound messages (non-blocking)
   const senderUrns = new Set(inboundMsgs.map((m) => m.senderUrn));
   for (const urn of senderUrns) {
-    enrichProfileIfNeeded(urn);
+    enrichProfileIfNeeded(ctx, urn);
   }
 }
 
 async function handleSingleMessageEntity(
+  ctx: RealtimeContext,
   entity: any,
   memberUrn: string
 ): Promise<void> {
@@ -886,6 +929,7 @@ async function handleSingleMessageEntity(
   const senderProfileId = extractProfileId(senderRef);
   // Flat events carry no participant data, so the sender is never resolvable here.
   const self = await resolveSelfSender(
+    ctx,
     conversationId,
     `urn:li:fsd_profile:${senderProfileId}`,
     memberUrn,
@@ -921,11 +965,12 @@ async function handleSingleMessageEntity(
     `[RT] New message in ${conversationId}: ${message.body.substring(0, 60)}`
   );
 
-  await db.messages.put(message);
-  await cleanupOptimisticMessages([message]);
+  if (isStaleContext(ctx)) return;
+  await ctx.database.messages.put(message);
+  await cleanupOptimisticMessages(ctx, [message]);
 
   // Update conversation
-  const existing = await db.conversations.get(conversationId);
+  const existing = await ctx.database.conversations.get(conversationId);
   if (existing) {
     const updates: Record<string, any> = {
       lastMessage: message.body || 'New message',
@@ -941,7 +986,7 @@ async function handleSingleMessageEntity(
         updates.archived = 0;
       }
     }
-    await db.conversations.update(conversationId, updates);
+    await ctx.database.conversations.update(conversationId, updates);
   }
 }
 
@@ -953,7 +998,7 @@ async function handleSingleMessageEntity(
  * When SSE delivers a message the user sent (isFromMe), delete any matching
  * optimistic temp-* messages so the user doesn't see a brief duplicate.
  */
-async function cleanupOptimisticMessages(messages: Message[]): Promise<void> {
+async function cleanupOptimisticMessages(ctx: RealtimeContext, messages: Message[]): Promise<void> {
   const myMessages = messages.filter((m) => m.isFromMe);
   if (myMessages.length === 0) return;
 
@@ -970,7 +1015,8 @@ async function cleanupOptimisticMessages(messages: Message[]): Promise<void> {
   }
 
   for (const [convId, bodyCounts] of byConv) {
-    const all = await db.messages
+    if (isStaleContext(ctx)) return;
+    const all = await ctx.database.messages
       .where('conversationId')
       .equals(convId)
       .toArray();
@@ -1001,12 +1047,12 @@ async function cleanupOptimisticMessages(messages: Message[]): Promise<void> {
         if (temp.repliedMessage) {
           const sseMatch = sseMessages.find((s) => s.body === temp.body && !s.repliedMessage);
           if (sseMatch) {
-            await db.messages.update(sseMatch.id, { repliedMessage: temp.repliedMessage });
+            await ctx.database.messages.update(sseMatch.id, { repliedMessage: temp.repliedMessage });
           }
         }
       }
 
-      await db.messages.bulkDelete(toDelete);
+      await ctx.database.messages.bulkDelete(toDelete);
       debugLog('info', `[RT] Replaced ${toDelete.length} optimistic temp message(s) in ${convId}`);
     }
   }
@@ -1016,7 +1062,7 @@ async function cleanupOptimisticMessages(messages: Message[]): Promise<void> {
 // Read receipt handler
 // ---------------------------------------------------------------------------
 
-async function handleReadReceipt(data: any): Promise<void> {
+async function handleReadReceipt(ctx: RealtimeContext, data: any): Promise<void> {
   const included = extractIncluded(data);
   const receipts =
     included?.filter(
@@ -1033,9 +1079,10 @@ async function handleReadReceipt(data: any): Promise<void> {
     const seenAt = receipt.seenAt;
     if (!msgRef || !seenAt) continue;
 
-    const existing = await db.messages.get(msgRef);
+    if (isStaleContext(ctx)) return;
+    const existing = await ctx.database.messages.get(msgRef);
     if (existing && (!existing.seenAt || seenAt > existing.seenAt)) {
-      await db.messages.update(msgRef, { seenAt });
+      await ctx.database.messages.update(msgRef, { seenAt });
       debugLog('info', `[RT] Read receipt: ${msgRef} seen at ${seenAt}`);
     }
   }

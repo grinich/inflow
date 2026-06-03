@@ -429,7 +429,13 @@ export async function createConversation(
   // Try to extract conversation ID from response
   const data = await res.json().catch(() => null);
   const convUrn = data?.value?.conversationUrn || data?.data?.value?.conversationUrn || '';
-  const conversationId = extractConversationId(convUrn);
+  let conversationId = extractConversationId(convUrn);
+  if (!conversationId) {
+    conversationId = await findConversationByRecipients(recipientUrns).catch(() => '') || '';
+  }
+  if (!conversationId) {
+    throw new Error('Conversation created but LinkedIn did not return a conversation ID');
+  }
 
   debugLog('info', `createConversation: success, convId=${conversationId.substring(0, 20)}`);
   return { conversationId };
