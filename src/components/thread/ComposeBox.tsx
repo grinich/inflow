@@ -3,7 +3,7 @@ import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { useUIStore } from '@/store/ui-store';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
-import { searchEmoji, type EmojiResult } from '@/lib/emoji-search';
+import { searchEmoji, EMOJI_SHORTCODE_RE, type EmojiResult } from '@/lib/emoji-search';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
 import { useAutocomplete } from '@/hooks/useAutocomplete';
 import { useReplySuggestions } from '@/hooks/useReplySuggestions';
@@ -508,7 +508,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
               setCursorAtEnd(pos === val.length);
               // Detect emoji shortcode: `:` followed by valid chars before cursor
               const before = val.slice(0, pos);
-              const match = before.match(/:([a-z0-9_+-]*)$/);
+              const match = before.match(EMOJI_SHORTCODE_RE);
               if (match) {
                 setEmojiQuery(match[1]);
                 setEmojiIndex(0);

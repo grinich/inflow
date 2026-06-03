@@ -1,13 +1,10 @@
+import { readLocal } from './storage';
+
 const STORAGE_KEY = 'geminiApiKey';
 const SUGGESTIONS_KEY = 'aiSuggestionsEnabled';
 
 export async function getGeminiApiKey(): Promise<string | null> {
-  try {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    return (result[STORAGE_KEY] as string) || null;
-  } catch {
-    return null;
-  }
+  return (await readLocal<string>(STORAGE_KEY)) || null;
 }
 
 export async function setGeminiApiKey(key: string): Promise<void> {
@@ -19,13 +16,8 @@ export async function clearGeminiApiKey(): Promise<void> {
 }
 
 export async function getAISuggestionsEnabled(): Promise<boolean> {
-  try {
-    const result = await chrome.storage.local.get(SUGGESTIONS_KEY);
-    // Default to true if not set
-    return result[SUGGESTIONS_KEY] !== false;
-  } catch {
-    return true;
-  }
+  // Default to true if not set (and on read error, readLocal yields undefined).
+  return (await readLocal<boolean>(SUGGESTIONS_KEY)) !== false;
 }
 
 export async function setAISuggestionsEnabled(enabled: boolean): Promise<void> {

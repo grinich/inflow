@@ -1,5 +1,6 @@
 import { voyagerFetch } from './client';
 import { debugLog } from '@/lib/debug-log';
+import { pickArtifact } from '@/lib/voyager-image';
 
 export interface LinkedInPost {
   authorName: string;
@@ -313,8 +314,4 @@ function extractImageUrl(imageData: any, included: any[]): string {
   return '';
 }
 
-function pickArtifact(artifacts: any[], minWidth: number): any {
-  return artifacts
-    .sort((a: any, b: any) => (a.width || 0) - (b.width || 0))
-    .find((a: any) => (a.width || 0) >= minWidth) || artifacts[artifacts.length - 1];
-}
+// pickArtifact is shared from '@/lib/voyager-image' (imported above).

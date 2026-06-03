@@ -1,5 +1,6 @@
 import { voyagerFetch } from './client';
 import { debugLog } from '@/lib/debug-log';
+import { pickArtifact } from '@/lib/voyager-image';
 
 export interface FetchedProfile {
   company?: string;
@@ -73,10 +74,7 @@ async function fetchCurrentPosition(
     if (companyEntity?.logo?.vectorImage) {
       const vi = companyEntity.logo.vectorImage;
       if (vi.rootUrl && vi.artifacts?.length) {
-        const artifact =
-          vi.artifacts
-            .sort((a: any, b: any) => (a.width || 0) - (b.width || 0))
-            .find((a: any) => (a.width || 0) >= 50) || vi.artifacts[0];
+        const artifact = pickArtifact(vi.artifacts, 50);
         if (artifact?.fileIdentifyingUrlPathSegment) {
           companyLogoUrl = vi.rootUrl + artifact.fileIdentifyingUrlPathSegment;
         }

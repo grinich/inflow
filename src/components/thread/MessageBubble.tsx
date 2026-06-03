@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { useCachedImage } from '@/hooks/useCachedImage';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
-import { searchEmoji, type EmojiResult } from '@/lib/emoji-search';
+import { searchEmoji, EMOJI_SHORTCODE_RE, type EmojiResult } from '@/lib/emoji-search';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
 
 import { sanitizeUrl } from '@/lib/sanitize-url';
@@ -245,7 +245,7 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
                   setEditBody(val);
                   const pos = e.target.selectionStart ?? val.length;
                   const before = val.slice(0, pos);
-                  const match = before.match(/:([a-z0-9_+-]*)$/);
+                  const match = before.match(EMOJI_SHORTCODE_RE);
                   if (match) {
                     setEditEmojiQuery(match[1]);
                     setEditEmojiIndex(0);
