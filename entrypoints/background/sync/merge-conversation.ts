@@ -37,7 +37,12 @@ export async function mergeConversation(conv: Conversation): Promise<void> {
       category: conv.category,
       archived: conv.archived,
       read: conv.read,
-      starred: conv.starred ?? existing.starred,
+      // `starred` is a local-only field (matching the original sync design). A
+      // category-filtered server page may omit the STARRED overlay even for a
+      // starred thread, so NEVER downgrade a star from a poll — only upgrade
+      // 0→1 when the server affirmatively reports it. Un-starring happens via the
+      // optimistic STAR/UNSTAR action, never via a server merge.
+      starred: conv.starred === 1 ? 1 : existing.starred,
     }),
   });
 }
