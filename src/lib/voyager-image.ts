@@ -8,10 +8,17 @@
  * Non-mutating: the input array is copied before sorting (the previous inline
  * copies sorted the source array in place, corrupting caller-held references).
  */
-export function pickArtifact<T extends { width?: number }>(
-  artifacts: T[] | undefined,
+export interface VoyagerImageArtifact {
+  width?: number;
+  height?: number;
+  fileIdentifyingUrlPathSegment?: string;
+  fileUrl?: string;
+}
+
+export function pickArtifact(
+  artifacts: VoyagerImageArtifact[] | undefined,
   minWidth: number,
-): T | undefined {
+): VoyagerImageArtifact | undefined {
   if (!artifacts || artifacts.length === 0) return undefined;
   const sorted = [...artifacts].sort((a, b) => (a.width || 0) - (b.width || 0));
   return sorted.find((a) => (a.width || 0) >= minWidth) || sorted[sorted.length - 1];

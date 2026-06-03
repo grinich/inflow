@@ -2,9 +2,18 @@
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",
+    "types": ["chrome", "react", "react-dom"],
     "paths": {
       "@/*": ["./src/*"],
       "@": ["./src"]
     }
-  }
+  },
+  "include": [
+    ".wxt/wxt.d.ts",
+    "entrypoints/**/*",
+    "src/**/*",
+    "vitest.config.ts",
+    "wxt.config.ts"
+  ],
+  "exclude": ["test", "dist", "node_modules"]
 }

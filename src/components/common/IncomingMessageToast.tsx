@@ -19,8 +19,8 @@ export function IncomingMessageToast() {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const lastNotification = useRef<IncomingNotification | null>(null);
-  const dismissTimer = useRef<ReturnType<typeof setTimeout>>();
-  const exitTimer = useRef<ReturnType<typeof setTimeout>>();
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const show = useCallback((n: IncomingNotification) => {
     // Don't show if the user is already viewing this conversation

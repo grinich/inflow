@@ -280,7 +280,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       }
     }
 
-    async function handleDraftSend(text: string, files?: File[]) {
+    async function handleDraftSend(text: string, files?: File[], archiveAfterSend = false) {
       const store = useUIStore.getState();
 
       try {
@@ -318,6 +318,11 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         });
 
         if (res.success && res.data?.conversationId) {
+          const realConversationId = res.data.conversationId;
+          if (archiveAfterSend) {
+            await sendBridgeMessage({ type: 'ARCHIVE', conversationId: realConversationId }).catch(() => {});
+          }
+
           // Clean up draft conversation
           await db.conversations.delete(conversationId).catch(() => {});
           await db.draftAttachments.delete(conversationId).catch(() => {});
@@ -326,7 +331,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
           sendBridgeMessage({ type: 'SYNC_CONVERSATIONS' }).catch(() => {});
           // Navigate to the real conversation
           setTimeout(() => {
-            store.openThread(res.data.conversationId, 0);
+            store.openThread(realConversationId, 0);
           }, 500);
         } else {
           store.showToast({ message: res.error || 'Failed to send message' });
@@ -357,7 +362,11 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         const ta = textareaRef.current;
         if (ta) ta.blur();
         setComposeActive(false);
-        // Atomic send+archive — archives first, then sends in background
+        if (conversationId.startsWith('draft-')) {
+          void handleDraftSend(text, filesToSend, true);
+          return;
+        }
+        // Atomic send+archive — archives first optimistically, then sends in background
         const replyToData = currentReply ? {
           messageUrn: currentReply.id,
           senderUrn: currentReply.senderUrn,

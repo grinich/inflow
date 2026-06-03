@@ -3,6 +3,7 @@ import Dexie from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
+import type { Conversation } from '@/types/conversation';
 
 /** Map UI tab to LinkedIn API category for sync state lookup. */
 const TAB_TO_CATEGORY: Record<InboxTab, string> = {
@@ -27,7 +28,7 @@ export function useConversations() {
     // later identical 'is:unread' query rebuilds a fresh set instead of reusing
     // conversations that have since been read.
     if (!searchQuery) filterSnapshotRef.current = null;
-    let results;
+    let results: Conversation[];
 
     if (inboxTab === 'focused') {
       // Use the original proven index for Focused inbox

@@ -54,7 +54,7 @@ function ensureKeySync(): void {
   chrome?.storage?.local?.onChanged?.addListener?.(
     (changes: Record<string, chrome.storage.StorageChange>) => {
       if ('geminiApiKey' in changes) {
-        cachedKey = changes.geminiApiKey.newValue ?? null;
+        cachedKey = (changes.geminiApiKey.newValue as string | undefined) ?? null;
         notifyAvailability();
       }
     },

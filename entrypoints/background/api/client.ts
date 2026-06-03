@@ -175,7 +175,7 @@ export async function voyagerFetch(
     }
     const clone = res.clone();
     const body = await clone.text().catch(() => '');
-    debugLog('error', `Voyager ${res.status} ${shortPath}: ${body.substring(0, 300)}`);
+    debugLog('error', `Voyager ${res.status} ${shortPath}: responseBodyLength=${body.length}`);
   } else {
     debugLog('info', `Voyager ${res.status} OK: ${shortPath}`);
   }

@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
+import { memo, useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback, type ReactNode } from 'react';
 import { format } from 'date-fns';
 import { useCachedImage } from '@/hooks/useCachedImage';
 import { useUIStore } from '@/store/ui-store';
@@ -47,7 +47,7 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
     [editEmojiQuery],
   );
   const editRef = useRef<HTMLTextAreaElement>(null);
-  const unsendTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const unsendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
   const { editMessage, reactToMessage, recallMessage } = useOptimisticAction();
 
@@ -90,7 +90,7 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
       unsendTimerRef.current = setTimeout(() => setUnsendConfirm(false), 3000);
       return;
     }
-    clearTimeout(unsendTimerRef.current);
+    if (unsendTimerRef.current) clearTimeout(unsendTimerRef.current);
     setUnsendConfirm(false);
     recallMessage(message.conversationId, message.id);
   }, [unsendConfirm, message.conversationId, message.id, recallMessage]);
@@ -112,7 +112,9 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
   }, [emojiPickerOpen]);
 
   // Cleanup unsend timer on unmount
-  useEffect(() => () => clearTimeout(unsendTimerRef.current), []);
+  useEffect(() => () => {
+    if (unsendTimerRef.current) clearTimeout(unsendTimerRef.current);
+  }, []);
 
   // Animate only the optimistic message while it's being sent
   const isNew = message.status === 'sending' || message.status === 'queued';
@@ -687,7 +689,7 @@ function Linkify({ text, isMe }: { text: string; isMe: boolean }) {
   matches.sort((a, b) => a.index - b.index);
 
   // Build parts
-  const parts: (string | JSX.Element)[] = [];
+  const parts: ReactNode[] = [];
   let lastIndex = 0;
 
   for (const match of matches) {

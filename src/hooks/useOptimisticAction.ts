@@ -15,6 +15,7 @@ import type { PendingAction } from '@/db/database';
 async function queueAction(actionId: string, bridgeMessage: any): Promise<void> {
   await db.pendingActions.update(actionId, {
     status: 'queued' as const,
+    timestamp: Date.now(),
     bridgeMessage,
   });
 }
@@ -40,13 +41,30 @@ async function createQueuedAction(
   return id;
 }
 
+async function createPendingAction(
+  opts: Pick<PendingAction, 'type' | 'conversationId' | 'rollbackData' | 'bridgeMessage' | 'tempMessageId'>
+): Promise<string> {
+  const id = nanoid();
+  await db.pendingActions.put({
+    id,
+    type: opts.type,
+    conversationId: opts.conversationId,
+    status: 'pending',
+    timestamp: Date.now(),
+    rollbackData: opts.rollbackData,
+    bridgeMessage: opts.bridgeMessage,
+    tempMessageId: opts.tempMessageId,
+  });
+  return id;
+}
+
 export function useOptimisticAction() {
   const showToast = useUIStore((s) => s.showToast);
 
   async function archiveConversation(conversation: Conversation) {
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
-    const bridgeMsg = { type: 'ARCHIVE', conversationId: conversation.id };
+    const bridgeMsg = { type: 'ARCHIVE' as const, conversationId: conversation.id };
 
     // Optimistically update IndexedDB
     await db.conversations.update(conversation.id, { archived: 1, category: 'ARCHIVE' });
@@ -117,12 +135,23 @@ export function useOptimisticAction() {
       return;
     }
 
-    const queueMarkRead = () =>
-      createQueuedAction({ type: 'markRead', conversationId, rollbackData: { read: 0 }, bridgeMessage: bridgeMsg });
+    const actionId = await createPendingAction({
+      type: 'markRead',
+      conversationId,
+      rollbackData: { read: 0 },
+      bridgeMessage: bridgeMsg,
+    });
+    const queueMarkRead = () => queueAction(actionId, bridgeMsg);
     sendBridgeMessage(bridgeMsg)
       // The router resolves {success:false} on a server error (never rejects), so
       // queue a retry on !success too — not only on a thrown rejection.
-      .then((res) => { if (!res.success) return queueMarkRead(); })
+      .then(async (res) => {
+        if (res.success) {
+          await db.pendingActions.update(actionId, { status: 'confirmed' });
+        } else {
+          await queueMarkRead();
+        }
+      })
       .catch(() => queueMarkRead());
   }
 
@@ -141,21 +170,29 @@ export function useOptimisticAction() {
       return;
     }
 
+    const actionId = await createPendingAction({
+      type: 'markUnread',
+      conversationId,
+      rollbackData: { read: 1 },
+      bridgeMessage: bridgeMsg,
+    });
     const rollbackUnread = async () => {
       await db.conversations.update(conversationId, { read: 1 });
+      await db.pendingActions.update(actionId, { status: 'failed' });
       showToast({ message: 'Failed to mark unread — rolled back' });
     };
     sendBridgeMessage(bridgeMsg)
       // Server errors resolve {success:false} (no rejection), so roll back on that too.
-      .then((res) => { if (!res.success) return rollbackUnread(); })
+      .then(async (res) => {
+        if (res.success) {
+          await db.pendingActions.update(actionId, { status: 'confirmed' });
+        } else {
+          await rollbackUnread();
+        }
+      })
       .catch(async () => {
         if (!navigator.onLine) {
-          await createQueuedAction({
-            type: 'markUnread',
-            conversationId,
-            rollbackData: { read: 1 },
-            bridgeMessage: bridgeMsg,
-          });
+          await queueAction(actionId, bridgeMsg);
           return;
         }
         await rollbackUnread();
@@ -506,28 +543,33 @@ export function useOptimisticAction() {
       return;
     }
 
+    const actionId = await createPendingAction({
+      type: 'delete',
+      conversationId: conversation.id,
+      rollbackData: { conversation, messages: savedMessages },
+      bridgeMessage: bridgeMsg,
+    });
     sendBridgeMessage(bridgeMsg)
       .then(async (res) => {
-        if (!res.success) {
+        if (res.success) {
+          await db.pendingActions.update(actionId, { status: 'confirmed' });
+        } else {
           await db.conversations.put(conversation);
           if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
           if (savedQueueItem) await db.syncQueue.put(savedQueueItem).catch(() => {});
+          await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: 'Failed to delete — restored' });
         }
       })
       .catch(async () => {
         if (!navigator.onLine) {
-          await createQueuedAction({
-            type: 'delete',
-            conversationId: conversation.id,
-            rollbackData: { conversation, messages: savedMessages },
-            bridgeMessage: bridgeMsg,
-          });
+          await queueAction(actionId, bridgeMsg);
           return;
         }
         await db.conversations.put(conversation);
         if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
         if (savedQueueItem) await db.syncQueue.put(savedQueueItem).catch(() => {});
+        await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to delete — restored' });
       });
   }
@@ -550,24 +592,29 @@ export function useOptimisticAction() {
         return;
       }
 
+      const actionId = await createPendingAction({
+        type: 'unstar',
+        conversationId: conversation.id,
+        rollbackData: { starred: 1 },
+        bridgeMessage: bridgeMsg,
+      });
       sendBridgeMessage(bridgeMsg)
         .then(async (res) => {
-          if (!res.success) {
+          if (res.success) {
+            await db.pendingActions.update(actionId, { status: 'confirmed' });
+          } else {
             await db.conversations.update(conversation.id, { starred: 1 });
+            await db.pendingActions.update(actionId, { status: 'failed' });
             showToast({ message: 'Failed to unstar — rolled back' });
           }
         })
         .catch(async () => {
           if (!navigator.onLine) {
-            await createQueuedAction({
-              type: 'unstar',
-              conversationId: conversation.id,
-              rollbackData: { starred: 1 },
-              bridgeMessage: bridgeMsg,
-            });
+            await queueAction(actionId, bridgeMsg);
             return;
           }
           await db.conversations.update(conversation.id, { starred: 1 });
+          await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: 'Failed to unstar — rolled back' });
         });
     } else {
@@ -587,24 +634,29 @@ export function useOptimisticAction() {
         return;
       }
 
+      const actionId = await createPendingAction({
+        type: 'star',
+        conversationId: conversation.id,
+        rollbackData: { starred: 0 },
+        bridgeMessage: bridgeMsg,
+      });
       sendBridgeMessage(bridgeMsg)
         .then(async (res) => {
-          if (!res.success) {
+          if (res.success) {
+            await db.pendingActions.update(actionId, { status: 'confirmed' });
+          } else {
             await db.conversations.update(conversation.id, { starred: 0 });
+            await db.pendingActions.update(actionId, { status: 'failed' });
             showToast({ message: 'Failed to star — rolled back' });
           }
         })
         .catch(async () => {
           if (!navigator.onLine) {
-            await createQueuedAction({
-              type: 'star',
-              conversationId: conversation.id,
-              rollbackData: { starred: 0 },
-              bridgeMessage: bridgeMsg,
-            });
+            await queueAction(actionId, bridgeMsg);
             return;
           }
           await db.conversations.update(conversation.id, { starred: 0 });
+          await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: 'Failed to star — rolled back' });
         });
     }
@@ -629,26 +681,30 @@ export function useOptimisticAction() {
       return true;
     }
 
+    const actionId = await createPendingAction({
+      type: 'edit_message',
+      conversationId,
+      rollbackData: { messageId, body: oldMessage.body, editedAt: oldMessage.editedAt },
+      bridgeMessage: bridgeMsg,
+    });
     try {
       const res = await sendBridgeMessage(bridgeMsg);
 
       if (!res.success) {
         await db.messages.update(messageId, { body: oldMessage.body, editedAt: oldMessage.editedAt });
+        await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: res.error || 'Failed to edit message' });
         return false;
       }
+      await db.pendingActions.update(actionId, { status: 'confirmed' });
       return true;
     } catch {
       if (!navigator.onLine) {
-        await createQueuedAction({
-          type: 'edit_message',
-          conversationId,
-          rollbackData: { messageId, body: oldMessage.body, editedAt: oldMessage.editedAt },
-          bridgeMessage: bridgeMsg,
-        });
+        await queueAction(actionId, bridgeMsg);
         return true;
       }
       await db.messages.update(messageId, { body: oldMessage.body, editedAt: oldMessage.editedAt });
+      await db.pendingActions.update(actionId, { status: 'failed' });
       showToast({ message: 'Failed to edit message' });
       return false;
     }
@@ -704,24 +760,29 @@ export function useOptimisticAction() {
       return;
     }
 
+    const actionId = await createPendingAction({
+      type: 'react_emoji',
+      conversationId,
+      rollbackData: { messageId, reactions: oldReactions.length > 0 ? oldReactions : undefined },
+      bridgeMessage: bridgeMsg,
+    });
     sendBridgeMessage(bridgeMsg)
       .then(async (res) => {
-        if (!res.success) {
+        if (res.success) {
+          await db.pendingActions.update(actionId, { status: 'confirmed' });
+        } else {
           await db.messages.update(messageId, { reactions: oldReactions.length > 0 ? oldReactions : undefined });
+          await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: 'Failed to react' });
         }
       })
       .catch(async () => {
         if (!navigator.onLine) {
-          await createQueuedAction({
-            type: 'react_emoji',
-            conversationId,
-            rollbackData: { messageId, reactions: oldReactions.length > 0 ? oldReactions : undefined },
-            bridgeMessage: bridgeMsg,
-          });
+          await queueAction(actionId, bridgeMsg);
           return;
         }
         await db.messages.update(messageId, { reactions: oldReactions.length > 0 ? oldReactions : undefined });
+        await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to react' });
       });
   }
@@ -775,26 +836,31 @@ export function useOptimisticAction() {
       return;
     }
 
+    const actionId = await createPendingAction({
+      type: 'recall_message',
+      conversationId,
+      rollbackData: { message: msg },
+      bridgeMessage: bridgeMsg,
+    });
     sendBridgeMessage(bridgeMsg)
       .then(async (res) => {
-        if (!res.success) {
+        if (res.success) {
+          await db.pendingActions.update(actionId, { status: 'confirmed' });
+        } else {
           await db.messages.put(msg);
           await restorePreview();
+          await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: res.error || 'Failed to unsend — message restored' });
         }
       })
       .catch(async () => {
         if (!navigator.onLine) {
-          await createQueuedAction({
-            type: 'recall_message',
-            conversationId,
-            rollbackData: { message: msg },
-            bridgeMessage: bridgeMsg,
-          });
+          await queueAction(actionId, bridgeMsg);
           return;
         }
         await db.messages.put(msg);
         await restorePreview();
+        await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to unsend — message restored' });
       });
   }

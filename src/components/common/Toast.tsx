@@ -9,7 +9,7 @@ export function Toast() {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const lastToast = useRef(toast);
-  const exitTimer = useRef<ReturnType<typeof setTimeout>>();
+  const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (toast) {
