@@ -14,7 +14,8 @@
 import { getMemberUrn } from '../auth/session';
 import { fetchProfileByUrn } from '../api/profiles';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions } from '@/lib/voyager-normalizer';
+import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair } from '@/lib/voyager-normalizer';
+import { repairConversationParticipants } from '../sync/repair-participants';
 import { debugLog } from '@/lib/debug-log';
 import { db } from '@/db/database';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
@@ -48,6 +49,9 @@ async function applyInboundMessageToConversation(
       if (existing.archived === 1) updates.archived = 0;
     }
     await db.conversations.update(convId, updates);
+    // Heal a conversation previously seeded from an unresolved SSE echo
+    // (participants left as "Unknown" / a garbage URN).
+    if (needsParticipantRepair(existing)) backfillConversationParticipants(convId, memberUrn);
   } else {
     // Create a minimal conversation so it appears in the list immediately. Use
     // the other party's info (non-self messages). If all messages are from us,
@@ -101,44 +105,11 @@ function enrichProfileIfNeeded(urn: string): void {
  * Fire-and-forget — called async, errors are swallowed.
  */
 function backfillConversationParticipants(conversationId: string, memberUrn: string): void {
-  fetchMessages(conversationId, 1, 0, { skipJitter: true }).then(async (raw) => {
-    const included = raw.included || [];
-    const participantUrns: string[] = [];
-    const participantNames: string[] = [];
-    const participantPictures: string[] = [];
-
-    for (const entity of included) {
-      if (entity.$type !== 'com.linkedin.messenger.MessagingParticipant') continue;
-      const member = entity.participantType?.member;
-      if (!member) continue;
-      const profileId = extractProfileId(entity.hostIdentityUrn || entity.entityUrn);
-      const urn = `urn:li:fsd_profile:${profileId}`;
-
-      // Skip the current user
-      if (urn === memberUrn) continue;
-
-      participantUrns.push(urn);
-      participantNames.push(
-        `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim() || 'Unknown'
-      );
-      participantPictures.push(getParticipantPicture(entity));
-    }
-
-    if (participantUrns.length === 0) return;
-
-    // Only update if the conversation still has empty participants
-    const conv = await db.conversations.get(conversationId);
-    if (conv && conv.participantUrns.length === 0) {
-      await db.conversations.update(conversationId, {
-        participantUrns,
-        participantNames,
-        participantPictures,
-      });
-      debugLog('info', `[RT] Backfilled participants for ${conversationId.substring(0, 20)}...: ${participantNames.join(', ')}`);
-    }
-  }).catch((err) => {
-    debugLog('warn', `[RT] Failed to backfill participants for ${conversationId}: ${err}`);
-  });
+  fetchMessages(conversationId, 1, 0, { skipJitter: true })
+    .then((raw) => repairConversationParticipants(conversationId, raw.included || [], memberUrn))
+    .catch((err) => {
+      debugLog('warn', `[RT] Failed to backfill participants for ${conversationId}: ${err}`);
+    });
 }
 
 // ---------------------------------------------------------------------------
