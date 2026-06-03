@@ -116,16 +116,13 @@ export function useOptimisticAction() {
       return;
     }
 
-    sendBridgeMessage(bridgeMsg).catch(async () => {
-      // Queue for retry regardless of online state — markRead is idempotent
-      // but the server should eventually know about it.
-      await createQueuedAction({
-        type: 'markRead',
-        conversationId,
-        rollbackData: { read: 0 },
-        bridgeMessage: bridgeMsg,
-      });
-    });
+    const queueMarkRead = () =>
+      createQueuedAction({ type: 'markRead', conversationId, rollbackData: { read: 0 }, bridgeMessage: bridgeMsg });
+    sendBridgeMessage(bridgeMsg)
+      // The router resolves {success:false} on a server error (never rejects), so
+      // queue a retry on !success too — not only on a thrown rejection.
+      .then((res) => { if (!res.success) return queueMarkRead(); })
+      .catch(() => queueMarkRead());
   }
 
   async function markUnread(conversationId: string) {
@@ -143,19 +140,25 @@ export function useOptimisticAction() {
       return;
     }
 
-    sendBridgeMessage(bridgeMsg).catch(async () => {
-      if (!navigator.onLine) {
-        await createQueuedAction({
-          type: 'markUnread',
-          conversationId,
-          rollbackData: { read: 1 },
-          bridgeMessage: bridgeMsg,
-        });
-        return;
-      }
+    const rollbackUnread = async () => {
       await db.conversations.update(conversationId, { read: 1 });
       showToast({ message: 'Failed to mark unread — rolled back' });
-    });
+    };
+    sendBridgeMessage(bridgeMsg)
+      // Server errors resolve {success:false} (no rejection), so roll back on that too.
+      .then((res) => { if (!res.success) return rollbackUnread(); })
+      .catch(async () => {
+        if (!navigator.onLine) {
+          await createQueuedAction({
+            type: 'markUnread',
+            conversationId,
+            rollbackData: { read: 1 },
+            bridgeMessage: bridgeMsg,
+          });
+          return;
+        }
+        await rollbackUnread();
+      });
   }
 
   async function sendMessage(conversationId: string, body: string, files?: File[], replyTo?: { messageUrn: string; senderUrn: string; senderName: string; sentAt: number; body: string }): Promise<boolean> {

@@ -4,6 +4,9 @@ import { debugLog } from '@/lib/debug-log';
 
 const BASE_URL = 'https://www.linkedin.com/voyager/api';
 
+/** Abort a voyager request after this long so a hung connection can't stall sync/queue. */
+const VOYAGER_TIMEOUT_MS = 20_000;
+
 // Use declarativeNetRequest to attach cookies since fetch() forbids the Cookie header
 let lastCookieValue = '';
 
@@ -150,6 +153,9 @@ export async function voyagerFetch(
 
   const res = await fetch(url, {
     ...options,
+    // Bound the request so a hung connection can't stall sync/queue forever.
+    // (Streaming SSE uses realtimeFetch with its own AbortController, not this.)
+    signal: options.signal ?? AbortSignal.timeout(VOYAGER_TIMEOUT_MS),
     headers: {
       'csrf-token': csrfToken,
       'x-restli-protocol-version': '2.0.0',

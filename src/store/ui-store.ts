@@ -102,12 +102,14 @@ function saveView(state: { inboxTab: InboxTab; selectedConversationId: string | 
 
 function resolveTheme(theme: Theme): 'light' | 'dark' {
   if (theme === 'system') {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   return theme;
 }
 
 function applyTheme(theme: Theme) {
+  if (typeof document === 'undefined') return; // no DOM (e.g. node test/service worker)
   const resolved = resolveTheme(theme);
   document.documentElement.classList.toggle('dark', resolved === 'dark');
   try {
@@ -122,11 +124,13 @@ applyTheme(initialTheme);
 // Restore view on load
 const initialView = getStoredView();
 
-// Listen for system theme changes
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  const current = useUIStore.getState().theme;
-  if (current === 'system') applyTheme('system');
-});
+// Listen for system theme changes (guarded — jsdom/node may lack matchMedia)
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    const current = useUIStore.getState().theme;
+    if (current === 'system') applyTheme('system');
+  });
+}
 
 export const useUIStore = create<UIState>((set, get) => ({
   viewMode: initialView.viewMode,
