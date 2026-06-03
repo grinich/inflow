@@ -10,9 +10,11 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Default to the fast node env; component/hook tests opt into jsdom per-file
+    // via `// @vitest-environment jsdom` so the large node suite is unaffected.
     environment: 'node',
     setupFiles: ['./test/setup.ts'],
-    include: ['test/**/*.test.ts'],
+    include: ['test/**/*.test.{ts,tsx}'],
     testTimeout: 10_000,
     pool: 'forks',
     coverage: {
