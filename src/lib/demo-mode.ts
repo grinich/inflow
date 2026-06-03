@@ -217,7 +217,8 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
       };
 
     case 'GET_DEBUG_LOGS':
-      return { success: true, data: ['[Demo mode] All bridge messages are handled locally.'] };
+      // Must match LogEntry[] shape (DebugPanel/report-a-bug expect objects, not strings).
+      return { success: true, data: [] };
 
     case 'CLEAR_DEBUG_LOGS':
       return { success: true };

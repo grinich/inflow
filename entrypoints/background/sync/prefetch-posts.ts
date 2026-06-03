@@ -68,7 +68,7 @@ async function _fetchAndCachePost(urn: string, now: number): Promise<void> {
         text: post.text,
         imageUrl: post.imageUrl,
         activityUrl: post.activityUrl,
-        cachedAt: now,
+        cachedAt: Date.now(),
       });
       debugLog('info', `[PREFETCH] Cached post: ${post.authorName} — ${post.text.substring(0, 60)}`);
     } else {
@@ -77,7 +77,7 @@ async function _fetchAndCachePost(urn: string, now: number): Promise<void> {
         urn,
         authorName: '', authorHeadline: '', authorPicture: '',
         text: '', imageUrl: '', activityUrl: '',
-        cachedAt: now,
+        cachedAt: Date.now(),
       }).catch(() => {});
       debugLog('info', `[PREFETCH] Cached not-found sentinel for: ${urn}`);
     }

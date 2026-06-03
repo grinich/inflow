@@ -14,7 +14,9 @@ import type { Conversation } from '@/types/conversation';
 export async function mergeConversation(conv: Conversation): Promise<void> {
   const existing = await db.conversations.get(conv.id);
   if (!existing) {
-    await db.conversations.put(conv);
+    // Normalize the starred default so a brand-new row is never stored with
+    // starred=undefined (which drops it from the starred index).
+    await db.conversations.put({ ...conv, starred: conv.starred ?? 0 });
     return;
   }
 
