@@ -76,7 +76,7 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
         const profileId = extractProfileId(entity.hostIdentityUrn || entity.entityUrn);
         profiles.push({
           urn: `urn:li:fsd_profile:${profileId}`,
-          publicId: member.profileUrl?.split('/in/')?.[1] || profileId,
+          publicId: member.profileUrl?.split('/in/')?.[1]?.split(/[/?#]/)[0] || profileId,
           firstName: member.firstName?.text || '',
           lastName: member.lastName?.text || '',
           fullName: `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim(),

@@ -196,6 +196,7 @@ async function readStream(
   // Stream ended — reconnect
   connected = false;
   broadcastSSEStatus();
+  stopHeartbeat(); // don't leave the heartbeat interval running on a dead stream
   debugLog('info', '[SSE] Connection lost, scheduling reconnect...');
   scheduleReconnect();
 }

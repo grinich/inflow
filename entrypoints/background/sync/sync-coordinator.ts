@@ -80,8 +80,18 @@ export function setupSyncCoordinator() {
  * 4. Second backfill pass — picks up items from discovery
  * 5. Staleness — re-discover categories not checked in 15 min
  */
+let _tickRunning = false;
 async function onSyncTick(): Promise<void> {
   if (!db) return; // unauthenticated — no DB open yet; a later alarm tick retries once it is
+  if (_tickRunning) return; // a previous tick is still running — don't overlap on the next alarm
+  _tickRunning = true;
+  try {
+    await _onSyncTickInner();
+  } finally {
+    _tickRunning = false;
+  }
+}
+async function _onSyncTickInner(): Promise<void> {
   if (paused) {
     debugLog('info', '[COORDINATOR] Tick skipped (paused)');
     return;
