@@ -1,5 +1,3 @@
-import type { Shortcut } from './KeyboardManager';
-
 // Shortcuts are registered with handlers in useKeyboard.ts
 // This file defines the keybinding metadata for the overlay
 
