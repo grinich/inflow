@@ -8,14 +8,7 @@ import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { searchEmoji, type EmojiResult } from '@/lib/emoji-search';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
 
-/** Block dangerous URL protocols (javascript:, data:, vbscript:, etc.) */
-function sanitizeUrl(url: string | undefined): string {
-  if (!url) return '#';
-  const trimmed = url.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return '#'; // block all other protocols
-  return trimmed;
-}
+import { sanitizeUrl } from '@/lib/sanitize-url';
 import { SharedPostCard } from './SharedPostCard';
 import type { Message, MessageAttachment } from '@/types/message';
 

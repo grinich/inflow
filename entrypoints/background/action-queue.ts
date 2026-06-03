@@ -19,6 +19,7 @@ import {
   unstarConversation,
 } from './api/conversations';
 import { sendMessage, editMessage, reactWithEmoji, recallMessage } from './api/messages';
+import { enqueueSend } from './send-queue';
 import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression';
 import { debugLog } from '@/lib/debug-log';
 import { db, getDbGeneration } from '@/db/database';
@@ -244,7 +245,8 @@ async function replaySend(action: PendingAction): Promise<void> {
     );
   }
 
-  await sendMessage(convId, body, attachments);
+  // Serialize with live sends to the same conversation (shared send queue).
+  await enqueueSend(convId, () => sendMessage(convId, body, attachments));
 }
 
 /**

@@ -4,13 +4,7 @@ import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { useUIStore } from '@/store/ui-store';
 
-function sanitizeUrl(url: string | undefined): string {
-  if (!url) return '#';
-  const trimmed = url.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return '#';
-  return trimmed;
-}
+import { sanitizeUrl } from '@/lib/sanitize-url';
 import type { MessageAttachment } from '@/types/message';
 
 interface LinkedInPost {
