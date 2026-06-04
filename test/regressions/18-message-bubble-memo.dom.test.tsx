@@ -88,4 +88,45 @@ describe('MessageBubble rendering', () => {
     expect(screen.queryByRole('link')).toBeNull();
     expect(screen.getByText('hello')).toBeInTheDocument();
   });
+
+  it('renders voice messages with inline audio controls', () => {
+    render(
+      <MessageBubble
+        {...props({
+          message: makeMessage({
+            ...base(),
+            body: '',
+            attachments: [{
+              type: 'audio',
+              externalUrl: 'https://audio.linkedin.com/voice.m4a',
+              fallbackText: 'Voice message',
+            }],
+          }),
+        })}
+      />
+    );
+
+    const audio = screen.getByLabelText('Voice message') as HTMLAudioElement;
+    expect(audio.tagName).toBe('AUDIO');
+    expect(audio).toHaveAttribute('controls');
+    expect(audio).toHaveAttribute('preload', 'metadata');
+    expect(audio).toHaveAttribute('src', 'https://audio.linkedin.com/voice.m4a');
+  });
+
+  it('shows an unavailable state when a voice message has no playable URL', () => {
+    render(
+      <MessageBubble
+        {...props({
+          message: makeMessage({
+            ...base(),
+            body: '',
+            attachments: [{ type: 'audio', fallbackText: 'Voice message' }],
+          }),
+        })}
+      />
+    );
+
+    expect(screen.queryByLabelText('Voice message')).toBeNull();
+    expect(screen.getByText('Voice message unavailable')).toBeInTheDocument();
+  });
 });

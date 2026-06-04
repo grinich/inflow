@@ -10,6 +10,8 @@ export interface MessageAttachment {
   fileSize?: number;
   /** MIME type */
   mimeType?: string;
+  /** Audio/video duration in milliseconds */
+  durationMs?: number;
   /** LinkedIn post activity URN (for type=sharedPost) */
   postUrn?: string;
   /** External media URL */

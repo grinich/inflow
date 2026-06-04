@@ -535,18 +535,7 @@ function AttachmentView({ attachment, isMe }: { attachment: MessageAttachment; i
       );
 
     case 'audio':
-      return (
-        <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
-          isMe ? 'bg-blue-700/50 text-blue-100' : 'bg-surface-hover text-fg-secondary'
-        }`}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-          </svg>
-          <span>Audio message</span>
-        </div>
-      );
+      return <AudioAttachment attachment={attachment} isMe={isMe} />;
 
     case 'externalMedia':
       return (
@@ -611,6 +600,38 @@ function GifAttachment({ attachment }: { attachment: MessageAttachment }) {
           ? { aspectRatio: `${attachment.width}/${attachment.height}` }
           : undefined}
       />
+    </div>
+  );
+}
+
+function AudioAttachment({ attachment, isMe }: { attachment: MessageAttachment; isMe: boolean }) {
+  const audioUrl = sanitizeUrl(attachment.externalUrl);
+  const hasPlayableUrl = audioUrl !== '#';
+  const label = attachment.fallbackText || 'Voice message';
+
+  return (
+    <div className={`flex min-w-56 max-w-full items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+      isMe ? 'bg-blue-700/50 text-blue-100' : 'bg-surface-hover text-fg-secondary'
+    }`}>
+      <svg className="shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <line x1="12" y1="19" x2="12" y2="23" />
+      </svg>
+      {hasPlayableUrl ? (
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="font-medium">{label}</span>
+          <audio
+            aria-label={label}
+            controls
+            preload="metadata"
+            src={audioUrl}
+            className="h-8 w-56 max-w-full"
+          />
+        </div>
+      ) : (
+        <span className="font-medium">{label} unavailable</span>
+      )}
     </div>
   );
 }

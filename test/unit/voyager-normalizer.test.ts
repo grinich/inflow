@@ -291,10 +291,10 @@ describe('normalizeConversations()', () => {
       expect(conversations[0].lastMessage).toBe('Sent a video');
     });
 
-    it('falls back to "Sent an audio message" for audio', () => {
+    it('falls back to "Sent a voice message" for audio', () => {
       const response = buildResponseWithRenderContent([{ audio: { url: 'https://audio.com/a.mp3' } }]);
       const { conversations } = normalizeConversations(response);
-      expect(conversations[0].lastMessage).toBe('Sent an audio message');
+      expect(conversations[0].lastMessage).toBe('Sent a voice message');
     });
 
     it('falls back to "Shared a post" for hostUrnData', () => {
@@ -847,7 +847,42 @@ describe('normalizeMessages()', () => {
       expect(messages[0].attachments![0]).toMatchObject({
         type: 'audio',
         externalUrl: 'https://audio.linkedin.com/a.mp3',
-        fallbackText: 'Audio message',
+        fallbackText: 'Voice message',
+      });
+    });
+
+    it('extracts nested voice message stream metadata', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          {
+            ...makeMessage({
+              entityUrn: 'urn:li:msg_message:(2-conv,100)',
+              senderRef: participantAlice.entityUrn,
+              body: '',
+              deliveredAt: 1700000001000,
+            }),
+            renderContent: [{
+              audio: {
+                duration: 4.25,
+                mediaType: 'audio/mp4',
+                progressiveStreams: [{
+                  streamingLocations: [{ url: 'https://audio.linkedin.com/voice.m4a' }],
+                }],
+              },
+            }],
+          },
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect(messages[0].attachments![0]).toMatchObject({
+        type: 'audio',
+        externalUrl: 'https://audio.linkedin.com/voice.m4a',
+        fallbackText: 'Voice message',
+        mimeType: 'audio/mp4',
+        durationMs: 4250,
       });
     });
 

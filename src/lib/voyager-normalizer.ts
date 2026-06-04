@@ -312,7 +312,7 @@ function lastMessageFallback(msg: VoyagerEntity | undefined): string {
   if (item.vectorImage) return 'Sent an image';
   if (item.file) return `Sent a file: ${item.file.name || item.file.fileName || 'File'}`;
   if (item.video) return 'Sent a video';
-  if (item.audio) return 'Sent an audio message';
+  if (item.audio) return 'Sent a voice message';
   if (item.hostUrnData) return 'Shared a post';
   if (item.externalMedia) return item.externalMedia.title || 'Shared a link';
   if (item['*externalMedia']) return 'Sent a GIF';
@@ -386,12 +386,7 @@ function extractAttachments(renderContent: any[] | undefined, included?: any[]):
         fallbackText: 'Video',
       });
     } else if (item.audio) {
-      // Audio message
-      attachments.push({
-        type: 'audio',
-        externalUrl: item.audio.url || '',
-        fallbackText: 'Audio message',
-      });
+      attachments.push(extractAudioAttachment(item.audio));
     } else if (item.hostUrnData) {
       const h = item.hostUrnData;
       // Skip non-post metadata like PREMIUM_INMAIL — these are delivery indicators, not real attachments
@@ -430,6 +425,73 @@ function extractAttachments(renderContent: any[] | undefined, included?: any[]):
   }
 
   return attachments;
+}
+
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function firstStreamingLocationUrl(media: any): string {
+  const streams = [
+    ...(Array.isArray(media?.progressiveStreams) ? media.progressiveStreams : []),
+    ...(Array.isArray(media?.dashStreams) ? media.dashStreams : []),
+    ...(Array.isArray(media?.adaptiveStreams) ? media.adaptiveStreams : []),
+    media,
+  ];
+
+  for (const stream of streams) {
+    const direct = firstNonEmptyString(stream?.url, stream?.streamingUrl, stream?.downloadUrl);
+    if (direct) return direct;
+
+    const locations = stream?.streamingLocations;
+    if (!Array.isArray(locations)) continue;
+    for (const location of locations) {
+      const url = firstNonEmptyString(location?.url, location?.streamingUrl);
+      if (url) return url;
+    }
+  }
+
+  return '';
+}
+
+function durationMsFromAudio(audio: any): number | undefined {
+  const raw = audio?.durationMs ?? audio?.durationInMs ?? audio?.duration;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return undefined;
+  return raw < 1000 ? Math.round(raw * 1000) : Math.round(raw);
+}
+
+export function extractAudioAttachment(audio: any): MessageAttachment {
+  const externalUrl =
+    firstNonEmptyString(
+      audio?.url,
+      audio?.downloadUrl,
+      audio?.fileUrl,
+      audio?.playbackUrl,
+      audio?.mediaUrl,
+      audio?.source,
+      audio?.media?.url,
+      audio?.audio?.url,
+      audio?.file?.url,
+      audio?.asset?.url,
+    ) ||
+    firstStreamingLocationUrl(audio) ||
+    firstStreamingLocationUrl(audio?.media) ||
+    firstStreamingLocationUrl(audio?.audio) ||
+    firstStreamingLocationUrl(audio?.asset);
+
+  const mimeType = firstNonEmptyString(audio?.mimeType, audio?.mediaType, audio?.contentType);
+  const durationMs = durationMsFromAudio(audio);
+
+  return {
+    type: 'audio',
+    externalUrl,
+    fallbackText: 'Voice message',
+    ...(mimeType ? { mimeType } : {}),
+    ...(durationMs ? { durationMs } : {}),
+  };
 }
 
 /**

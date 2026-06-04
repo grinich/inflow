@@ -14,7 +14,7 @@
 import { getMemberUrn } from '../auth/session';
 import { fetchProfileByUrn } from '../api/profiles';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair } from '@/lib/voyager-normalizer';
+import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair, extractAudioAttachment } from '@/lib/voyager-normalizer';
 import { repairConversationParticipants } from '../sync/repair-participants';
 import { debugLog } from '@/lib/debug-log';
 import { db, getDbGeneration } from '@/db/database';
@@ -1151,11 +1151,7 @@ function extractAttachments(
         fallbackText: 'Video',
       });
     } else if (item.audio) {
-      attachments.push({
-        type: 'audio',
-        externalUrl: item.audio.url || '',
-        fallbackText: 'Audio message',
-      });
+      attachments.push(extractAudioAttachment(item.audio));
     } else if (item.hostUrnData) {
       const h = item.hostUrnData;
       if (h.type === 'PREMIUM_INMAIL' || h.hostUrn?.includes('dummyId'))
