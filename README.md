@@ -2,6 +2,17 @@
 
 An experimental Chrome extension that reimagines LinkedIn messaging with a keyboard-driven, local-first UI. Built as a personal project to explore browser extension development with React, IndexedDB, and real-time streaming.
 
+<table>
+  <tr>
+    <td><img src="assets/screenshot-light.png" alt="Light theme conversation view" width="500"></td>
+    <td><img src="assets/screenshot-dark.png" alt="Dark theme conversation view" width="500"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshot-shortcuts.png" alt="Keyboard shortcuts overlay" width="500"></td>
+    <td><img src="assets/screenshot-debug.png" alt="Debug view" width="500"></td>
+  </tr>
+</table>
+
 > **This project is not affiliated with, endorsed by, or associated with LinkedIn or Microsoft.**
 
 ## Disclaimer
