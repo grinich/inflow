@@ -39,7 +39,11 @@ export type BridgeMessage =
   | { type: 'PREFETCH_MESSAGES'; conversationIds: string[] }
   | { type: 'REACT_EMOJI'; conversationId: string; messageId: string; emoji: string }
   | { type: 'RECALL_MESSAGE'; conversationId: string; messageId: string }
-  | { type: 'CHECK_FOR_UPDATE' };
+  | { type: 'CHECK_FOR_UPDATE' }
+  | { type: 'FETCH_INVITATIONS' }
+  | { type: 'ACCEPT_INVITATION'; invitationId: string }
+  | { type: 'IGNORE_INVITATION'; invitationId: string }
+  | { type: 'FETCH_CONNECTIONS'; start?: number };
 
 export type BridgeResponse = {
   success: boolean;

@@ -22,6 +22,8 @@ import { burstDiscover, toggleSyncPause, broadcastProgress } from './sync/sync-c
 import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
+import { fetchInvitationsRaw, fetchConnectionsRaw, respondToInvitation } from './api/relationships';
+import { normalizeInvitations, normalizeConnections } from '@/lib/network-normalizer';
 import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
 import { applyPendingReceipts, consumePendingReceipts } from './realtime/pending-receipts';
 import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
@@ -309,6 +311,38 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     case 'TYPEAHEAD_SEARCH': {
       const results = await searchTypeahead(msg.query);
       return { success: true, data: results };
+    }
+    case 'FETCH_INVITATIONS': {
+      const raw = await fetchInvitationsRaw();
+      const invitations = normalizeInvitations(raw);
+      // Drop local pending invitations that vanished server-side (withdrawn /
+      // handled elsewhere), but never resurrect ones we've acted on locally.
+      const serverIds = new Set(invitations.map((i) => i.id));
+      const localPending = await db.invitations.where('status').equals('pending').toArray();
+      await db.invitations.bulkDelete(
+        localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id)
+      );
+      const existing = await db.invitations.bulkGet(invitations.map((i) => i.id));
+      const fresh = invitations.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
+      await db.invitations.bulkPut(fresh);
+      return { success: true, data: { count: invitations.length } };
+    }
+    case 'ACCEPT_INVITATION':
+    case 'IGNORE_INVITATION': {
+      const inv = await db.invitations.get(msg.invitationId);
+      if (!inv) return { success: false, error: 'Invitation not found' };
+      const action: 'accept' | 'ignore' = msg.type === 'ACCEPT_INVITATION' ? 'accept' : 'ignore';
+      await respondToInvitation(inv.id, inv.sharedSecret, action);
+      await db.invitations.update(inv.id, { status: action === 'accept' ? 'accepted' : 'ignored' });
+      return { success: true };
+    }
+    case 'FETCH_CONNECTIONS': {
+      const PAGE = 40;
+      const raw = await fetchConnectionsRaw(msg.start ?? 0, PAGE);
+      const { connections, profiles } = normalizeConnections(raw);
+      await db.connections.bulkPut(connections);
+      await mergeProfiles(profiles);
+      return { success: true, data: { fetched: connections.length, hasMore: connections.length === PAGE } };
     }
     case 'CREATE_CONVERSATION': {
       const result = await createConversation(msg.recipientUrns, msg.body, msg.attachments);
