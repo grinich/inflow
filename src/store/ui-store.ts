@@ -16,6 +16,8 @@ import {
 export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system';
 export type InboxTab = 'focused' | 'other' | 'archived' | 'spam';
+export type AppView = 'inbox' | 'network';
+export type NetworkTab = 'invitations' | 'connections';
 
 export interface Toast {
   id: string;
@@ -43,6 +45,9 @@ interface UIState {
   searchQuery: string;
   theme: Theme;
   inboxTab: InboxTab;
+  appView: AppView;
+  networkTab: NetworkTab;
+  networkSelectedIndex: number;
   lightboxImageUrl: string | null;
   lightboxVideoUrl: string | null;
   deleteConfirmId: string | null;
@@ -68,6 +73,9 @@ interface UIState {
   clearLastUndo: () => void;
   setSearchQuery: (query: string) => void;
   setInboxTab: (tab: InboxTab) => void;
+  setAppView: (view: AppView) => void;
+  setNetworkTab: (tab: NetworkTab) => void;
+  setNetworkSelectedIndex: (index: number) => void;
   openLightbox: (url: string) => void;
   closeLightbox: () => void;
   openVideoLightbox: (url: string) => void;
@@ -169,6 +177,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   searchQuery: initialSearchQuery,
   theme: initialTheme,
   inboxTab: initialInboxTab,
+  appView: 'inbox',
+  networkTab: 'invitations',
+  networkSelectedIndex: 0,
   lightboxImageUrl: null,
   lightboxVideoUrl: null,
   deleteConfirmId: null,
@@ -210,6 +221,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     set(newState);
     saveView({ inboxTab: tab, selectedConversationId: newState.selectedConversationId, selectedIndex: newState.selectedIndex, viewMode: s.viewMode });
   },
+  setAppView: (view) => set({ appView: view, networkSelectedIndex: 0 }),
+  setNetworkTab: (tab) => set({ networkTab: tab, networkSelectedIndex: 0 }),
+  setNetworkSelectedIndex: (index) => set({ networkSelectedIndex: Math.max(0, index) }),
   openLightbox: (url) => set({ lightboxImageUrl: url }),
   closeLightbox: () => set({ lightboxImageUrl: null }),
   openVideoLightbox: (url) => set({ lightboxVideoUrl: url }),
