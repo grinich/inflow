@@ -126,6 +126,8 @@ export async function seedDemoData(): Promise<void> {
     await database.conversations.clear();
     await database.messages.clear();
     await database.profiles.clear();
+    await database.invitations.clear();
+    await database.connections.clear();
   }
 
   const now = Date.now();
