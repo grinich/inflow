@@ -221,8 +221,14 @@ export const useUIStore = create<UIState>((set, get) => ({
     set(newState);
     saveView({ inboxTab: tab, selectedConversationId: newState.selectedConversationId, selectedIndex: newState.selectedIndex, viewMode: s.viewMode });
   },
-  setAppView: (view) => set({ appView: view, networkSelectedIndex: 0 }),
-  setNetworkTab: (tab) => set({ networkTab: tab, networkSelectedIndex: 0 }),
+  setAppView: (view) => {
+    if (view === get().appView) return;
+    set({ appView: view, networkSelectedIndex: 0 });
+  },
+  setNetworkTab: (tab) => {
+    if (tab === get().networkTab) return;
+    set({ networkTab: tab, networkSelectedIndex: 0 });
+  },
   setNetworkSelectedIndex: (index) => set({ networkSelectedIndex: Math.max(0, index) }),
   openLightbox: (url) => set({ lightboxImageUrl: url }),
   closeLightbox: () => set({ lightboxImageUrl: null }),

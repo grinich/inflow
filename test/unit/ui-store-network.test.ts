@@ -28,4 +28,16 @@ describe('ui-store network state', () => {
     useUIStore.getState().setNetworkSelectedIndex(-2);
     expect(useUIStore.getState().networkSelectedIndex).toBe(0);
   });
+
+  it('setAppView does not reset selection when view is unchanged', () => {
+    useUIStore.setState({ appView: 'network', networkSelectedIndex: 7 });
+    useUIStore.getState().setAppView('network');
+    expect(useUIStore.getState().networkSelectedIndex).toBe(7);
+  });
+
+  it('setNetworkTab does not reset selection when tab is unchanged', () => {
+    useUIStore.setState({ networkTab: 'connections', networkSelectedIndex: 4 });
+    useUIStore.getState().setNetworkTab('connections');
+    expect(useUIStore.getState().networkSelectedIndex).toBe(4);
+  });
 });
