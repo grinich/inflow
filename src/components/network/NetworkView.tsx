@@ -42,7 +42,7 @@ export function NetworkView() {
   }, []);
 
   const invitations = useLiveQuery(
-    () => db.invitations.where('status').equals('pending').reverse().sortBy('sentAt'),
+    () => db.invitations.where('status').equals('pending').sortBy('sentAt').then((arr) => arr.reverse()),
     []
   ) ?? [];
 
@@ -116,7 +116,7 @@ export function NetworkView() {
         case 'k':
         case 'ArrowUp':
           e.preventDefault();
-          setSelectedIndex(idx - 1);
+          setSelectedIndex(Math.max(0, idx - 1));
           return;
         case '/':
           e.preventDefault();
