@@ -56,6 +56,16 @@ describe('relationships API', () => {
     await expect(respondToInvitation('1', 's', 'ignore')).rejects.toThrow('403');
   });
 
+  it('fetchInvitationsRaw throws on non-OK status', async () => {
+    mockFetch('/voyager/api/relationships/invitationViews', async () => new Response('', { status: 401 }));
+    await expect(fetchInvitationsRaw()).rejects.toThrow('401');
+  });
+
+  it('fetchConnectionsRaw throws on non-OK status', async () => {
+    mockFetch('/voyager/api/relationships/dash/connections', async () => new Response('', { status: 500 }));
+    await expect(fetchConnectionsRaw()).rejects.toThrow('500');
+  });
+
   it('fetchConnectionsRaw requests RECENTLY_ADDED with paging', async () => {
     mockFetch('/voyager/api/relationships/dash/connections', async (url, init) => {
       requests.push({ url, init });

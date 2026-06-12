@@ -1,4 +1,5 @@
 import { voyagerFetch } from './client';
+import { debugLog } from '@/lib/debug-log';
 
 /**
  * Received connection invitations (classic relationships API — the same
@@ -8,7 +9,10 @@ export async function fetchInvitationsRaw(start = 0, count = 40): Promise<any> {
   const res = await voyagerFetch(
     `/relationships/invitationViews?q=receivedInvitation&start=${start}&count=${count}&includeInsights=false`
   );
-  if (!res.ok) throw new Error(`fetchInvitations failed: ${res.status}`);
+  if (!res.ok) {
+    debugLog('error', `fetchInvitationsRaw failed: ${res.status}`);
+    throw new Error(`fetchInvitations failed: ${res.status}`);
+  }
   return res.json();
 }
 
@@ -28,7 +32,10 @@ export async function respondToInvitation(
     }),
     skipJitter: true,
   });
-  if (!res.ok) throw new Error(`Invitation ${action} failed: ${res.status}`);
+  if (!res.ok) {
+    debugLog('error', `respondToInvitation (${action}) failed: ${res.status}`);
+    throw new Error(`Invitation ${action} failed: ${res.status}`);
+  }
 }
 
 const CONNECTIONS_DECORATION =
@@ -39,6 +46,9 @@ export async function fetchConnectionsRaw(start = 0, count = 40): Promise<any> {
   const res = await voyagerFetch(
     `/relationships/dash/connections?decorationId=${CONNECTIONS_DECORATION}&q=search&sortType=RECENTLY_ADDED&start=${start}&count=${count}`
   );
-  if (!res.ok) throw new Error(`fetchConnections failed: ${res.status}`);
+  if (!res.ok) {
+    debugLog('error', `fetchConnectionsRaw failed: ${res.status}`);
+    throw new Error(`fetchConnections failed: ${res.status}`);
+  }
   return res.json();
 }
