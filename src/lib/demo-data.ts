@@ -95,3 +95,15 @@ export const DEMO_OPENERS = [
   'Hey! Congrats on the recent funding round. I\'d love to hear more about your plans and see if there\'s a way we can help.',
   'Hi! I saw your talk at the conference and it really stuck with me. Would love to continue the conversation.',
 ];
+
+export const DEMO_INVITATIONS = [
+  { firstName: 'Noah', lastName: 'Bennett', headline: 'Founder at Driftwood Labs', picture: pic('m71.jpg'), message: 'Loved your talk on local-first apps — would be great to connect!', daysAgo: 0 },
+  { firstName: 'Isabella', lastName: 'Moreau', headline: 'Engineering Recruiter at TalentBridge', picture: pic('w37.jpg'), message: '', daysAgo: 1 },
+  { firstName: 'Leo', lastName: 'Fischer', headline: 'CTO at Brightpath', picture: pic('m87.jpg'), message: 'We met at the React meetup last week. Let\'s stay in touch!', daysAgo: 2 },
+  { firstName: 'Amara', lastName: 'Okafor', headline: 'Product Designer at Northwind', picture: pic('w61.jpg'), message: '', daysAgo: 4 },
+  { firstName: 'Hugo', lastName: 'Silva', headline: 'DevRel at CloudForge', picture: pic('m55.jpg'), message: 'Big fan of inflow — would love to compare notes on Voyager APIs.', daysAgo: 6 },
+] as const;
+
+/** First N DEMO_PEOPLE become demo connections, staggered over recent weeks. */
+export const DEMO_CONNECTION_COUNT = 15;
+export const DEMO_CONNECTION_DAY_GAPS = [0, 1, 1, 2, 3, 5, 7, 9, 12, 16, 21, 27, 34, 42, 55] as const;
