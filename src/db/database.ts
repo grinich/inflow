@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from 'dexie';
 import type { Conversation } from '@/types/conversation';
 import type { Message } from '@/types/message';
 import type { Profile } from '@/types/profile';
+import type { Invitation, Connection } from '@/types/network';
 
 export interface PendingAction {
   id: string;
@@ -87,6 +88,8 @@ type InflowDatabase = Dexie & {
   syncQueue: EntityTable<SyncQueueItem, 'conversationId'>;
   draftAttachments: EntityTable<DraftAttachment, 'conversationId'>;
   tombstones: EntityTable<Tombstone, 'conversationId'>;
+  invitations: EntityTable<Invitation, 'id'>;
+  connections: EntityTable<Connection, 'profileUrn'>;
 };
 
 export function applySchema(database: Dexie): void {
@@ -250,6 +253,22 @@ export function applySchema(database: Dexie): void {
     syncQueue: 'conversationId, status, priority, [status+priority]',
     draftAttachments: 'conversationId',
     tombstones: 'conversationId',
+  });
+
+  // v13: add invitations + connections tables for the Network view
+  database.version(13).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, starred, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+    draftAttachments: 'conversationId',
+    tombstones: 'conversationId',
+    invitations: 'id, sentAt, status',
+    connections: 'profileUrn, connectedAt',
   });
 }
 

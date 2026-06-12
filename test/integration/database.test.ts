@@ -36,9 +36,11 @@ describe('applySchema', () => {
   it('creates all expected tables', () => {
     const tableNames = db.tables.map((t: any) => t.name).sort();
     expect(tableNames).toEqual([
+      'connections',
       'conversations',
       'draftAttachments',
       'imageCache',
+      'invitations',
       'messages',
       'pendingActions',
       'postCache',
