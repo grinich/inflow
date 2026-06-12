@@ -26,10 +26,10 @@ function ref(entity: any, key: string): string {
   return typeof v === 'string' ? v : '';
 }
 
-/** urn:li:fs_miniProfile:X / urn:li:fsd_profile:X → urn:li:fsd_profile:X */
+/** urn:li:fs_miniProfile:X / urn:li:fsd_profile:X / urn:li:member:X → urn:li:fsd_profile:X */
 function toFsdProfileUrn(urn: string): string {
-  const id = urn.split(':').pop() || '';
-  return id ? `urn:li:fsd_profile:${id}` : '';
+  const match = String(urn || '').match(/(?:fs_miniProfile|fsd_profile|member):([^,:)]+)/);
+  return match ? `urn:li:fsd_profile:${match[1]}` : '';
 }
 
 function included(raw: any): any[] {

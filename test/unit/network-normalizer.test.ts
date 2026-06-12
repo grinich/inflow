@@ -5,7 +5,7 @@ import { RAW_INVITATIONS_RESPONSE, RAW_CONNECTIONS_RESPONSE } from '../fixtures/
 describe('normalizeInvitations', () => {
   it('joins invitations to sender mini-profiles', () => {
     const result = normalizeInvitations(RAW_INVITATIONS_RESPONSE);
-    expect(result).toHaveLength(2);
+    expect(result).toHaveLength(3);
     const grace = result.find((i) => i.name === 'Grace Hopper')!;
     expect(grace.id).toBe('7300001');
     expect(grace.sharedSecret).toBe('secret-aaa');
@@ -22,6 +22,14 @@ describe('normalizeInvitations', () => {
     const alan = normalizeInvitations(RAW_INVITATIONS_RESPONSE).find((i) => i.name === 'Alan Turing')!;
     expect(alan.message).toBe('');
     expect(alan.pictureUrl).toBe('');
+  });
+
+  it('resolves the sender via the *inviter ref fallback', () => {
+    const edsger = normalizeInvitations(RAW_INVITATIONS_RESPONSE).find((i) => i.name === 'Edsger Dijkstra')!;
+    expect(edsger).toBeTruthy();
+    expect(edsger.id).toBe('7300003');
+    expect(edsger.fromUrn).toBe('urn:li:fsd_profile:ACoAAAfrom3');
+    expect(edsger.headline).toBe('Computing Scientist');
   });
 
   it('returns [] on garbage input', () => {

@@ -9,8 +9,9 @@ export const RAW_INVITATIONS_RESPONSE = {
     elements: [
       { invitation: 'urn:li:fs_relInvitation:7300001', $type: 'com.linkedin.voyager.relationships.invitation.InvitationView' },
       { invitation: 'urn:li:fs_relInvitation:7300002', $type: 'com.linkedin.voyager.relationships.invitation.InvitationView' },
+      { invitation: 'urn:li:fs_relInvitation:7300003', $type: 'com.linkedin.voyager.relationships.invitation.InvitationView' },
     ],
-    paging: { start: 0, count: 40, total: 2 },
+    paging: { start: 0, count: 40, total: 3 },
   },
   included: [
     {
@@ -27,6 +28,21 @@ export const RAW_INVITATIONS_RESPONSE = {
       sharedSecret: 'secret-bbb',
       sentTime: 1750000100000,
       '*fromMember': 'urn:li:fs_miniProfile:ACoAAAfrom2',
+    },
+    {
+      $type: 'com.linkedin.voyager.relationships.invitation.Invitation',
+      entityUrn: 'urn:li:fs_relInvitation:7300003',
+      sharedSecret: 'secret-ccc',
+      sentTime: 1750000200000,
+      '*inviter': 'urn:li:fs_miniProfile:ACoAAAfrom3',
+    },
+    {
+      $type: 'com.linkedin.voyager.identity.shared.MiniProfile',
+      entityUrn: 'urn:li:fs_miniProfile:ACoAAAfrom3',
+      firstName: 'Edsger',
+      lastName: 'Dijkstra',
+      occupation: 'Computing Scientist',
+      publicIdentifier: 'edsger-dijkstra',
     },
     {
       $type: 'com.linkedin.voyager.identity.shared.MiniProfile',
