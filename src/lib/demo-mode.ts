@@ -351,16 +351,22 @@ function scheduleAutoReply(conversationId: string): void {
 
 let incomingTimer: ReturnType<typeof setTimeout> | null = null;
 let usedPeopleIndexes = new Set<number>();
+// Guards the self-rescheduling loop: when stopDemoIncoming() is called while
+// an invocation is mid-flight (its timer already fired, so clearTimeout is a
+// no-op), the in-flight call must not re-arm the timer afterwards.
+let incomingActive = false;
 
 export function startDemoIncoming(): void {
   if (incomingTimer) return;
   usedPeopleIndexes.clear();
+  incomingActive = true;
 
   const firstDelay = randInt(10_000, 25_000);
   incomingTimer = setTimeout(() => createIncomingConversation(true), firstDelay);
 }
 
 export function stopDemoIncoming(): void {
+  incomingActive = false;
   if (incomingTimer) {
     clearTimeout(incomingTimer);
     incomingTimer = null;
@@ -448,7 +454,7 @@ async function createIncomingConversation(scheduleNext: boolean): Promise<void> 
     // Silently ignore errors
   }
 
-  if (scheduleNext) {
+  if (scheduleNext && incomingActive) {
     const nextDelay = randInt(45_000, 75_000);
     incomingTimer = setTimeout(() => createIncomingConversation(true), nextDelay);
   }

@@ -100,20 +100,30 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [conversation.id, conversation.read]);
 
+  // The failed bubble stays on screen until the delete commits and the live
+  // query re-renders, so a double-click would run the retry pipeline twice
+  // and actually send the message twice without this guard.
+  const retryingRef = useRef<Set<string>>(new Set());
   const handleRetry = useCallback(async (msgId: string, body: string) => {
-    // Recover stashed files before deleting the failed message
-    let files: File[] | undefined;
-    const stashed = await db.draftAttachments.get(msgId).catch(() => null);
-    if (stashed?.files?.length) {
-      files = stashed.files.map((blob, i) =>
-        new File([blob], stashed.names[i] || 'file', { type: stashed.types[i] || '' })
-      );
+    if (retryingRef.current.has(msgId)) return;
+    retryingRef.current.add(msgId);
+    try {
+      // Recover stashed files before deleting the failed message
+      let files: File[] | undefined;
+      const stashed = await db.draftAttachments.get(msgId).catch(() => null);
+      if (stashed?.files?.length) {
+        files = stashed.files.map((blob, i) =>
+          new File([blob], stashed.names[i] || 'file', { type: stashed.types[i] || '' })
+        );
+      }
+      // Delete the failed message + stashed files, then re-send
+      await db.messages.delete(msgId);
+      await db.draftAttachments.delete(msgId).catch(() => {});
+      document.dispatchEvent(new CustomEvent('inflow:failed-change', { detail: conversation.id }));
+      await sendMessage(conversation.id, body, files);
+    } finally {
+      retryingRef.current.delete(msgId);
     }
-    // Delete the failed message + stashed files, then re-send
-    await db.messages.delete(msgId);
-    await db.draftAttachments.delete(msgId).catch(() => {});
-    document.dispatchEvent(new CustomEvent('inflow:failed-change', { detail: conversation.id }));
-    await sendMessage(conversation.id, body, files);
   }, [conversation.id, sendMessage]);
 
   const handleDeleteFailed = useCallback(async (msgId: string) => {

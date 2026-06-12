@@ -82,8 +82,11 @@ export function useReplySuggestions({
 
   // Fetch suggestions when conversation changes or messages become available
   useEffect(() => {
-    // Already fetched or fetching for this conversation
-    if (fetchedRef.current === conversationId) return;
+    // Already fetched or fetching for this conversation AND message count —
+    // keying on the count means a new incoming message regenerates suggestions
+    // instead of leaving stale ones for the previous message on screen.
+    const fetchKey = `${conversationId}:${messages.length}`;
+    if (fetchedRef.current === fetchKey) return;
 
     if (!ENABLE_AI_AUTOCOMPLETE || !aiSession.available || !enabled) return;
     if (body.length > 0) return;
@@ -96,12 +99,12 @@ export function useReplySuggestions({
     // Serve from cache if message count hasn't changed
     const cached = cache.get(conversationId);
     if (cached && cached.messageCount === messages.length) {
-      fetchedRef.current = conversationId;
+      fetchedRef.current = fetchKey;
       setSuggestions(cached.suggestions);
       return;
     }
 
-    fetchedRef.current = conversationId;
+    fetchedRef.current = fetchKey;
 
     const controller = new AbortController();
     abortRef.current = controller;

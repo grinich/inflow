@@ -66,8 +66,12 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       const emojiOpen = target instanceof HTMLElement && target.hasAttribute('data-emoji-open');
       const autocompleteOpen = target instanceof HTMLElement && target.hasAttribute('data-autocomplete-open');
 
+      // Only the compose box's own textarea may trigger send — other inputs
+      // (message edit box, search, recipient picker) must not.
+      const isComposeInput = target instanceof HTMLElement && target.hasAttribute('data-compose-input');
+
       // Cmd+Enter — Send + archive (only in compose)
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && isInput && !emojiOpen) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && isComposeInput && !emojiOpen) {
         e.preventDefault();
         document.dispatchEvent(new CustomEvent('inflow:send-and-archive'));
         return;
@@ -75,7 +79,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
 
       // Enter (no modifier) — Send message (only in compose textarea)
       // Shift+Enter inserts a newline (default browser behavior)
-      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && isInput && target instanceof HTMLTextAreaElement && !emojiOpen) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && isComposeInput && !emojiOpen) {
         e.preventDefault();
         document.dispatchEvent(new CustomEvent('inflow:send'));
         return;
@@ -196,7 +200,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // / — Focus search
-      if (e.key === '/') {
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const input = document.querySelector<HTMLInputElement>('[data-search-input]');
         input?.focus();
@@ -226,7 +230,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // J/K/ArrowDown/ArrowUp — navigate conversations and auto-open thread
-      if (e.key === 'j' || e.key === 'ArrowDown') {
+      if ((e.key === 'j' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         // Reconcile the cursor from the actually-selected conversation so it
         // can't desync (e.g. opened from a toast with a list-wide index, or the
@@ -295,7 +299,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // O — Move to Other
-      if (e.key === 'o') {
+      if (e.key === 'o' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const conv = store.selectedConversationId
           ? convs.find((c) => c.id === store.selectedConversationId)
@@ -305,7 +309,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // E — Archive (or Move to Focused if already in Archive tab)
-      if (e.key === 'e') {
+      if (e.key === 'e' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const conv = store.selectedConversationId
           ? convs.find((c) => c.id === store.selectedConversationId)
@@ -333,7 +337,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // U — Toggle read/unread
-      if (e.key === 'u' && !e.shiftKey) {
+      if (e.key === 'u' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         // Cancel any pending auto-mark-read timer
         if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
@@ -352,7 +356,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // R — Focus compose reply (immediately mark read since user is engaging)
-      if (e.key === 'r' && !e.shiftKey && store.selectedConversationId) {
+      if (e.key === 'r' && !e.shiftKey && !e.metaKey && !e.ctrlKey && store.selectedConversationId) {
         e.preventDefault();
         if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
         act.markRead(store.selectedConversationId);
@@ -384,6 +388,9 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // 1/2/3 — Switch inbox tabs
+      if (e.metaKey || e.ctrlKey) {
+        return; // don't hijack browser tab-switching combos (Cmd+1, etc.)
+      }
       if (e.key === '1') {
         e.preventDefault();
         store.setInboxTab('focused');

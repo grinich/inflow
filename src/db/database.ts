@@ -372,25 +372,30 @@ export async function mergeProfiles(profiles: Profile[]): Promise<void> {
   // Work on copies so we never mutate the caller's Profile objects in place.
   profiles = profiles.map((p) => ({ ...p }));
   const urns = profiles.map((p) => p.urn);
-  const existing = await db.profiles.bulkGet(urns);
-  for (let i = 0; i < profiles.length; i++) {
-    const prev = existing[i];
-    if (prev) {
-      const p = profiles[i];
-      // Never overwrite a previously-known value with an empty one. The Messenger
-      // API returns sparse profiles (often missing publicId/occupation/picture),
-      // so a routine poll must not wipe fields enriched from full profile pages.
-      if (prev.publicId && !p.publicId) p.publicId = prev.publicId;
-      if (prev.fullName && !p.fullName) p.fullName = prev.fullName;
-      if (prev.firstName && !p.firstName) p.firstName = prev.firstName;
-      if (prev.lastName && !p.lastName) p.lastName = prev.lastName;
-      if (prev.occupation && !p.occupation) p.occupation = prev.occupation;
-      if (prev.pictureUrl && !p.pictureUrl) p.pictureUrl = prev.pictureUrl;
-      if (prev.company && !p.company) p.company = prev.company;
-      if (prev.title && !p.title) p.title = prev.title;
-      if (prev.location && !p.location) p.location = prev.location;
-      if (prev.companyLogoUrl && !p.companyLogoUrl) p.companyLogoUrl = prev.companyLogoUrl;
+  // Read + merge + write in one transaction: this runs concurrently from
+  // independent background paths (SSE, discovery, sync, repair), and a stale
+  // bulkGet snapshot would let a sparse copy overwrite a just-enriched row.
+  await db.transaction('rw', db.profiles, async () => {
+    const existing = await db.profiles.bulkGet(urns);
+    for (let i = 0; i < profiles.length; i++) {
+      const prev = existing[i];
+      if (prev) {
+        const p = profiles[i];
+        // Never overwrite a previously-known value with an empty one. The Messenger
+        // API returns sparse profiles (often missing publicId/occupation/picture),
+        // so a routine poll must not wipe fields enriched from full profile pages.
+        if (prev.publicId && !p.publicId) p.publicId = prev.publicId;
+        if (prev.fullName && !p.fullName) p.fullName = prev.fullName;
+        if (prev.firstName && !p.firstName) p.firstName = prev.firstName;
+        if (prev.lastName && !p.lastName) p.lastName = prev.lastName;
+        if (prev.occupation && !p.occupation) p.occupation = prev.occupation;
+        if (prev.pictureUrl && !p.pictureUrl) p.pictureUrl = prev.pictureUrl;
+        if (prev.company && !p.company) p.company = prev.company;
+        if (prev.title && !p.title) p.title = prev.title;
+        if (prev.location && !p.location) p.location = prev.location;
+        if (prev.companyLogoUrl && !p.companyLogoUrl) p.companyLogoUrl = prev.companyLogoUrl;
+      }
     }
-  }
-  await db.profiles.bulkPut(profiles);
+    await db.profiles.bulkPut(profiles);
+  });
 }

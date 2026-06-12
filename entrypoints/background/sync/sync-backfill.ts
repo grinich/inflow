@@ -1,7 +1,7 @@
 import { fetchAllMessages } from '../api/messages';
 import { getMemberUrn } from '../auth/session';
 import { normalizeMessages } from '@/lib/voyager-normalizer';
-import { planSseDedup } from '@/lib/message-dedup';
+import { planSseDedup, preserveSseFields } from '@/lib/message-dedup';
 import { prefetchSharedPosts } from './prefetch-posts';
 import { debugLog } from '@/lib/debug-log';
 import { db, getDbGeneration } from '@/db/database';
@@ -53,6 +53,10 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
     try {
       // Fetch all pages of messages for this conversation
       const pages = await fetchAllMessages(item.conversationId, 10, { skipJitter: true });
+      // Re-check after the long network await: switchDatabase may have
+      // completed mid-fetch, and `db` now points at the NEW account's database
+      // — writing would leak this account's messages into the other account.
+      if (getDbGeneration() !== gen) break;
       let totalMessages = 0;
 
       for (const raw of pages) {
@@ -66,16 +70,14 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
 
         // Preserve SSE-written fields the pagination API doesn't return, so a
         // re-sync doesn't wipe read receipts / reactions / edits already stored
-        // on the canonical message rows.
-        const existingRows = await db.messages.bulkGet(messages.map((m) => m.id));
-        for (let i = 0; i < messages.length; i++) {
-          const prev = existingRows[i];
-          if (!prev) continue;
-          if (prev.seenAt && !messages[i].seenAt) messages[i].seenAt = prev.seenAt;
-          if (prev.reactions?.length && !messages[i].reactions?.length) messages[i].reactions = prev.reactions;
-          if (prev.editedAt && !messages[i].editedAt) messages[i].editedAt = prev.editedAt;
-        }
-        await db.messages.bulkPut(messages);
+        // on the canonical message rows. Read + put in one transaction so an
+        // SSE write can't land between the bulkGet and the bulkPut and get
+        // overwritten with the stale preserved values.
+        await db.transaction('rw', db.messages, async () => {
+          const existingRows = await db.messages.bulkGet(messages.map((m) => m.id));
+          preserveSseFields(messages, existingRows);
+          await db.messages.bulkPut(messages);
+        });
 
         // Update hasAttachments flag
         if (messages.some((m) => m.attachments && m.attachments.length > 0)) {
@@ -124,6 +126,9 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
       );
       onProgress?.();
     } catch (err) {
+      // Same guard for the failure path — don't record the failure in the
+      // wrong account's syncQueue after a mid-fetch account switch.
+      if (getDbGeneration() !== gen) break;
       const newFailCount = item.failCount + 1;
       const newStatus = newFailCount >= MAX_RETRIES ? 'failed' : 'pending';
 

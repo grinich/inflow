@@ -137,16 +137,19 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     useEffect(() => { autoResize(); }, [body, autoResize]);
 
     // Stable object URLs for image previews (created once per file, revoked on removal)
+    const prevUrls = useReactRef<Map<File, string>>(new Map());
     const previewUrls = useMemo(() => {
       const map = new Map<File, string>();
       for (const file of attachments) {
-        if (file.type.startsWith('image/')) map.set(file, URL.createObjectURL(file));
+        // Reuse the URL of a file that's still attached — recreating it on every
+        // attachments change would drop the old URL unrevoked, pinning the file
+        // data in memory until the page closes.
+        if (file.type.startsWith('image/')) map.set(file, prevUrls.current.get(file) ?? URL.createObjectURL(file));
       }
       return map;
     }, [attachments]);
 
     // Revoke old URLs when attachments change
-    const prevUrls = useReactRef<Map<File, string>>(new Map());
     useEffect(() => {
       for (const [file, url] of prevUrls.current) {
         if (!previewUrls.has(file)) URL.revokeObjectURL(url);
@@ -280,6 +283,19 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       }
     }
 
+    /**
+     * Bring back the composed message after a failed draft-conversation send.
+     * handleSend optimistically cleared the compose state and the persisted
+     * draft row; unlike normal sends there is no failed-message record to
+     * retry from, so without this the user's text and files are destroyed.
+     */
+    function restoreCompose(text: string, files?: File[]) {
+      setBody(text);
+      setAttachments(files ?? []);
+      saveDraft(conversationId, text, files ?? []);
+      document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+    }
+
     async function handleDraftSend(text: string, files?: File[], archiveAfterSend = false) {
       const store = useUIStore.getState();
 
@@ -287,6 +303,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         // Get recipient URNs from the draft conversation in IndexedDB
         const draftConv = await db.conversations.get(conversationId);
         if (!draftConv) {
+          restoreCompose(text, files);
           store.showToast({ message: 'Draft conversation not found' });
           return;
         }
@@ -334,9 +351,11 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             store.openThread(realConversationId, 0);
           }, 500);
         } else {
+          restoreCompose(text, files);
           store.showToast({ message: res.error || 'Failed to send message' });
         }
       } catch {
+        restoreCompose(text, files);
         store.showToast({ message: 'Failed to send message' });
       }
     }
@@ -535,6 +554,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             onBlur={() => { setComposeActive(false); setEmojiQuery(null); }}
             placeholder="Reply..."
             rows={2}
+            data-compose-input=""
             data-emoji-open={emojiOpen ? '' : undefined}
             data-autocomplete-open={autocomplete.isOpen || undefined}
             className={`max-h-40 w-full resize-none rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-faint outline-none transition-colors ${autocomplete.isOpen ? 'bg-transparent ring-0' : 'bg-surface-input ring-1 ring-ring-muted focus:ring-blue-500/50'}`}

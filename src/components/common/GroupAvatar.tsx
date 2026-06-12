@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useCachedImage } from '@/hooks/useCachedImage';
 
 interface GroupAvatarProps {
@@ -11,6 +11,12 @@ interface GroupAvatarProps {
 function AvatarCircle({ url, name, size }: { url: string; name: string; size: number }) {
   const src = useCachedImage(url || undefined);
   const [failed, setFailed] = useState(false);
+  // A failure is specific to one URL. Conversation rows are long-lived and
+  // expired CDN avatar URLs get refreshed by profile sync — without this reset
+  // one transient load failure would show the letter fallback forever.
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
   const initial = (name || '?').charAt(0).toUpperCase();
 
   return src && !failed ? (

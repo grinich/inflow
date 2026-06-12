@@ -4,6 +4,10 @@ import { applySchema, type SyncState, type SyncQueueItem } from '@/db/database';
 // ── Test DB setup ────────────────────────────────────────────────────────────
 let testDb: any;
 
+// Controllable DB generation so tests can simulate an account switch
+// (switchDatabase) completing while a network fetch is in flight.
+const genState = vi.hoisted(() => ({ gen: 1 }));
+
 vi.mock('@/db/database', async (importOriginal) => {
   const original = (await importOriginal()) as any;
   return {
@@ -11,6 +15,7 @@ vi.mock('@/db/database', async (importOriginal) => {
     get db() {
       return testDb;
     },
+    getDbGeneration: () => genState.gen,
   };
 });
 
@@ -50,6 +55,7 @@ vi.mock('@/lib/sync-settings', () => ({
 }));
 
 beforeEach(async () => {
+  genState.gen = 1;
   testDb = new Dexie(`TestDB_${Date.now()}_${Math.random()}`);
   applySchema(testDb);
   await testDb.open();
@@ -258,6 +264,46 @@ describe('sync-coordinator', () => {
       // Should have called discoverPage 3 times (page1, page2, lastPage)
       expect(callCount).toBe(3);
       expect(enqueueConversations).toHaveBeenCalledTimes(3);
+    });
+
+    // Regression: burstDiscover had no DB-generation checks at all. `db` is a
+    // live binding rebound by switchDatabase, so when an account switch
+    // completed during the discoverPage network await, the discovered
+    // conversations were enqueued into the NEW account's database.
+    it('stops without writing when the account switches mid-discoverPage', async () => {
+      vi.resetModules();
+
+      const { discoverPage, enqueueConversations } = await import(
+        '../../entrypoints/background/sync/sync-discovery'
+      );
+      const { burstDiscover } = await import(
+        '../../entrypoints/background/sync/sync-coordinator'
+      );
+
+      await testDb.syncState.put(makeSyncState({
+        category: 'SECONDARY_INBOX',
+        phase: 'discovering',
+        cursor: '',
+      }));
+
+      vi.mocked(discoverPage).mockClear();
+      vi.mocked(enqueueConversations).mockClear();
+      vi.mocked(discoverPage).mockImplementation(async () => {
+        genState.gen++; // switchDatabase completes while the fetch is in flight
+        return {
+          conversations: [{ id: 'conv-old-account' }] as any[],
+          profiles: [],
+          isLastPage: true,
+          nextCursor: null,
+        };
+      });
+
+      await burstDiscover('SECONDARY_INBOX');
+
+      expect(enqueueConversations).not.toHaveBeenCalled();
+      // syncState must not be flipped to backfilling in the new account's DB
+      const state = await testDb.syncState.get('SECONDARY_INBOX');
+      expect(state.phase).toBe('discovering');
     });
 
     it('prevents concurrent burst for same category (_discoveringCategories)', async () => {
