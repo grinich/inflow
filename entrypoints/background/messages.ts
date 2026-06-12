@@ -313,15 +313,19 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       return { success: true, data: results };
     }
     case 'FETCH_INVITATIONS': {
-      const raw = await fetchInvitationsRaw();
+      const PAGE = 40;
+      const raw = await fetchInvitationsRaw(0, PAGE);
       const invitations = normalizeInvitations(raw);
-      // Drop local pending invitations that vanished server-side (withdrawn /
-      // handled elsewhere), but never resurrect ones we've acted on locally.
-      const serverIds = new Set(invitations.map((i) => i.id));
-      const localPending = await db.invitations.where('status').equals('pending').toArray();
-      await db.invitations.bulkDelete(
-        localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id)
-      );
+      // Only prune when this page is the COMPLETE server set (came back not full).
+      // Pruning on a partial first page would delete valid page-2+ invitations
+      // that simply weren't fetched. We still never resurrect locally-acted-on ones.
+      if (invitations.length < PAGE) {
+        const serverIds = new Set(invitations.map((i) => i.id));
+        const localPending = await db.invitations.where('status').equals('pending').toArray();
+        await db.invitations.bulkDelete(
+          localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id)
+        );
+      }
       const existing = await db.invitations.bulkGet(invitations.map((i) => i.id));
       const fresh = invitations.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
       await db.invitations.bulkPut(fresh);
