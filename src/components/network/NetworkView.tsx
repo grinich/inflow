@@ -93,6 +93,8 @@ export function NetworkView() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const ui = useUIStore.getState();
+      if (ui.paletteOpen || ui.shortcutOverlayOpen) return;
       const target = e.target as HTMLElement;
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
       if (e.metaKey || e.ctrlKey) return;

@@ -369,7 +369,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     }
     case 'RESET_DB': {
       // Clear all tables (safer than db.delete() which can break the Dexie instance)
-      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones], async () => {
+      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones, db.invitations, db.connections], async () => {
         await db.conversations.clear();
         await db.messages.clear();
         await db.profiles.clear();
@@ -380,6 +380,8 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         await db.syncQueue.clear();
         await db.draftAttachments.clear();
         await db.tombstones.clear();
+        await db.invitations.clear();
+        await db.connections.clear();
       });
       clearDebugLogs();
       await syncConversations();
