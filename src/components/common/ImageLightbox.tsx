@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useUIStore } from '@/store/ui-store';
-import { sanitizeUrl } from '@/lib/sanitize-url';
+import { sanitizeImageUrl } from '@/lib/sanitize-url';
 
 export function ImageLightbox() {
   const imageUrl = useUIStore((s) => s.lightboxImageUrl);
@@ -29,7 +29,7 @@ export function ImageLightbox() {
       onClick={close}
     >
       <img
-        src={sanitizeUrl(imageUrl)}
+        src={sanitizeImageUrl(imageUrl)}
         alt="Full size"
         onError={close}
         className="lightbox-zoom-in max-h-[90vh] max-w-[90vw] cursor-zoom-out rounded-lg object-contain shadow-2xl"

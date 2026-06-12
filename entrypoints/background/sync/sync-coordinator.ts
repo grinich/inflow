@@ -186,6 +186,9 @@ async function _onSyncTickInner(): Promise<void> {
       while (!paused) {
         if (getDbGeneration() !== gen) break; // account switched mid-discovery — don't write into the new DB
         const { conversations, isLastPage, nextCursor } = await discoverPage(cat, cursor);
+        // Re-check after the network await — switchDatabase may have completed
+        // mid-fetch, and `db` now points at the new account's database.
+        if (getDbGeneration() !== gen) break;
         await enqueueConversations(conversations, cat);
         totalDiscovered += conversations.length;
         pageCount++;
@@ -316,6 +319,7 @@ export async function burstDiscover(
   _discoveringCategories.add(category);
   debugLog('info', `[COORDINATOR] Burst discovery started for ${category}`);
 
+  const gen = getDbGeneration();
   const state = await db.syncState.get(category);
   if (!state) {
     _discoveringCategories.delete(category);
@@ -346,6 +350,9 @@ export async function burstDiscover(
   try {
     for (let page = 0; page < maxPages; page++) {
       const { conversations, isLastPage, nextCursor } = await discoverPage(category, cursor);
+      // Account switched during the network await — `db` now points at the new
+      // account's database; bail before writing anything into it.
+      if (getDbGeneration() !== gen) return;
       await enqueueConversations(conversations, category);
       totalDiscovered += conversations.length;
 

@@ -703,7 +703,9 @@ function Linkify({ text, isMe }: { text: string; isMe: boolean }) {
     if (overlapsEmail) continue;
 
     const href = sanitizeUrl(cleaned.startsWith('http') ? cleaned : `https://${cleaned}`);
-    matches.push({ index: start, length: raw.length, href, display: cleaned });
+    // Advance only past the cleaned URL so stripped trailing punctuation
+    // (".,;:!?") is emitted as plain text instead of silently dropped.
+    matches.push({ index: start, length: cleaned.length, href, display: cleaned });
   }
 
   // Sort by position

@@ -103,6 +103,13 @@ export function useAutocomplete({
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      // Abort the in-flight prediction too — on unmount nothing else will,
+      // and the streaming fetch would otherwise run to completion and call
+      // setState on the unmounted component.
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
     };
   }, [body, cursorAtEnd, emojiOpen, aiSession.available]);
 

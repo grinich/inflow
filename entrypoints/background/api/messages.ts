@@ -86,7 +86,11 @@ export async function fetchAllMessages(
   })();
 
   inflightFetches.set(conversationId, promise);
-  promise.finally(() => inflightFetches.delete(conversationId));
+  // Not .finally(): that returns a new promise that rejects alongside the
+  // original with no handler, surfacing an unhandledRejection on every failed
+  // fetch even though the caller handles `promise` itself.
+  const cleanup = () => inflightFetches.delete(conversationId);
+  promise.then(cleanup, cleanup);
 
   return promise;
 }

@@ -53,6 +53,24 @@ export function dedupeMessagesForDisplay(all: Message[]): Message[] {
     .sort(sortByTime);
 }
 
+/**
+ * Carry SSE-written fields (seenAt / reactions / editedAt) from existing DB
+ * rows onto freshly fetched replacements before a bulkPut. The pagination API
+ * doesn't return these fields — they only arrive via SSE — so re-fetching a
+ * conversation without this would silently wipe read receipts, reactions, and
+ * edit markers. Mutates `incoming` in place. `existing` is positionally
+ * aligned with `incoming` (the result of `bulkGet(incoming.map(m => m.id))`).
+ */
+export function preserveSseFields(incoming: Message[], existing: (Message | undefined)[]): void {
+  for (let i = 0; i < incoming.length; i++) {
+    const prev = existing[i];
+    if (!prev) continue;
+    if (prev.seenAt && !incoming[i].seenAt) incoming[i].seenAt = prev.seenAt;
+    if (prev.reactions?.length && !incoming[i].reactions?.length) incoming[i].reactions = prev.reactions;
+    if (prev.editedAt && !incoming[i].editedAt) incoming[i].editedAt = prev.editedAt;
+  }
+}
+
 export interface DedupPlan {
   /** Message IDs to delete (SSE orphans, plus sent temps when requested). */
   deleteIds: string[];

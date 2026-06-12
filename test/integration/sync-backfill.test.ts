@@ -6,6 +6,10 @@ import type { VoyagerResponse } from '@/types/voyager';
 // ── Test DB setup ────────────────────────────────────────────────────────────
 let testDb: any;
 
+// Controllable DB generation so tests can simulate an account switch
+// (switchDatabase) completing while a network fetch is in flight.
+const genState = vi.hoisted(() => ({ gen: 1 }));
+
 vi.mock('@/db/database', async (importOriginal) => {
   const original = (await importOriginal()) as any;
   return {
@@ -13,6 +17,7 @@ vi.mock('@/db/database', async (importOriginal) => {
     get db() {
       return testDb;
     },
+    getDbGeneration: () => genState.gen,
   };
 });
 
@@ -36,6 +41,7 @@ vi.mock('@/lib/debug-log', () => ({
 // vi.mock is not needed for voyager-normalizer — we let it resolve normally
 
 beforeEach(async () => {
+  genState.gen = 1;
   testDb = new Dexie(`TestDB_${Date.now()}_${Math.random()}`);
   applySchema(testDb);
   await testDb.open();
@@ -210,6 +216,66 @@ describe('sync-backfill', () => {
         .toArray();
       expect(storedMessages).toHaveLength(2);
       expect(storedMessages.map((m: Message) => m.body).sort()).toEqual(['Hello', 'World']);
+    });
+
+    // Regression: the bulkGet (SSE-field preservation) → bulkPut pair ran
+    // outside a transaction, so an SSE edit landing between them was
+    // overwritten with the stale preserved value. Both the preserve+put and
+    // the dedup must each run in their own rw transaction on messages.
+    it('runs preserve+put and dedup each inside a rw transaction', async () => {
+      const { fetchAllMessages } = await import(
+        '../../entrypoints/background/api/messages'
+      );
+      const { backfillBatch } = await import(
+        '../../entrypoints/background/sync/sync-backfill'
+      );
+
+      await testDb.syncQueue.put(makeSyncQueueItem({ conversationId: 'conv-tx' }));
+      vi.mocked(fetchAllMessages).mockResolvedValue([
+        buildMessagesPage([
+          { id: 'urn:li:msg_message:tx1', body: 'Hello', senderProfileId: 'Alice', deliveredAt: 1000 },
+        ]),
+      ]);
+
+      const txSpy = vi.spyOn(testDb, 'transaction');
+      await backfillBatch(1);
+
+      const rwMessageTxCount = txSpy.mock.calls.filter(
+        (c: any[]) => c[0] === 'rw' && c[1] === testDb.messages
+      ).length;
+      expect(rwMessageTxCount).toBeGreaterThanOrEqual(2);
+    });
+
+    // Regression: `db` is a live binding rebound by switchDatabase. The
+    // generation was only checked at the top of each loop iteration, but
+    // fetchAllMessages is a long multi-page network await — if the account
+    // switch completed mid-fetch, every subsequent write (messages bulkPut,
+    // conversations/syncQueue updates) landed in the NEW account's database.
+    it('does not write into the new account DB when the account switches mid-fetch', async () => {
+      const { fetchAllMessages } = await import(
+        '../../entrypoints/background/api/messages'
+      );
+      const { backfillBatch } = await import(
+        '../../entrypoints/background/sync/sync-backfill'
+      );
+
+      await testDb.syncQueue.put(makeSyncQueueItem({ conversationId: 'conv-switch' }));
+
+      vi.mocked(fetchAllMessages).mockImplementation(async () => {
+        genState.gen++; // switchDatabase completes while the fetch is in flight
+        return [
+          buildMessagesPage([
+            { id: 'urn:li:msg_message:sw1', body: 'Old account msg', senderProfileId: 'Alice', deliveredAt: 1000 },
+          ]),
+        ];
+      });
+
+      await backfillBatch(1);
+
+      // Nothing from the old account may be written through the rebound db
+      expect(await testDb.messages.count()).toBe(0);
+      const item = await testDb.syncQueue.get('conv-switch');
+      expect(item.status).not.toBe('done');
     });
 
     it('sets isFromMe=true for messages from the authenticated user', async () => {

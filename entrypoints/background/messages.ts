@@ -24,7 +24,7 @@ import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts } from './sync/prefetch-posts';
 import { normalizeConversations, normalizeMessages } from '@/lib/voyager-normalizer';
-import { planSseDedup } from '@/lib/message-dedup';
+import { planSseDedup, preserveSseFields } from '@/lib/message-dedup';
 import { repairConversationParticipants } from './sync/repair-participants';
 import { debugLog, getDebugLogs, clearDebugLogs } from '@/lib/debug-log';
 import { getBackfillCutoff } from '@/lib/sync-settings';
@@ -48,7 +48,7 @@ export function setupMessageRouter() {
   );
 }
 
-async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
+export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
   // CHECK_AUTH must work before DB init (AuthGate calls it to determine the account).
   // All other handlers wait for the DB to be pointed at the correct account.
   if (msg.type !== 'CHECK_AUTH' && msg.type !== 'GET_DEBUG_LOGS' && msg.type !== 'GET_SSE_STATUS') {
@@ -92,7 +92,14 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
         for (const m of messages) {
           if (m.senderUrn === memberUrn) m.isFromMe = true;
         }
-        await db.messages.bulkPut(messages);
+        // Re-fetched rows lack SSE-only fields (seenAt/reactions/editedAt) —
+        // carry them over from the existing rows inside one transaction so a
+        // concurrent SSE write can't land between the read and the put.
+        await db.transaction('rw', db.messages, async () => {
+          const existingRows = await db.messages.bulkGet(messages.map((m) => m.id));
+          preserveSseFields(messages, existingRows);
+          await db.messages.bulkPut(messages);
+        });
         if (messages.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
         prefetchSharedPosts(messages).catch(() => {});
         await repairConversationParticipants(msg.conversationId, rawPage.included || [], memberUrn);
@@ -122,22 +129,25 @@ async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
         }
       }
 
-      // Clean up optimistic temp messages and SSE duplicates
-      const allConvMessages = await db.messages
-        .where('[conversationId+createdAt]')
-        .between([msg.conversationId, Dexie.minKey], [msg.conversationId, Dexie.maxKey])
-        .toArray();
+      // Clean up optimistic temp messages and SSE duplicates.
       // Preserve editedAt and reactions from SSE-delivered entries onto canonical
       // versions before deleting the duplicates. The Messenger API doesn't return
       // editedAt — it only comes via SSE Voyager events on the fsd_message entry.
       // Also clears optimistic temp- messages that have been confirmed sent.
-      const plan = planSseDedup(allConvMessages, { includeSentTemps: true });
-      if (plan.deleteIds.length > 0) {
+      // Read + reconcile in one transaction (like backfill) so a concurrent
+      // SSE/backfill write can't interleave between the read and the delete.
+      await db.transaction('rw', db.messages, async () => {
+        const allConvMessages = await db.messages
+          .where('[conversationId+createdAt]')
+          .between([msg.conversationId, Dexie.minKey], [msg.conversationId, Dexie.maxKey])
+          .toArray();
+        const plan = planSseDedup(allConvMessages, { includeSentTemps: true });
+        if (plan.deleteIds.length === 0) return;
         for (const u of plan.updates) {
           await db.messages.update(u.id, u.updates);
         }
         await db.messages.bulkDelete(plan.deleteIds);
-      }
+      });
       if (hasAttachments) {
         await db.conversations.update(msg.conversationId, { hasAttachments: 1 });
       }
