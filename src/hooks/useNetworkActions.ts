@@ -10,6 +10,10 @@ export function useNetworkActions() {
 
   const respond = useCallback(
     async (inv: Invitation, action: 'accept' | 'ignore') => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        showToast({ message: `You're offline — can't respond to invitations right now` });
+        return;
+      }
       const newStatus = action === 'accept' ? 'accepted' : 'ignored';
       // Optimistic — row leaves the pending list immediately
       await db.invitations.update(inv.id, { status: newStatus });
@@ -41,8 +45,8 @@ export function useNetworkActions() {
     const existing = convs.find(
       (c) =>
         c.draft !== 1 &&
-        c.participantUrns.length <= 2 &&
-        c.participantUrns.includes(conn.profileUrn)
+        c.participantUrns.includes(conn.profileUrn) &&
+        c.participantUrns.filter((u) => u !== conn.profileUrn).length <= 1
     );
     store.setAppView('inbox');
     store.setInboxTab('focused');
