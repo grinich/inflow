@@ -46,4 +46,11 @@ export const shortcutDefinitions: ShortcutDef[] = [
   { key: 'k', display: '⌘K', context: 'Global', group: 'Global', description: 'Command palette', meta: true },
   { key: 'z', display: 'Z', context: 'Global', group: 'Global', description: 'Undo last action' },
   { key: '?', display: '?', context: 'Global', group: 'Global', description: 'Show all shortcuts', shift: true },
+
+  // Network
+  { key: 'g', display: 'G N', context: 'Global', group: 'Navigation', description: 'Go to Network' },
+  { key: 'Enter', display: '↵', context: 'Network', group: 'Actions', description: 'Accept invitation / message connection' },
+  { key: 'x', display: 'X', context: 'Network', group: 'Actions', description: 'Ignore invitation' },
+  { key: 'm', display: 'M', context: 'Network', group: 'Actions', description: 'Message connection' },
+  { key: 'Tab', display: 'Tab', context: 'Network', group: 'Navigation', description: 'Switch Invitations / Connections' },
 ];

@@ -118,6 +118,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       setInboxTab('spam');
       sendBridgeMessage({ type: 'SYNC_CATEGORY', category: 'SPAM' }).catch(() => {});
     },
+    goToNetwork: () => useUIStore.getState().setAppView('network'),
     undo: () => {
       const store = useUIStore.getState();
       const undoFn = store.lastUndoAction ?? store.toast?.undoAction;

@@ -56,6 +56,10 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
+      // Network view owns its keyboard handling (NetworkView's own listener);
+      // only the command-palette shortcut above stays global.
+      if (store.appView === 'network') return;
+
       // Enter in search — blur to allow j/k navigation
       if (e.key === 'Enter' && isInput && (target as HTMLElement).hasAttribute('data-search-input')) {
         e.preventDefault();
@@ -161,6 +165,11 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
           store.setSearchQuery('is:unread ');
           const input = document.querySelector<HTMLInputElement>('[data-search-input]');
           input?.focus();
+          return;
+        }
+        if (e.key === 'n') {
+          e.preventDefault();
+          store.setAppView('network');
           return;
         }
         // Unknown second key — fall through to normal handling

@@ -31,6 +31,7 @@ export function buildCommands(actions: {
   goToOther: () => void;
   goToArchived: () => void;
   goToSpam: () => void;
+  goToNetwork: () => void;
   undo: () => void;
   openAISetup: () => void;
   toggleDemoMode: () => void;
@@ -74,6 +75,7 @@ export function buildCommands(actions: {
     { id: 'go-other', label: 'Go to Other inbox', shortcut: '2', action: actions.goToOther },
     { id: 'go-archived', label: 'Go to Archived', shortcut: '3', action: actions.goToArchived },
     { id: 'go-spam', label: 'Go to Spam', shortcut: '4', action: actions.goToSpam },
+    { id: 'go-network', label: 'Go to Network (invitations & connections)', shortcut: 'G N', action: actions.goToNetwork },
     { id: 'shortcuts', label: 'Show keyboard shortcuts', shortcut: '?', action: actions.showShortcuts },
     { id: 'sync', label: 'Sync now', shortcut: '', action: actions.triggerSync },
     { id: 'check-update', label: 'Check for updates', shortcut: '', action: actions.checkForUpdate },
