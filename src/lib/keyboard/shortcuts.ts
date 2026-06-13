@@ -53,4 +53,6 @@ export const shortcutDefinitions: ShortcutDef[] = [
   { key: 'x', display: 'X', context: 'Network', group: 'Actions', description: 'Ignore invitation' },
   { key: 'm', display: 'M', context: 'Network', group: 'Actions', description: 'Message connection' },
   { key: 'Tab', display: 'Tab', context: 'Network', group: 'Navigation', description: 'Switch Invitations / Connections' },
+  { key: '1', display: '1', context: 'Network', group: 'Navigation', description: 'Go to Invitations' },
+  { key: '2', display: '2', context: 'Network', group: 'Navigation', description: 'Go to Connections' },
 ];

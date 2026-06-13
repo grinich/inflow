@@ -128,6 +128,14 @@ export function NetworkView() {
           e.preventDefault();
           setNetworkTab(networkTab === 'invitations' ? 'connections' : 'invitations');
           return;
+        case '1':
+          e.preventDefault();
+          setNetworkTab('invitations');
+          return;
+        case '2':
+          e.preventDefault();
+          setNetworkTab('connections');
+          return;
       }
       if (networkTab === 'invitations') {
         const inv = filteredInvitations[idx];
@@ -146,9 +154,9 @@ export function NetworkView() {
     return () => window.removeEventListener('keydown', handler);
   }, [networkTab, rowCount, filteredInvitations, filteredConnections, actions, setAppView, setNetworkTab, setSelectedIndex]);
 
-  const TABS: { id: NetworkTab; label: string; count: number }[] = [
-    { id: 'invitations', label: 'Invitations', count: invitations.length },
-    { id: 'connections', label: 'Connections', count: connections.length },
+  const TABS: { id: NetworkTab; label: string; count: number; key: string }[] = [
+    { id: 'invitations', label: 'Invitations', count: invitations.length, key: '1' },
+    { id: 'connections', label: 'Connections', count: connections.length, key: '2' },
   ];
 
   return (
@@ -165,6 +173,7 @@ export function NetworkView() {
           <button
             key={tab.id}
             onClick={() => setNetworkTab(tab.id)}
+            title={`${tab.label} (${tab.key})`}
             className={`shrink-0 rounded px-3 py-1 text-sm font-medium ${networkTab === tab.id ? 'bg-surface-active text-fg-strong' : 'text-fg-secondary hover:bg-surface-hover'}`}
           >
             {tab.label}
