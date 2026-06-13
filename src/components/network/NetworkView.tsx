@@ -155,7 +155,7 @@ export function NetworkView() {
         const inv = filteredInvitations[idx];
         if (!inv) return;
         if (e.key === 'Enter') { e.preventDefault(); actions.acceptInvitation(inv); }
-        if (e.key === 'x' || e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); actions.ignoreInvitation(inv); }
+        if (e.key === 'd' || e.key === 'x' || e.key === 'Backspace') { e.preventDefault(); actions.ignoreInvitation(inv); }
         if (e.key === 'p') { e.preventDefault(); actions.openProfile(inv); }
       } else {
         const conn = filteredConnections[idx];

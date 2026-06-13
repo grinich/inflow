@@ -322,8 +322,8 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // E / Backspace / Delete — Archive (or Move to Focused if already in Archive tab)
-      if ((e.key === 'e' || e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey && !e.ctrlKey) {
+      // E / Backspace — Archive (or Move to Focused if already in Archive tab)
+      if ((e.key === 'e' || e.key === 'Backspace') && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const conv = store.selectedConversationId
           ? convs.find((c) => c.id === store.selectedConversationId)
