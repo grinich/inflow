@@ -152,11 +152,11 @@ export function NetworkView() {
   ];
 
   return (
-    <div className="flex h-full flex-1 flex-col bg-surface text-fg">
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-surface text-fg">
       <header className="flex items-center gap-1 border-b border-edge px-4 py-2">
         <button
           onClick={() => setAppView('inbox')}
-          className="mr-2 rounded px-2 py-1 text-sm text-fg/60 hover:bg-fg/5"
+          className="mr-2 shrink-0 rounded px-2 py-1 text-sm text-fg-secondary hover:bg-surface-hover"
           title="Back to inbox (Esc)"
         >
           ← Inbox
@@ -165,18 +165,18 @@ export function NetworkView() {
           <button
             key={tab.id}
             onClick={() => setNetworkTab(tab.id)}
-            className={`rounded px-3 py-1 text-sm font-medium ${networkTab === tab.id ? 'bg-fg/10 text-fg' : 'text-fg/60 hover:bg-fg/5'}`}
+            className={`shrink-0 rounded px-3 py-1 text-sm font-medium ${networkTab === tab.id ? 'bg-surface-active text-fg-strong' : 'text-fg-secondary hover:bg-surface-hover'}`}
           >
             {tab.label}
-            {tab.count > 0 && <span className="ml-1.5 text-xs text-fg/50">{tab.count}</span>}
+            {tab.count > 0 && <span className="ml-1.5 text-xs text-fg-muted">{tab.count}</span>}
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {networkTab === 'connections' && (
             <select
               value={sortMode}
               onChange={(e) => setSortMode(e.target.value as SortMode)}
-              className="rounded border border-edge bg-surface px-2 py-1 text-xs text-fg/70"
+              className="rounded border border-edge bg-surface px-2 py-1 text-xs text-fg-secondary"
             >
               <option value="recent">Recently added</option>
               <option value="name">Name A–Z</option>
@@ -187,17 +187,17 @@ export function NetworkView() {
             value={filter}
             onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
             placeholder="Filter… ( / )"
-            className="w-48 rounded border border-edge bg-transparent px-2 py-1 text-sm outline-none placeholder:text-fg/40"
+            className="w-48 rounded border border-edge bg-transparent px-2 py-1 text-sm outline-none placeholder:text-fg-muted"
           />
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto">
         {loading && rowCount === 0 ? (
-          <p className="p-6 text-sm text-fg/50">Loading your network…</p>
+          <p className="p-6 text-sm text-fg-muted">Loading your network…</p>
         ) : networkTab === 'invitations' ? (
           filteredInvitations.length === 0 ? (
-            <p className="p-6 text-sm text-fg/50">No pending invitations.</p>
+            <p className="p-6 text-sm text-fg-muted">No pending invitations.</p>
           ) : (
             filteredInvitations.map((inv, i) => (
               <InvitationRow
@@ -222,13 +222,13 @@ export function NetworkView() {
               />
             ))}
             {filteredConnections.length === 0 && (
-              <p className="p-6 text-sm text-fg/50">No connections synced yet.</p>
+              <p className="p-6 text-sm text-fg-muted">No connections synced yet.</p>
             )}
             {hasMore && !filter && (
               <button
                 onClick={loadMore}
                 disabled={loadingMore}
-                className="m-4 rounded border border-edge px-4 py-2 text-sm text-fg/70 hover:bg-fg/5 disabled:opacity-50"
+                className="m-4 rounded border border-edge px-4 py-2 text-sm text-fg-secondary hover:bg-surface-hover disabled:opacity-50"
               >
                 {loadingMore ? 'Loading…' : 'Load more connections'}
               </button>

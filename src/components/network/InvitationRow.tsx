@@ -1,4 +1,5 @@
 import { formatDistanceToNowStrict } from 'date-fns';
+import { GroupAvatar } from '../common/GroupAvatar';
 import type { Invitation } from '@/types/network';
 
 interface Props {
@@ -14,35 +15,34 @@ export function InvitationRow({ invitation, selected, onAccept, onIgnore, onOpen
     <div
       data-network-row
       aria-selected={selected}
-      className={`flex items-start gap-3 border-b border-edge px-4 py-3 ${selected ? 'bg-blue-500/10' : 'hover:bg-fg/5'}`}
+      className={`flex items-center gap-3 border-b border-edge px-4 py-3 ${selected ? 'bg-surface-active' : 'hover:bg-surface-hover'}`}
     >
-      {invitation.pictureUrl ? (
-        <img src={invitation.pictureUrl} alt="" className="mt-0.5 h-10 w-10 shrink-0 rounded-full object-cover" />
-      ) : (
-        <div className="mt-0.5 h-10 w-10 shrink-0 rounded-full bg-fg/10" />
-      )}
+      <GroupAvatar names={[invitation.name]} pictures={[invitation.pictureUrl]} size={40} />
+
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <button onClick={onOpenProfile} className="truncate text-sm font-semibold text-fg hover:underline">
+        <div className="flex items-baseline gap-2">
+          <button
+            onClick={onOpenProfile}
+            className="truncate text-sm font-semibold text-fg-strong hover:underline"
+          >
             {invitation.name}
           </button>
           {invitation.sentAt > 0 && (
-            <span className="shrink-0 text-xs text-fg/50">
+            <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-fg-muted">
               {formatDistanceToNowStrict(invitation.sentAt, { addSuffix: true })}
             </span>
           )}
         </div>
-        <p className="truncate text-xs text-fg/60">{invitation.headline}</p>
+        <p className="truncate text-xs text-fg-muted">{invitation.headline}</p>
         {invitation.message && (
-          <p className="mt-1 line-clamp-2 rounded bg-fg/5 px-2 py-1 text-xs italic text-fg/80">
-            “{invitation.message}”
-          </p>
+          <p className="mt-0.5 truncate text-xs italic text-fg-secondary">“{invitation.message}”</p>
         )}
       </div>
+
       <div className="flex shrink-0 items-center gap-2">
         <button
           onClick={onIgnore}
-          className="rounded-full border border-edge px-3 py-1 text-xs font-medium text-fg/70 hover:bg-fg/5"
+          className="rounded-full border border-edge px-3 py-1 text-xs font-medium text-fg-secondary hover:bg-surface-hover"
           title="Ignore (X)"
         >
           Ignore

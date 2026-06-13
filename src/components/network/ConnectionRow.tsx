@@ -1,4 +1,5 @@
 import { formatDistanceToNowStrict } from 'date-fns';
+import { GroupAvatar } from '../common/GroupAvatar';
 import type { Connection } from '@/types/network';
 
 interface Props {
@@ -13,21 +14,22 @@ export function ConnectionRow({ connection, selected, onMessage, onOpenProfile }
     <div
       data-network-row
       aria-selected={selected}
-      className={`flex items-center gap-3 border-b border-edge px-4 py-3 ${selected ? 'bg-blue-500/10' : 'hover:bg-fg/5'}`}
+      className={`flex items-center gap-3 border-b border-edge px-4 py-3 ${selected ? 'bg-surface-active' : 'hover:bg-surface-hover'}`}
     >
-      {connection.pictureUrl ? (
-        <img src={connection.pictureUrl} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
-      ) : (
-        <div className="h-10 w-10 shrink-0 rounded-full bg-fg/10" />
-      )}
+      <GroupAvatar names={[connection.name]} pictures={[connection.pictureUrl]} size={40} />
+
       <div className="min-w-0 flex-1">
-        <button onClick={onOpenProfile} className="block truncate text-sm font-semibold text-fg hover:underline">
+        <button
+          onClick={onOpenProfile}
+          className="block truncate text-sm font-semibold text-fg-strong hover:underline"
+        >
           {connection.name}
         </button>
-        <p className="truncate text-xs text-fg/60">{connection.headline}</p>
+        <p className="truncate text-xs text-fg-muted">{connection.headline}</p>
       </div>
+
       {connection.connectedAt > 0 && (
-        <span className="shrink-0 text-xs text-fg/50">
+        <span className="shrink-0 whitespace-nowrap text-xs text-fg-muted">
           Connected {formatDistanceToNowStrict(connection.connectedAt, { addSuffix: true })}
         </span>
       )}
