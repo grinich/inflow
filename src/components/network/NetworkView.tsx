@@ -94,7 +94,21 @@ export function NetworkView() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const ui = useUIStore.getState();
-      if (ui.paletteOpen || ui.shortcutOverlayOpen) return;
+      // `?` toggles the keyboard cheat sheet, even from the network view
+      // (the global inbox handler that normally owns this is inert here).
+      if (e.key === '?' && e.shiftKey) {
+        e.preventDefault();
+        ui.toggleShortcutOverlay();
+        return;
+      }
+      // While an overlay is open, only let Escape close the cheat sheet.
+      if (ui.paletteOpen || ui.shortcutOverlayOpen) {
+        if (e.key === 'Escape' && ui.shortcutOverlayOpen) {
+          e.preventDefault();
+          ui.setShortcutOverlayOpen(false);
+        }
+        return;
+      }
       const target = e.target as HTMLElement;
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
       if (e.metaKey || e.ctrlKey) return;
