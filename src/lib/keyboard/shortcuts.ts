@@ -25,7 +25,7 @@ export const shortcutDefinitions: ShortcutDef[] = [
   { key: 'g', display: 'G U', context: 'Global', group: 'Navigation', description: 'Go to unread' },
 
   // Actions
-  { key: 'e', display: 'E', context: 'List / Thread', group: 'Actions', description: 'Archive / Move to Focused' },
+  { key: 'e', display: 'E / ⌫', context: 'List / Thread', group: 'Actions', description: 'Archive / Move to Focused' },
   { key: 'o', display: 'O', context: 'List / Thread', group: 'Actions', description: 'Move to Other / Focused' },
   { key: 's', display: 'S', context: 'List / Thread', group: 'Actions', description: 'Star conversation' },
   { key: 'u', display: 'U', context: 'List', group: 'Actions', description: 'Toggle read/unread' },
@@ -50,7 +50,7 @@ export const shortcutDefinitions: ShortcutDef[] = [
   // Network
   { key: 'g', display: 'G N', context: 'Global', group: 'Navigation', description: 'Go to Network' },
   { key: 'Enter', display: '↵', context: 'Network', group: 'Actions', description: 'Accept invitation / message connection' },
-  { key: 'x', display: 'X', context: 'Network', group: 'Actions', description: 'Ignore invitation' },
+  { key: 'x', display: 'X / ⌫', context: 'Network', group: 'Actions', description: 'Ignore invitation' },
   { key: 'm', display: 'M', context: 'Network', group: 'Actions', description: 'Message connection' },
   { key: 'Tab', display: 'Tab', context: 'Network', group: 'Navigation', description: 'Switch Invitations / Connections' },
   { key: '1', display: '1', context: 'Network', group: 'Navigation', description: 'Go to Invitations' },

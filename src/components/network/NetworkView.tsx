@@ -155,7 +155,7 @@ export function NetworkView() {
         const inv = filteredInvitations[idx];
         if (!inv) return;
         if (e.key === 'Enter') { e.preventDefault(); actions.acceptInvitation(inv); }
-        if (e.key === 'x') { e.preventDefault(); actions.ignoreInvitation(inv); }
+        if (e.key === 'x' || e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); actions.ignoreInvitation(inv); }
         if (e.key === 'p') { e.preventDefault(); actions.openProfile(inv); }
       } else {
         const conn = filteredConnections[idx];
@@ -258,6 +258,24 @@ export function NetworkView() {
             )}
           </>
         )}
+      </div>
+
+      <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">
+        <button
+          onClick={() => useUIStore.getState().toggleShortcutOverlay()}
+          className="flex items-center gap-1.5 text-fg-faint transition-colors hover:text-fg-muted"
+        >
+          Keyboard Shortcuts
+          <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px]">shift</kbd>
+          <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px]">?</kbd>
+        </button>
+        <button
+          onClick={() => setAppView('inbox')}
+          className="flex items-center gap-1.5 text-fg-faint transition-colors hover:text-fg-muted"
+        >
+          Back to inbox
+          <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px]">esc</kbd>
+        </button>
       </div>
     </div>
   );
