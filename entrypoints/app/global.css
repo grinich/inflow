@@ -121,6 +121,27 @@
   animation: message-in 250ms ease-out;
 }
 
+/* Reaction pop-in: a small bounce when an emoji reaction appears */
+@keyframes reaction-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-reaction-pop {
+  animation: reaction-pop 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: center;
+}
+
 /* Scroll-to-original highlight flash */
 @keyframes highlight-flash {
   0% { background-color: rgb(250 204 21 / 0.3); }
