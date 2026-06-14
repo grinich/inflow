@@ -112,17 +112,21 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
     },
     isDemoActive: isDemoMode(),
     reportBug: async () => {
-      let logs = '';
+      let copiedLogs = false;
       try {
         const res = await sendBridgeMessage({ type: 'GET_DEBUG_LOGS' });
         if (res.success && Array.isArray(res.data)) {
-          logs = (res.data as { ts: number; level: string; message: string }[])
+          const logs = (res.data as { ts: number; level: string; message: string }[])
             .slice(-50)
             .map((e) => {
               const t = new Date(e.ts).toISOString().slice(11, 23);
               return `[${t}] ${e.level.toUpperCase()} ${e.message}`;
             })
             .join('\n');
+          if (logs) {
+            await navigator.clipboard.writeText(logs);
+            copiedLogs = true;
+          }
         }
       } catch {}
       const body = [
@@ -138,12 +142,15 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
         '_What did you expect to happen?_',
         '',
         '## Debug Logs',
-        '```',
-        logs || 'No logs available',
-        '```',
+        copiedLogs
+          ? '_Debug logs have been copied to your clipboard. Paste them here._'
+          : '_No logs available._',
       ].join('\n');
       const url = `https://github.com/grinich/inflow/issues/new?title=Bug:+&body=${encodeURIComponent(body)}`;
       window.open(url, '_blank');
+      if (copiedLogs) {
+        useUIStore.getState().showToast({ message: 'Debug logs copied to clipboard' });
+      }
     },
     toggleAISuggestions: () => {
       // Read the persisted value at click time so the toggle is correct even if
@@ -155,6 +162,9 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       });
     },
     aiSuggestionsEnabled: aiSuggestionsOn,
+    joinWhatsApp: () => {
+      window.open('https://chat.whatsapp.com/Cgj71APZz0uBkW5Y4WOhQO', '_blank');
+    },
   });
 
   if (!paletteOpen) return null;

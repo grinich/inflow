@@ -9,6 +9,7 @@ import { ConfirmDeleteModal } from '@/components/common/ConfirmDeleteModal';
 import { ConfirmSpamModal } from '@/components/common/ConfirmSpamModal';
 import { AISetupModal } from '@/components/common/AISetupModal';
 import { Toast } from '@/components/common/Toast';
+import { CommunityBanner } from '@/components/common/CommunityBanner';
 import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
 import { DebugPanel } from '@/components/common/DebugPanel';
 import { NewMessageComposer } from '@/components/composer/NewMessageComposer';
@@ -208,7 +209,8 @@ export function App() {
 
   return (
     <AuthGate>
-      <div className={`flex h-full overflow-hidden bg-surface text-fg transition-[padding-bottom] duration-200 ease-out ${shortcutPanelOpen ? SHORTCUT_PANEL_PADDING : 'pb-0'}`}>
+      <CommunityBanner />
+      <div className={`flex min-h-0 flex-1 overflow-hidden bg-surface text-fg transition-[padding-bottom] duration-200 ease-out ${shortcutPanelOpen ? SHORTCUT_PANEL_PADDING : 'pb-0'}`}>
         {/* Conversation List */}
         <div className="flex h-full w-96 shrink-0 flex-col border-r border-edge">
           <ConversationList conversations={conversations} isLoading={isLoading} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} />
