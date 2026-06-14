@@ -22,9 +22,17 @@ export function isSseMessageId(id: string): boolean {
   return SSE_PREFIXES.some((p) => id.startsWith(p));
 }
 
-/** Content-identity key: two entries with the same key are the same logical message. */
-export function messageDedupeKey(m: Pick<Message, 'body' | 'senderUrn' | 'createdAt'>): string {
-  return `${m.body}|${m.senderUrn}|${m.createdAt}`;
+/**
+ * Stable content-identity key: two entries with the same key are the same
+ * logical message delivered through different channels.
+ *
+ * Keyed on senderUrn + createdAt (the server's deliveredAt), NOT body — an
+ * edit changes the body but keeps the same sender and deliveredAt, so a
+ * body-based key would treat the edited SSE copy and the original canonical
+ * copy as two different messages and show both.
+ */
+export function messageDedupeKey(m: Pick<Message, 'senderUrn' | 'createdAt'>): string {
+  return `${m.senderUrn}|${m.createdAt}`;
 }
 
 /** Set of content keys for which a canonical (msg_message) entry exists. */
@@ -38,19 +46,52 @@ export function buildCanonicalKeySet(msgs: Message[]): Set<string> {
 
 /**
  * Read-side dedup for display: drop SSE duplicates that have a canonical
- * replacement, keep canonical + temp + un-shadowed SSE entries, sorted ascending
- * by createdAt. Does not mutate the input.
+ * replacement, collapse SSE/SSE duplicates of one logical message, and keep
+ * canonical + temp + un-shadowed SSE entries, sorted ascending by createdAt.
+ * Does not mutate the input.
+ *
+ * Edits: the canonical copy fetched before an edit holds the stale body while
+ * the SSE edit event holds the new one. So the surviving (canonical/kept) copy
+ * is overlaid with the body/editedAt/attachments of the freshest edited twin —
+ * otherwise collapsing the duplicate would show the pre-edit text.
  */
 export function dedupeMessagesForDisplay(all: Message[]): Message[] {
-  const canonicalKeys = buildCanonicalKeySet(all);
   const sortByTime = (a: Message, b: Message) => a.createdAt - b.createdAt;
-  if (canonicalKeys.size === 0) return [...all].sort(sortByTime);
-  return all
-    .filter((msg) => {
-      if (isCanonicalMessageId(msg.id) || msg.id.startsWith('temp-')) return true;
-      return !canonicalKeys.has(messageDedupeKey(msg));
-    })
-    .sort(sortByTime);
+
+  // Freshest edit (max editedAt) seen per stable identity, to fold onto the
+  // surviving copy.
+  const freshestEdit = new Map<string, { body: string; editedAt: number; attachments?: Message['attachments'] }>();
+  for (const m of all) {
+    if (!m.editedAt) continue;
+    const key = messageDedupeKey(m);
+    const cur = freshestEdit.get(key);
+    if (!cur || m.editedAt > cur.editedAt) {
+      freshestEdit.set(key, { body: m.body, editedAt: m.editedAt, attachments: m.attachments });
+    }
+  }
+  const withFreshestEdit = (m: Message): Message => {
+    const e = freshestEdit.get(messageDedupeKey(m));
+    if (e && e.editedAt > (m.editedAt ?? 0)) {
+      return { ...m, body: e.body, editedAt: e.editedAt, ...(e.attachments ? { attachments: e.attachments } : {}) };
+    }
+    return m;
+  };
+
+  const canonicalKeys = buildCanonicalKeySet(all);
+  const keptSseKeys = new Set<string>();
+  const out: Message[] = [];
+  for (const msg of all) {
+    // Each canonical id and each optimistic temp- id is a distinct message.
+    if (msg.id.startsWith('temp-')) { out.push(msg); continue; }
+    if (isCanonicalMessageId(msg.id)) { out.push(withFreshestEdit(msg)); continue; }
+    // SSE entry: drop if a canonical twin exists, or if we already kept an SSE
+    // copy of the same logical message (e.g. original fs_event + edited fsd_message).
+    const key = messageDedupeKey(msg);
+    if (canonicalKeys.has(key) || keptSseKeys.has(key)) continue;
+    keptSseKeys.add(key);
+    out.push(withFreshestEdit(msg));
+  }
+  return out.sort(sortByTime);
 }
 
 /**
@@ -75,7 +116,10 @@ export interface DedupPlan {
   /** Message IDs to delete (SSE orphans, plus sent temps when requested). */
   deleteIds: string[];
   /** Field preservation to apply to canonical entries before deleting orphans. */
-  updates: { id: string; updates: { editedAt?: number; reactions?: ReactionSummary[] } }[];
+  updates: {
+    id: string;
+    updates: { editedAt?: number; reactions?: ReactionSummary[]; body?: string; attachments?: Message['attachments'] };
+  }[];
 }
 
 /**
@@ -99,15 +143,19 @@ export function planSseDedup(allMsgs: Message[], opts: { includeSentTemps?: bool
     if (!isSseMessageId(orphan.id)) continue;
     if (!orphan.editedAt && !orphan.reactions?.length) continue;
     const canonical = allMsgs.find(
-      (m) =>
-        isCanonicalMessageId(m.id) &&
-        m.body === orphan.body &&
-        m.senderUrn === orphan.senderUrn &&
-        m.createdAt === orphan.createdAt
+      (m) => isCanonicalMessageId(m.id) && messageDedupeKey(m) === messageDedupeKey(orphan)
     );
     if (!canonical) continue;
-    const u: { editedAt?: number; reactions?: ReactionSummary[] } = {};
-    if (orphan.editedAt && !canonical.editedAt) u.editedAt = orphan.editedAt;
+    const u: DedupPlan['updates'][number]['updates'] = {};
+    // An edited SSE copy carries the new body/editedAt the canonical (fetched
+    // before the edit) lacks. When the orphan's edit is newer, fold its body
+    // (and attachments) onto the canonical survivor so the edit isn't lost when
+    // the orphan is deleted.
+    if ((orphan.editedAt ?? 0) > (canonical.editedAt ?? 0)) {
+      u.editedAt = orphan.editedAt;
+      if (orphan.body !== canonical.body) u.body = orphan.body;
+      if (orphan.attachments?.length && !canonical.attachments?.length) u.attachments = orphan.attachments;
+    }
     if (orphan.reactions?.length && !canonical.reactions?.length) u.reactions = orphan.reactions;
     if (Object.keys(u).length > 0) updates.push({ id: canonical.id, updates: u });
   }

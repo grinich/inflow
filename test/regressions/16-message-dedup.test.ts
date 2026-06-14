@@ -33,8 +33,10 @@ describe('message-dedup', () => {
     expect(isSseMessageId('temp-1')).toBe(false);
   });
 
-  it('keys on body|senderUrn|createdAt', () => {
-    expect(messageDedupeKey(msg({ body: 'x', senderUrn: 'u', createdAt: 5 }))).toBe('x|u|5');
+  it('keys on senderUrn|createdAt (NOT body, so edits keep the same key)', () => {
+    expect(messageDedupeKey(msg({ body: 'x', senderUrn: 'u', createdAt: 5 }))).toBe('u|5');
+    // An edit changes only the body — the key must stay the same.
+    expect(messageDedupeKey(msg({ body: 'edited', senderUrn: 'u', createdAt: 5 }))).toBe('u|5');
   });
 
   it('builds canonical key set only from msg_message entries', () => {
@@ -42,7 +44,7 @@ describe('message-dedup', () => {
       msg({ id: 'urn:li:msg_message:1', body: 'a', createdAt: 1 }),
       msg({ id: 'urn:li:fsd_message:2', body: 'b', createdAt: 2 }),
     ]);
-    expect([...keys]).toEqual(['a|urn:li:fsd_profile:A|1']);
+    expect([...keys]).toEqual(['urn:li:fsd_profile:A|1']);
   });
 
   describe('dedupeMessagesForDisplay', () => {
@@ -99,12 +101,27 @@ describe('message-dedup', () => {
       ]);
     });
 
-    it('does not overwrite fields already present on the canonical twin', () => {
+    it('does not copy when the canonical twin already reflects the same-or-newer edit', () => {
       const plan = planSseDedup([
-        msg({ id: 'urn:li:msg_message:1', body: 'dup', createdAt: 10, editedAt: 1 }),
-        msg({ id: 'urn:li:fsd_message:1', body: 'dup', createdAt: 10, editedAt: 99 }),
+        msg({ id: 'urn:li:msg_message:1', body: 'edited', createdAt: 10, editedAt: 99 }),
+        msg({ id: 'urn:li:fsd_message:1', body: 'edited', createdAt: 10, editedAt: 99 }),
       ]);
+      expect(plan.deleteIds).toEqual(['urn:li:fsd_message:1']);
       expect(plan.updates).toEqual([]);
+    });
+
+    it('folds an edited SSE body onto a canonical twin fetched before the edit', () => {
+      // Canonical was fetched before the edit (old body, no editedAt); the SSE
+      // edit event carries the new body + editedAt. The surviving canonical row
+      // must be patched so the edit isn't lost when the orphan is deleted.
+      const plan = planSseDedup([
+        msg({ id: 'urn:li:msg_message:1', body: 'original', createdAt: 10 }),
+        msg({ id: 'urn:li:fsd_message:1', body: 'edited!', createdAt: 10, editedAt: 99 }),
+      ]);
+      expect(plan.deleteIds).toEqual(['urn:li:fsd_message:1']);
+      expect(plan.updates).toEqual([
+        { id: 'urn:li:msg_message:1', updates: { editedAt: 99, body: 'edited!' } },
+      ]);
     });
 
     it('ignores sent temps unless includeSentTemps is set', () => {
