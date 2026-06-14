@@ -135,7 +135,7 @@ export function ConversationRow({ conversation, selected, onClick }: Conversatio
       ref={ref}
       data-conversation-id={conversation.id}
       onClick={onClick}
-      className={`group relative flex cursor-pointer items-center gap-2 px-3 py-3 ${
+      className={`group relative flex cursor-pointer items-center gap-1.5 py-3 pl-1.5 pr-3 ${
         selected ? 'bg-surface-active' : 'hover:bg-surface-hover'
       }`}
     >

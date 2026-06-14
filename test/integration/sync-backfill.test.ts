@@ -386,6 +386,55 @@ describe('sync-backfill', () => {
       expect(canonicalMsg.body).toBe('Hello there');
     });
 
+    // Regression: an edited inbound message showed twice because dedup keyed on
+    // body, which diverges after an edit. With the stable senderUrn|createdAt
+    // key the SSE-edited row collapses onto the canonical row, and the edited
+    // body is folded on so it isn't lost when the SSE row is deleted.
+    it('collapses an edited SSE message onto its canonical twin and keeps the edited body', async () => {
+      const { fetchAllMessages } = await import(
+        '../../entrypoints/background/api/messages'
+      );
+      const { backfillBatch } = await import(
+        '../../entrypoints/background/sync/sync-backfill'
+      );
+
+      const convId = 'conv-sse-edit';
+      await testDb.syncQueue.put(makeSyncQueueItem({ conversationId: convId }));
+
+      // SSE delivered the edit: new body + editedAt, on the fsd_message row.
+      await testDb.messages.put({
+        id: 'urn:li:fsd_message:SSE_EDIT',
+        conversationId: convId,
+        senderUrn: 'urn:li:fsd_profile:Alice',
+        senderName: 'User Alice',
+        senderPicture: '',
+        body: 'edited body',
+        createdAt: 5000,
+        isFromMe: false,
+        editedAt: 9999,
+      } as Message);
+
+      // The canonical REST page still carries the pre-edit body.
+      vi.mocked(fetchAllMessages).mockResolvedValue([
+        buildMessagesPage([
+          { id: 'urn:li:msg_message:CANON_EDIT', body: 'original body', senderProfileId: 'Alice', deliveredAt: 5000 },
+        ]),
+      ]);
+
+      await backfillBatch(1);
+
+      // SSE duplicate gone, canonical survives with the edited body + editedAt
+      expect(await testDb.messages.get('urn:li:fsd_message:SSE_EDIT')).toBeUndefined();
+      const canonical = await testDb.messages.get('urn:li:msg_message:CANON_EDIT');
+      expect(canonical).toBeDefined();
+      expect(canonical.body).toBe('edited body');
+      expect(canonical.editedAt).toBe(9999);
+
+      // Exactly one row remains for the conversation
+      const all = await testDb.messages.where('conversationId').equals(convId).toArray();
+      expect(all).toHaveLength(1);
+    });
+
     it('keeps SSE messages that have no canonical match', async () => {
       const { fetchAllMessages } = await import(
         '../../entrypoints/background/api/messages'
