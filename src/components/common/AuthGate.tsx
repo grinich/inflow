@@ -152,7 +152,7 @@ export function AuthGate({ children }: AuthGateProps) {
 
   return (
     <div key={accountKey} className="flex h-screen flex-col">
-      <div className="min-h-0 flex-1">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       {!online && (
         <div className="flex h-5 shrink-0 items-center justify-center bg-blue-400/80 text-[10px] font-medium tracking-wide text-white">
           OFFLINE

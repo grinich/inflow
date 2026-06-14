@@ -32,6 +32,7 @@ export function buildCommands(actions: {
   toggleAISuggestions: () => void;
   aiSuggestionsEnabled: boolean;
   reportBug: () => void;
+  joinWhatsApp: () => void;
 }): Command[] {
   return [
     { id: 'archive', label: 'Archive conversation', shortcut: 'E', action: actions.archiveSelected },
@@ -61,6 +62,7 @@ export function buildCommands(actions: {
       action: actions.toggleAISuggestions,
     },
     { id: 'report-bug', label: 'Report a bug', shortcut: '', action: actions.reportBug },
+    { id: 'join-whatsapp', label: 'Join WhatsApp Group', shortcut: '', action: actions.joinWhatsApp },
     {
       id: 'demo-mode',
       label: actions.isDemoActive ? 'Exit demo mode' : 'Enter demo mode',
