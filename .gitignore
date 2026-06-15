@@ -8,3 +8,9 @@ dist/
 # local scratch
 .audit_out.txt
 .cctmp/
+
+# stray media downloads (keep out of the repo)
+*.webm
+*.part
+*.mp4
+*.mov
