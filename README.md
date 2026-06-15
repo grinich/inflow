@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/icon-128.png" alt="inflow icon" width="120" />
+</p>
+
 # inflow
 
 An experimental Chrome extension that reimagines LinkedIn messaging with a keyboard-driven, local-first UI. Built as a personal project to explore browser extension development with React, IndexedDB, and real-time streaming.
