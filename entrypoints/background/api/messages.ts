@@ -27,7 +27,7 @@ const inflightFetches = new Map<string, Promise<VoyagerResponse[]>>();
 /**
  * Fetch a single page of messages for a conversation.
  * Supports pagination via count/start parameters.
- * Pass skipJitter=true for user-initiated fetches to avoid the anti-detection delay.
+ * Pass skipJitter=true for user-initiated fetches to avoid the jitter delay.
  */
 export async function fetchMessages(
   conversationId: string,

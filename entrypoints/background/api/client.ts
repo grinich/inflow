@@ -66,7 +66,7 @@ export async function ensureCookieRule(): Promise<void> {
     // CRITICAL: initiatorDomains scopes rules to only apply to requests from
     // this extension's service worker, NOT to LinkedIn's own page requests.
     // Without this, the rules corrupt LinkedIn's normal page requests (wrong
-    // Referer, replaced cookies) which triggers PerimeterX bot detection.
+    // Referer, replaced cookies) and break the site.
     const extDomain = chrome.runtime.id;
 
     await chrome.declarativeNetRequest.updateSessionRules({
@@ -123,14 +123,14 @@ export async function ensureCookieRule(): Promise<void> {
   }
 }
 
-/** Random delay between 50-300ms to avoid machine-like request patterns. */
+/** Small random delay (50-300ms) to space out rapid sequential requests. */
 async function jitter(): Promise<void> {
   const delay = 50 + Math.random() * 250;
   return new Promise((r) => setTimeout(r, delay));
 }
 
 export interface VoyagerFetchOptions extends RequestInit {
-  /** Skip the anti-detection jitter delay (for user-initiated requests). */
+  /** Skip the jitter delay (for user-initiated requests). */
   skipJitter?: boolean;
 }
 
