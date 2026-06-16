@@ -13,7 +13,7 @@ export default defineConfig({
     disabled: true,
   },
   manifest: {
-    name: 'inƒlow — LinkedIn Messaging',
+    name: 'inƒlow — Messaging client for LinkedIn',
     description: 'A keyboard-driven LinkedIn messaging client',
     version: '0.1.0',
     permissions: ['cookies', 'storage', 'alarms', 'tabs', 'declarativeNetRequest'],

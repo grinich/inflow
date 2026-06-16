@@ -187,13 +187,13 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
               '',
               '## Debug Logs',
               copiedLogs
-                ? '_Debug logs have been copied to your clipboard. Paste them here._'
+                ? '_Debug logs were copied to your clipboard. **Please review them and remove any personal information (names, message contents) before pasting — this issue is public.**_'
                 : '_No logs available._',
             ].join('\n');
             const url = `https://github.com/grinich/inflow/issues/new?title=Bug:+&body=${encodeURIComponent(body)}`;
             window.open(url, '_blank');
             if (copiedLogs) {
-              useUIStore.getState().showToast({ message: 'Debug logs copied to clipboard' });
+              useUIStore.getState().showToast({ message: 'Debug logs copied — review for personal info before posting' });
             }
           }}
           className="mr-2 flex cursor-pointer items-center gap-1 rounded-md border border-edge px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"
