@@ -8,11 +8,11 @@ An experimental Chrome extension that reimagines LinkedIn messaging with a keybo
 
 <table>
   <tr>
-    <td><img src="assets/screenshot-light.png" alt="Light theme conversation view" width="500"></td>
-    <td><img src="assets/screenshot-dark.png" alt="Dark theme conversation view" width="500"></td>
+    <td colspan="2"><img src="assets/screenshot-light.png" alt="Light theme conversation view" width="100%"></td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><img src="assets/screenshot-shortcuts.png" alt="Keyboard shortcuts overlay" width="500"></td>
+    <td><img src="assets/screenshot-dark.png" alt="Dark theme conversation view" width="100%"></td>
+    <td><img src="assets/screenshot-shortcuts.png" alt="Keyboard shortcuts overlay" width="100%"></td>
   </tr>
 </table>
 
