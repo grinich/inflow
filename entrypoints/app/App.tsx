@@ -170,7 +170,7 @@ export function App() {
   const toggleDebug = useCallback(() => setDebugOpen(prev => !prev), []);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === '.' && e.metaKey && !(e.target as HTMLElement).matches('input, textarea, [contenteditable]')) {
+      if (import.meta.env.DEV && e.key === '.' && e.metaKey && !(e.target as HTMLElement).matches('input, textarea, [contenteditable]')) {
         e.preventDefault();
         toggleDebug();
       }
