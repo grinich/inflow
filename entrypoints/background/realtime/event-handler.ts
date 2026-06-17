@@ -14,10 +14,10 @@
 import { getMemberUrn } from '../auth/session';
 import { fetchProfileByUrn } from '../api/profiles';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair, extractAudioAttachment } from '@/lib/voyager-normalizer';
+import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair, extractAudioAttachment, extractParticipantsFromIncluded, type ExtractedParticipants } from '@/lib/voyager-normalizer';
 import { repairConversationParticipants } from '../sync/repair-participants';
 import { debugLog } from '@/lib/debug-log';
-import { db, getDbGeneration } from '@/db/database';
+import { db, getDbGeneration, mergeProfiles } from '@/db/database';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { shouldSuppressConversationUpdate, isMutationSuppressed } from './mark-read-suppression';
 import { hasPendingAction } from '../sync/pending-guard';
@@ -48,9 +48,14 @@ async function applyInboundMessageToConversation(
   convId: string,
   convMessages: any[],
   memberUrn: string,
+  eventParticipants?: ExtractedParticipants,
 ): Promise<void> {
   if (isStaleContext(ctx)) return;
   const database = ctx.database;
+  // The realtime event itself often carries the full participant list (the other
+  // party included), even when the only message is outbound — e.g. a first message
+  // sent from another device. Prefer it so the conversation never shows "Unknown".
+  const haveEventParts = !!eventParticipants && eventParticipants.participantUrns.length > 0;
   const latest = convMessages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
   const hasInbound = convMessages.some((m) => !m.isFromMe);
   // Read pending-actions (a different table) outside the conversations transaction.
@@ -77,20 +82,34 @@ async function applyInboundMessageToConversation(
       await database.conversations.update(convId, updates);
     });
     // Heal a conversation previously seeded from an unresolved SSE echo
-    // (participants left as "Unknown" / a garbage URN).
-    if (needsParticipantRepair(existing)) backfillConversationParticipants(ctx, convId, memberUrn);
+    // (participants left as "Unknown" / a garbage URN). Prefer the participant
+    // data carried in this event; only fall back to a fetch if it's absent.
+    if (needsParticipantRepair(existing)) {
+      if (haveEventParts) {
+        await database.conversations.update(convId, {
+          participantUrns: eventParticipants!.participantUrns,
+          participantNames: eventParticipants!.participantNames,
+          participantPictures: eventParticipants!.participantPictures,
+        });
+        // Profile records (best-effort) back the open-profile shortcut.
+        if (eventParticipants!.profiles.length) await mergeProfiles(eventParticipants!.profiles).catch(() => {});
+        debugLog('info', `[RT] Healed participants for ${convId.substring(0, 20)}... from event: ${eventParticipants!.participantNames.join(', ')}`);
+      } else {
+        backfillConversationParticipants(ctx, convId, memberUrn);
+      }
+    }
   } else {
-    // Create a minimal conversation so it appears in the list immediately. Use
-    // the other party's info (non-self messages). If all messages are from us,
-    // backfill participant data from the messages API.
+    // Create a minimal conversation so it appears in the list immediately.
+    // Prefer participant data from the event (covers outbound-only messages from
+    // another device); else use the message sender; else backfill via the API.
     const senders = convMessages.filter((m) => !m.isFromMe);
     const sender = senders[0];
     if (isStaleContext(ctx)) return;
     await database.conversations.put({
       id: convId,
-      participantUrns: sender ? [sender.senderUrn] : [],
-      participantNames: sender ? [sender.senderName] : [],
-      participantPictures: sender ? [sender.senderPicture] : [],
+      participantUrns: haveEventParts ? eventParticipants!.participantUrns : sender ? [sender.senderUrn] : [],
+      participantNames: haveEventParts ? eventParticipants!.participantNames : sender ? [sender.senderName] : [],
+      participantPictures: haveEventParts ? eventParticipants!.participantPictures : sender ? [sender.senderPicture] : [],
       lastMessage: latest.body || 'New message',
       lastActivityAt: latest.createdAt,
       read: senders.length > 0 ? 0 : 1,
@@ -100,8 +119,10 @@ async function applyInboundMessageToConversation(
       starred: 0,
     });
     debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
-    // If we don't have participant data (outbound-only), fetch it immediately
-    if (!sender) backfillConversationParticipants(ctx, convId, memberUrn);
+    // Store participant profiles (best-effort) so the open-profile shortcut works.
+    if (haveEventParts && eventParticipants!.profiles.length) await mergeProfiles(eventParticipants!.profiles).catch(() => {});
+    // Still no usable participant data (outbound-only, none in the event) → fetch it.
+    if (!haveEventParts && !sender) backfillConversationParticipants(ctx, convId, memberUrn);
   }
 }
 import type { Message, MessageAttachment, ReactionSummary } from '@/types/message';
@@ -876,10 +897,15 @@ async function handleIncludedMessage(
   await ctx.database.messages.bulkPut(messages);
   await cleanupOptimisticMessages(ctx, messages);
 
+  // The event's MessagingParticipant entities include the other party even when
+  // the only message is outbound (e.g. sent from another device), so seeding from
+  // them avoids a "Unknown" conversation that would otherwise need an API backfill.
+  const eventParticipants = extractParticipantsFromIncluded(included, memberUrn);
+
   // Update parent conversations
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
-    await applyInboundMessageToConversation(ctx, convId, convMessages, memberUrn);
+    await applyInboundMessageToConversation(ctx, convId, convMessages, memberUrn, eventParticipants);
   }
 
   // Update hasAttachments flag if any messages have attachments
