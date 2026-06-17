@@ -340,11 +340,31 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             await sendBridgeMessage({ type: 'ARCHIVE', conversationId: realConversationId }).catch(() => {});
           }
 
+          // Carry the recipient's name/picture from the draft over to the real
+          // conversation. Otherwise the outbound SSE echo seeds this conversation
+          // with no participant data (the recipient's profile may have never been
+          // synced), leaving it labeled "Unknown". Merge with any row the echo may
+          // have already created so we don't clobber its lastMessage/category.
+          const echoed = await db.conversations.get(realConversationId);
+          await db.conversations.put({
+            id: realConversationId,
+            participantUrns: draftConv.participantUrns,
+            participantNames: draftConv.participantNames,
+            participantPictures: draftConv.participantPictures,
+            lastMessage: echoed?.lastMessage || text,
+            lastActivityAt: echoed?.lastActivityAt ?? Date.now(),
+            read: echoed?.read ?? 1,
+            archived: echoed?.archived ?? 0,
+            category: echoed?.category || 'PRIMARY_INBOX',
+            hasAttachments: echoed?.hasAttachments ?? (bridgeAttachments?.length ? 1 : 0),
+            starred: echoed?.starred ?? 0,
+          });
+
           // Clean up draft conversation
           await db.conversations.delete(conversationId).catch(() => {});
           await db.draftAttachments.delete(conversationId).catch(() => {});
 
-          // Trigger sync to load the new conversation
+          // Trigger sync to load the new conversation's message history
           sendBridgeMessage({ type: 'SYNC_CONVERSATIONS' }).catch(() => {});
           // Navigate to the real conversation
           setTimeout(() => {
