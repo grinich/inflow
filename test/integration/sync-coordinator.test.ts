@@ -482,7 +482,7 @@ describe('sync-coordinator', () => {
       });
     });
 
-    it('skips quick poll when SSE connected', async () => {
+    it('skips quick poll on a subsequent tick when SSE connected and recently reconciled', async () => {
       vi.resetModules();
 
       const { isRealtimeConnected } = await import(
@@ -505,15 +505,20 @@ describe('sync-coordinator', () => {
 
       setupSyncCoordinator();
 
-      // Wait for the initial tick to complete
+      // The initial tick reconciles once (no poll has happened yet), even with
+      // SSE connected, so cross-device read-state is picked up on startup.
       await vi.waitFor(() => {
-        expect(drainActionQueue).toHaveBeenCalled();
+        expect(syncConversations).toHaveBeenCalledTimes(1);
       });
 
-      // Give tick time to complete fully
-      await new Promise((r) => setTimeout(r, 100));
+      // A second tick fired immediately (within the reconcile window) must skip
+      // the poll, since SSE handles realtime updates between reconciliations.
+      vi.mocked(syncConversations).mockClear();
+      const addListenerCalls = vi.mocked(chrome.alarms.onAlarm.addListener).mock.calls;
+      const alarmListener = addListenerCalls[addListenerCalls.length - 1][0] as (alarm: any) => void;
+      alarmListener({ name: 'inflow-sync' });
 
-      // syncConversations should NOT have been called since SSE is connected
+      await new Promise((r) => setTimeout(r, 100));
       expect(syncConversations).not.toHaveBeenCalled();
 
       // Reset

@@ -13,6 +13,13 @@ const POLL_INTERVAL_MINUTES = 0.5; // 30 seconds
 const STALENESS_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
 const BACKFILL_BATCH_SIZE = 10;
 const BURST_MAX_PAGES = 5;
+/**
+ * Even while SSE is connected, run the quick poll at least this often. Realtime
+ * events don't reliably carry cross-device read-state changes (a thread read on
+ * another device), so without a periodic reconciliation poll such conversations
+ * would stay unread in the UI indefinitely.
+ */
+const RECONCILE_POLL_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
 
 /** Categories currently being discovered — prevents concurrent discovery for the same category. */
 const _discoveringCategories = new Set<string>();
@@ -31,6 +38,10 @@ const CATEGORIES: InboxCategory[] = [
 
 /** In-memory pause flag — not persisted across service worker restarts. */
 let paused = false;
+
+/** Timestamp of the last quick poll, used to throttle the reconciliation poll
+ *  that runs even while SSE is connected. */
+let _lastQuickPollAt = 0;
 
 export function toggleSyncPause(): boolean {
   paused = !paused;
@@ -106,14 +117,19 @@ async function _onSyncTickInner(): Promise<void> {
   // Ensure sync state is initialized
   await initializeSync();
 
-  // 1. Quick poll: sync Focused inbox (metadata only — no message fetching)
-  //    Skip when SSE is connected — realtime events handle new messages.
+  // 1. Quick poll: sync Focused inbox (metadata only — no message fetching).
+  //    When SSE is connected, realtime events handle new messages, so normally
+  //    we skip the poll. But realtime doesn't reliably deliver cross-device
+  //    read-state changes, so still poll periodically to reconcile (otherwise a
+  //    thread read on another device stays unread here forever).
   //    Discovery and backfill steps still run since SSE only delivers new events.
-  if (isRealtimeConnected()) {
+  const reconcileDue = Date.now() - _lastQuickPollAt > RECONCILE_POLL_INTERVAL_MS;
+  if (isRealtimeConnected() && !reconcileDue) {
     debugLog('info', '[COORDINATOR] SSE connected — skipping quick poll');
   } else {
     try {
       await syncConversations();
+      _lastQuickPollAt = Date.now();
 
       // Enqueue all focused conversations currently in the DB so that
       // the sync queue stays consistent with what the UI shows.
