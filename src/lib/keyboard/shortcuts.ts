@@ -13,8 +13,8 @@ export interface ShortcutDef {
 
 export const shortcutDefinitions: ShortcutDef[] = [
   // Navigation
-  { key: 'j', display: 'J', context: 'List', group: 'Navigation', description: 'Move selection down' },
-  { key: 'k', display: 'K', context: 'List', group: 'Navigation', description: 'Move selection up' },
+  { key: 'j', display: 'J / ⌃N', context: 'List', group: 'Navigation', description: 'Move selection down' },
+  { key: 'k', display: 'K / ⌃P', context: 'List', group: 'Navigation', description: 'Move selection up' },
   { key: 'Enter', display: '↵', context: 'List', group: 'Navigation', description: 'Open conversation' },
   { key: 'Escape', display: 'Esc', context: 'Thread / Compose', group: 'Navigation', description: 'Go back' },
   { key: '1', display: '1', context: 'Global', group: 'Navigation', description: 'Focused inbox' },
