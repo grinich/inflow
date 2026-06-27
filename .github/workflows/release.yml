@@ -31,17 +31,27 @@ jobs:
       # Builds the extension and produces dist/inflow-<version>-chrome.zip
       - run: npm run zip
 
-      # Extract this version's section from CHANGELOG.md to use as the release
-      # body. Empty (section missing) is fine — generate_release_notes fills in
-      # the commit list below.
-      - name: Extract changelog notes
+      # Build the release body: this version's CHANGELOG section, then a standard
+      # "How to update" section. generate_release_notes appends the commit list.
+      - name: Build release notes
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           awk -v ver="$VERSION" '
             /^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } }
             found { print }
           ' CHANGELOG.md > release-notes.md
-          echo "Extracted $(wc -l < release-notes.md) lines for v$VERSION"
+          cat >> release-notes.md <<'HOWTO'
+
+          ## How to update
+
+          1. Download the `.zip` asset from this release and unzip it (replace your existing inflow folder, or unzip a fresh copy).
+          2. Open `chrome://extensions`, find **inflow**, and click the reload icon (↻). If you unzipped to a new folder, use **Load unpacked** and select it.
+
+          Prefer building from source? Run `git pull && npm install && npm run build`, then reload at `chrome://extensions`. Your conversations and settings are preserved across updates.
+
+          Not sure where inflow is installed? Open `chrome://extensions` (turn on Developer mode) — the inflow card shows the folder it's loaded from.
+          HOWTO
+          echo "Built release notes for v$VERSION"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

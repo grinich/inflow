@@ -113,13 +113,22 @@ This extension uses LinkedIn's undocumented internal APIs to read and send messa
 
 This software is provided as-is for **personal and educational use only**. The author assumes no responsibility for any consequences of using it, including account suspension or data loss. Use at your own risk.
 
-## Prerequisites
-
-- [Node.js](https://nodejs.org/) 18 or later
-- npm (included with Node.js)
-- Google Chrome or any Chromium-based browser (Edge, Arc, Brave, etc.)
-
 ## Install
+
+You need Google Chrome or any Chromium-based browser (Edge, Arc, Brave, etc.).
+There are two ways to install — a prebuilt download, or building from source.
+
+### Option A — Download a release (no build tools needed)
+
+1. Go to the [latest release](https://github.com/grinich/inflow/releases/latest)
+   and download `inflow-<version>-chrome.zip`.
+2. Unzip it somewhere you'll keep it (the folder is the extension — don't delete it).
+3. Open `chrome://extensions`, enable **Developer mode** (top right).
+4. Click **Load unpacked** and select the unzipped folder.
+
+### Option B — Build from source
+
+Requires [Node.js](https://nodejs.org/) 18+ and npm.
 
 ```sh
 git clone https://github.com/grinich/inflow.git
@@ -128,13 +137,15 @@ npm install
 npm run build
 ```
 
-Then load the extension in Chrome:
+Then **Load unpacked** the `dist/chrome-mv3` folder at `chrome://extensions`
+(with Developer mode on).
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode** (toggle in the top right)
-3. Click **Load unpacked** and select the `dist/chrome-mv3` folder
-4. Sign into LinkedIn in any tab
-5. Click the inflow icon in the toolbar (pin it for easy access)
+### After loading (either option)
+
+1. Sign into LinkedIn in any tab.
+2. Click the inflow icon in the toolbar (pin it for easy access).
+
+inflow notifies you in-app when a new release is out — see [Updating](#updating).
 
 ## Updating
 
