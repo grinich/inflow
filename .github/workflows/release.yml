@@ -3,6 +3,7 @@ name: Release
 # Cut a release by pushing a version tag:
 #   npm version minor   # bumps package.json + creates the vX.Y.Z tag
 #   git push --follow-tags
+# Add the matching section to CHANGELOG.md first — it becomes the release notes.
 on:
   push:
     tags:
@@ -15,9 +16,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -30,10 +31,23 @@ jobs:
       # Builds the extension and produces dist/inflow-<version>-chrome.zip
       - run: npm run zip
 
+      # Extract this version's section from CHANGELOG.md to use as the release
+      # body. Empty (section missing) is fine — generate_release_notes fills in
+      # the commit list below.
+      - name: Extract changelog notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            /^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          echo "Extracted $(wc -l < release-notes.md) lines for v$VERSION"
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
+          body_path: release-notes.md
+          generate_release_notes: true # appends an auto commit/PR changelog
           files: |
             dist/*.zip
             .output/*.zip
