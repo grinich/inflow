@@ -8,6 +8,7 @@ import { getSession, invalidateSessionCache, clearCachedMemberUrn } from './auth
 import { invalidateCookieRule } from './api/client';
 import { clearSuppression } from './realtime/mark-read-suppression';
 import { clearSendQueue } from './send-queue';
+import { setupUpdateChecker } from './update-check';
 
 /** Count unread non-draft focused-inbox conversations and update the toolbar badge. */
 async function updateBadge() {
@@ -29,6 +30,9 @@ import { markDbReady } from './db-ready';
 export default defineBackground(() => {
   debugLog('info', 'Background service worker started');
   setupMessageRouter();
+
+  // Check GitHub Releases for a newer version (independent of account/DB state).
+  setupUpdateChecker();
 
   // Fetch session first to point DB at the correct account, then start sync
   (async () => {

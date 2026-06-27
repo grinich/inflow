@@ -9,6 +9,9 @@ dist/
 .audit_out.txt
 .cctmp/
 
+# extension signing key — only needed for .crx signing, never commit
+*.pem
+
 # stray media downloads (keep out of the repo)
 *.webm
 *.part

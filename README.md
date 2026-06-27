@@ -138,7 +138,14 @@ Then load the extension in Chrome:
 
 ## Updating
 
-Pull the latest changes and rebuild:
+inflow checks GitHub for new releases and shows a banner in the app when one is
+available — click **What's changed** to see the release notes. To update, either:
+
+**A. Download the latest build** — grab `inflow-<version>-chrome.zip` from the
+[latest release](https://github.com/grinich/inflow/releases/latest), unzip it,
+and load the unzipped folder (or replace your existing one) at `chrome://extensions`.
+
+**B. Rebuild from source** (if you cloned the repo):
 
 ```sh
 git pull
@@ -146,7 +153,10 @@ npm install
 npm run build
 ```
 
-Then go to `chrome://extensions` and click the reload button (↻) on the inflow card. Your data is stored locally in IndexedDB and is preserved across updates.
+Then go to `chrome://extensions` and click the reload button (↻) on the inflow
+card. Your data is stored locally and is preserved across updates — the
+extension uses a fixed ID, so reinstalling or moving the folder keeps your
+conversations and settings.
 
 ## Development
 
@@ -155,6 +165,24 @@ npm run dev
 ```
 
 Starts a dev server with hot reload. The extension auto-reloads in Chrome on save.
+
+## Releasing (maintainers)
+
+The version lives in `package.json` (WXT reads it for the manifest). To cut a release:
+
+```sh
+npm version minor   # or patch / major — bumps package.json and creates a vX.Y.Z tag
+git push --follow-tags
+```
+
+Pushing the tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which runs the tests, builds the extension, and publishes a GitHub Release with
+auto-generated notes and the `inflow-<version>-chrome.zip` attached. Users' apps
+pick up the new release via the in-app update banner.
+
+> The extension ID is pinned by a public `key` in the manifest. The matching
+> private key (`inflow-signing-key.pem`) is gitignored and only needed for `.crx`
+> signing — keep a copy somewhere safe if you ever want it.
 
 ## Architecture
 
