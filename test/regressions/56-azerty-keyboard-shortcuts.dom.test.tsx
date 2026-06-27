@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+// Regression: keyboard shortcuts that produce shifted characters on QWERTY
+// (like "!" = Shift+1, "?" = Shift+/) must not require e.shiftKey, because
+// on other layouts (AZERTY, etc.) these are direct, unshifted keys.
+// See: https://github.com/grinich/inflow/issues/3
 import '../dom-setup';
 
 import { renderHook } from '@testing-library/react';
@@ -77,6 +81,54 @@ describe('useKeyboard "!" mark-as-spam shortcut (layout independence)', () => {
     const cmd = pressOn(window, '!', { metaKey: true });
     const ctrl = pressOn(window, '!', { ctrlKey: true });
     expect(useUIStore.getState().spamConfirmId).toBeNull();
+    expect(cmd.defaultPrevented).toBe(false);
+    expect(ctrl.defaultPrevented).toBe(false);
+  });
+});
+
+describe('useKeyboard "?" show-shortcuts shortcut (layout independence)', () => {
+  const conversations = [makeConversation({ id: '2-conv-qs-1' })];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useUIStore.setState({
+      selectedIndex: 0,
+      selectedConversationId: '2-conv-qs-1',
+      inboxTab: 'focused',
+      paletteOpen: false,
+      shortcutOverlayOpen: false,
+      searchQuery: '',
+      deleteConfirmId: null,
+      spamConfirmId: null,
+      aiSetupOpen: false,
+      lightboxImageUrl: null,
+      composeActive: false,
+      composeNewActive: false,
+    });
+  });
+
+  function renderKeyboard() {
+    return renderHook(() => useKeyboard(conversations, createRef<HTMLTextAreaElement>()));
+  }
+
+  it('bare "?" (no Shift) toggles the shortcut overlay', () => {
+    renderKeyboard();
+    const ev = pressOn(window, '?');
+    expect(useUIStore.getState().shortcutOverlayOpen).toBe(true);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it('Shift+"?" still toggles the shortcut overlay', () => {
+    renderKeyboard();
+    pressOn(window, '?', { shiftKey: true });
+    expect(useUIStore.getState().shortcutOverlayOpen).toBe(true);
+  });
+
+  it('Cmd+? / Ctrl+? are not hijacked', () => {
+    renderKeyboard();
+    const cmd = pressOn(window, '?', { metaKey: true });
+    const ctrl = pressOn(window, '?', { ctrlKey: true });
+    expect(useUIStore.getState().shortcutOverlayOpen).toBe(false);
     expect(cmd.defaultPrevented).toBe(false);
     expect(ctrl.defaultPrevented).toBe(false);
   });
