@@ -4,6 +4,23 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-06-27
+
+### Added
+- **Check for updates** command in the command palette (`Cmd+K`) for an on-demand
+  release check.
+- The running version is now shown on the keyboard shortcuts bar.
+
+### Fixed
+- Update checks now run reliably — the GitHub API host is declared, so the
+  background check is no longer blocked.
+- The `?` (shortcuts) and `!` (mark as spam) shortcuts now work on non-QWERTY
+  keyboard layouts such as AZERTY. Thanks @qchuchu (#4).
+
+### Removed
+- The WhatsApp community top banner — the button in the conversation header
+  already covers it.
+
 ## [0.2.0] - 2026-06-27
 
 First public GitHub release, with in-app update notifications.
@@ -33,4 +50,5 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.3.0]: https://github.com/grinich/inflow/releases/tag/v0.3.0
 [0.2.0]: https://github.com/grinich/inflow/releases/tag/v0.2.0
