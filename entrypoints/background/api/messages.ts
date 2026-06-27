@@ -16,7 +16,7 @@ function tryParseLinkedInError(body: string, status: number): string | null {
     if (data.message) return data.message;
   } catch {}
   if (status === 400) {
-    return 'Unable to send — you may not be connected to this person';
+    return 'Unable to send — LinkedIn rejected the request (HTTP 400)';
   }
   return null;
 }
@@ -405,11 +405,12 @@ export async function createConversation(
     },
     mailboxUrn: memberUrn,
     recipients: recipientUrns,
+    hostRecipientUrns: recipientUrns,
     trackingId,
     dedupeByClientGeneratedToken: false,
   };
 
-  debugLog('info', `createConversation: to=${recipientUrns.length} recipient(s)`);
+  debugLog('info', `createConversation: to=${recipientUrns.length} recipient(s), urns=${recipientUrns.join(',')}`);
 
   const res = await voyagerFetch(
     `/voyagerMessagingDashMessengerMessages?action=createMessage`,
