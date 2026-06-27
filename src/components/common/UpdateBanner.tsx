@@ -57,6 +57,11 @@ export function UpdateBanner() {
     chrome.storage.local.set({ [DISMISS_KEY]: status.latestVersion });
   };
 
+  // A plain <a href="chrome://…"> is blocked by the browser; the tabs API isn't.
+  const openExtensions = () => {
+    void chrome.tabs?.create?.({ url: 'chrome://extensions' })?.catch?.(() => {});
+  };
+
   return (
     <div className="border-b border-edge bg-surface-raised text-sm">
       <div className="flex items-center justify-center gap-3 px-4 py-2">
@@ -103,12 +108,15 @@ export function UpdateBanner() {
               {' '}and unzip it (or, from a clone, <code className="rounded bg-surface px-1 py-0.5 font-mono">git pull &amp;&amp; npm run build</code>).
             </li>
             <li>
-              Open <code className="rounded bg-surface px-1 py-0.5 font-mono">chrome://extensions</code> and click the reload icon (↻) on the inflow card.
+              Open{' '}
+              <button onClick={openExtensions} className="cursor-pointer rounded bg-surface px-1 py-0.5 font-mono text-blue-500 hover:underline">chrome://extensions</button>
+              {' '}and click the reload icon (↻) on the inflow card.
             </li>
           </ol>
           <p className="mt-1.5">
             Your conversations and settings are preserved. Not sure where inflow lives? Open{' '}
-            <code className="rounded bg-surface px-1 py-0.5 font-mono">chrome://extensions</code> (turn on Developer mode) — the inflow card shows the folder it&apos;s loaded from.
+            <button onClick={openExtensions} className="cursor-pointer rounded bg-surface px-1 py-0.5 font-mono text-blue-500 hover:underline">chrome://extensions</button>
+            {' '}(turn on Developer mode) — the inflow card shows the folder it&apos;s loaded from.
           </p>
         </div>
       )}
