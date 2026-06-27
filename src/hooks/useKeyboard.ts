@@ -229,8 +229,15 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // J/K/ArrowDown/ArrowUp — navigate conversations and auto-open thread
-      if ((e.key === 'j' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey) {
+      // J/K/ArrowDown/ArrowUp (and emacs-style Ctrl-N/Ctrl-P) — navigate
+      // conversations and auto-open thread
+      const isNavDown =
+        ((e.key === 'j' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey) ||
+        (e.key === 'n' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey);
+      const isNavUp =
+        ((e.key === 'k' || e.key === 'ArrowUp') && !e.metaKey && !e.ctrlKey) ||
+        (e.key === 'p' && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey);
+      if (isNavDown) {
         e.preventDefault();
         // Reconcile the cursor from the actually-selected conversation so it
         // can't desync (e.g. opened from a toast with a list-wide index, or the
@@ -259,7 +266,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         }
         return;
       }
-      if ((e.key === 'k' || e.key === 'ArrowUp') && !e.metaKey && !e.ctrlKey) {
+      if (isNavUp) {
         e.preventDefault();
         const curIdx = store.selectedConversationId
           ? convs.findIndex((c) => c.id === store.selectedConversationId)
