@@ -14,7 +14,12 @@ const ALARM_NAME = 'inflow-update-check';
 const CHECK_INTERVAL_MINUTES = 12 * 60; // twice a day
 const RELEASES_API = 'https://api.github.com/repos/grinich/inflow/releases/latest';
 
-async function checkForUpdate(): Promise<void> {
+/**
+ * Fetch the latest release, cache it, and return the status (or null on
+ * failure). Called on a schedule and on demand from the "Check for updates"
+ * command.
+ */
+export async function checkForUpdate(): Promise<UpdateStatus | null> {
   // GitHub's API sends a permissive CORS header, so the service worker can fetch
   // it without a host permission. If that ever changes, add
   // 'https://api.github.com/*' to host_permissions in wxt.config.ts.
@@ -24,14 +29,14 @@ async function checkForUpdate(): Promise<void> {
     });
     if (!res.ok) {
       debugLog('warn', `[UPDATE] Release check failed: HTTP ${res.status}`);
-      return;
+      return null;
     }
     const release = await res.json();
     // /releases/latest already excludes drafts and prereleases, but guard anyway.
-    if (release.draft || release.prerelease) return;
+    if (release.draft || release.prerelease) return null;
 
     const latestVersion = String(release.tag_name || '').replace(/^v/i, '');
-    if (!latestVersion) return;
+    if (!latestVersion) return null;
 
     const current = chrome.runtime.getManifest().version;
     const status: UpdateStatus = {
@@ -48,9 +53,11 @@ async function checkForUpdate(): Promise<void> {
     } else {
       debugLog('info', `[UPDATE] Up to date (v${current})`);
     }
+    return status;
   } catch (err) {
     // Offline or transient error — keep the last cached status, try again later.
     debugLog('warn', `[UPDATE] Release check error: ${err}`);
+    return null;
   }
 }
 

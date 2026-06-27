@@ -33,6 +33,7 @@ export function buildCommands(actions: {
   aiSuggestionsEnabled: boolean;
   reportBug: () => void;
   joinWhatsApp: () => void;
+  checkForUpdate: () => void;
 }): Command[] {
   return [
     { id: 'archive', label: 'Archive conversation', shortcut: 'E', action: actions.archiveSelected },
@@ -51,6 +52,7 @@ export function buildCommands(actions: {
     { id: 'go-spam', label: 'Go to Spam', shortcut: '4', action: actions.goToSpam },
     { id: 'shortcuts', label: 'Show keyboard shortcuts', shortcut: '?', action: actions.showShortcuts },
     { id: 'sync', label: 'Sync now', shortcut: '', action: actions.triggerSync },
+    { id: 'check-update', label: 'Check for updates', shortcut: '', action: actions.checkForUpdate },
     ...(actions.currentTheme !== 'light' ? [{ id: 'theme-light', label: 'Switch to Light theme', shortcut: '', action: actions.setThemeLight }] : []),
     ...(actions.currentTheme !== 'dark' ? [{ id: 'theme-dark', label: 'Switch to Dark theme', shortcut: '', action: actions.setThemeDark }] : []),
     ...(actions.currentTheme !== 'system' ? [{ id: 'theme-system', label: 'Switch to System theme', shortcut: '', action: actions.setThemeSystem }] : []),

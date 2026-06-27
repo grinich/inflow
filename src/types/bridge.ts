@@ -39,7 +39,8 @@ export type BridgeMessage =
   | { type: 'REEVAL_BACKFILL_WINDOW' }
   | { type: 'PREFETCH_MESSAGES'; conversationIds: string[] }
   | { type: 'REACT_EMOJI'; conversationId: string; messageId: string; emoji: string }
-  | { type: 'RECALL_MESSAGE'; conversationId: string; messageId: string };
+  | { type: 'RECALL_MESSAGE'; conversationId: string; messageId: string }
+  | { type: 'CHECK_FOR_UPDATE' };
 
 export type BridgeResponse = {
   success: boolean;
