@@ -4,6 +4,13 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] - 2026-06-27
+
+### Fixed
+- **Compose to new contacts** — sending a first message to a recently connected
+  person no longer fails with a misleading "not connected" error. The
+  `createMessage` payload was missing a required field (`hostRecipientUrns`).
+
 ## [0.3.0] - 2026-06-27
 
 ### Added
@@ -50,5 +57,6 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.3.1]: https://github.com/grinich/inflow/releases/tag/v0.3.1
 [0.3.0]: https://github.com/grinich/inflow/releases/tag/v0.3.0
 [0.2.0]: https://github.com/grinich/inflow/releases/tag/v0.2.0
