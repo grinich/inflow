@@ -192,8 +192,8 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // ? — Show shortcuts
-      if (e.key === '?' && e.shiftKey) {
+      // ? — Show shortcuts (no shiftKey guard — e.key is layout-aware)
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         store.toggleShortcutOverlay();
         return;
@@ -286,7 +286,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // Shift+! — Mark as Spam (with confirmation)
+      // ! — Mark as Spam (with confirmation; no shiftKey guard — e.key is layout-aware)
       if (e.key === '!' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const conv = store.selectedConversationId
