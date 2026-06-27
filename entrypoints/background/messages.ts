@@ -34,6 +34,7 @@ import { dbReady } from './db-ready';
 import { runDiagnosticSync } from './diagnostic';
 import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression';
 import { getSSEStatus } from './realtime/sse-client';
+import { checkForUpdate } from './update-check';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 
@@ -233,6 +234,10 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     case 'CREATE_CONVERSATION': {
       const result = await createConversation(msg.recipientUrns, msg.body, msg.attachments);
       return { success: true, data: result };
+    }
+    case 'CHECK_FOR_UPDATE': {
+      const status = await checkForUpdate();
+      return { success: true, data: status };
     }
     case 'FETCH_PROFILE_BY_URN': {
       if (!ENABLE_PROFILE_ENRICHMENT) return { success: true, data: null };
