@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/icon-128.png" alt="inflow icon" width="120" />
+  <img src="assets/screenshot-light.png" alt="inflow — light theme conversation view" width="100%">
 </p>
 
 # inflow
@@ -7,9 +7,6 @@
 An experimental Chrome extension that reimagines LinkedIn messaging with a keyboard-driven, local-first UI. Built as a personal project to explore browser extension development with React, IndexedDB, and real-time streaming.
 
 <table>
-  <tr>
-    <td colspan="2"><img src="assets/screenshot-light.png" alt="Light theme conversation view" width="100%"></td>
-  </tr>
   <tr>
     <td><img src="assets/screenshot-dark.png" alt="Dark theme conversation view" width="100%"></td>
     <td><img src="assets/screenshot-shortcuts.png" alt="Keyboard shortcuts overlay" width="100%"></td>
