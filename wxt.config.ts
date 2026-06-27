@@ -15,7 +15,12 @@ export default defineConfig({
   manifest: {
     name: 'inƒlow — Messaging client for LinkedIn',
     description: 'A keyboard-driven LinkedIn messaging client',
-    version: '0.1.0',
+    // Pin a stable extension ID (fngobhjkhkdnnijgegkcjoadmddkehgh) regardless of
+    // install path, so updates preserve IndexedDB + chrome.storage.local data.
+    // The matching private key (inflow-signing-key.pem) is gitignored and only
+    // needed for .crx signing, which we don't do.
+    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn7myScuTpNTjXLfNUhfybBtFgcOglAzdabOT1SOrqs97CksZUVdRWvbZK6MNRupVkqScEVbA+MgvP//G+F7MkUwIMOBI27q8nkxfufMOm/LSiPz86sJTh/2hzysYauZex+ylQbKTJFvB4gWodCXvjLzBDzrQWWxbuArMIzZ1vJZ3XmFGFJ1/w3RIYLasNOOPltnPyd/QHC8T7O3HTwlbTZkvoDIRJIzUKZH0YEEtUbbHiE3Tc6oA51nVJMQdhEtEOdfJNQdL2QBYq9gWOWbA1Iq/jpCxtCxjixkYuv9XVO4YUF+d3CNMB584q3HjXdbQyQgibcOoRmKNFWcRMRSA+wIDAQAB',
+    // version is read from package.json by WXT — bump there (npm version) only.
     permissions: ['cookies', 'storage', 'alarms', 'tabs', 'declarativeNetRequest'],
     host_permissions: ['https://www.linkedin.com/*', 'https://generativelanguage.googleapis.com/*'],
     action: {
