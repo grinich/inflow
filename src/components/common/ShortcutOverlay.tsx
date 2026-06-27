@@ -9,6 +9,7 @@ export const SHORTCUT_PANEL_PADDING = 'pb-64';
 export function ShortcutOverlay() {
   const isOpen = useUIStore((s) => s.shortcutOverlayOpen);
   const setOpen = useUIStore((s) => s.setShortcutOverlayOpen);
+  const version = chrome.runtime?.getManifest?.().version ?? '';
 
   const grouped = useMemo(() => {
     const map = new Map<string, ShortcutDef[]>();
@@ -34,6 +35,11 @@ export function ShortcutOverlay() {
           Press <kbd className="mx-0.5 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] ring-1 ring-ring">Esc</kbd> or{' '}
           <kbd className="mx-0.5 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] ring-1 ring-ring">?</kbd> to close
         </span>
+        {version && (
+          <span className="ml-auto text-[10px] font-medium tracking-wider text-fg-faint">
+            inflow v{version}
+          </span>
+        )}
       </div>
 
       {/* Columns */}
