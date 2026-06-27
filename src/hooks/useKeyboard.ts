@@ -287,7 +287,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       }
 
       // Shift+! — Mark as Spam (with confirmation)
-      if (e.key === '!' && e.shiftKey) {
+      if (e.key === '!' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const conv = store.selectedConversationId
           ? convs.find((c) => c.id === store.selectedConversationId)
