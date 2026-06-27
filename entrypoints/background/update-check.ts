@@ -20,9 +20,8 @@ const RELEASES_API = 'https://api.github.com/repos/grinich/inflow/releases/lates
  * command.
  */
 export async function checkForUpdate(): Promise<UpdateStatus | null> {
-  // GitHub's API sends a permissive CORS header, so the service worker can fetch
-  // it without a host permission. If that ever changes, add
-  // 'https://api.github.com/*' to host_permissions in wxt.config.ts.
+  // api.github.com is declared in host_permissions (wxt.config.ts) so the
+  // service worker fetch is reliable (CORS-exempt) across Chrome versions.
   try {
     const res = await fetch(RELEASES_API, {
       headers: { Accept: 'application/vnd.github+json' },

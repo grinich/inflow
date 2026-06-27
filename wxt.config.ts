@@ -22,7 +22,7 @@ export default defineConfig({
     key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn7myScuTpNTjXLfNUhfybBtFgcOglAzdabOT1SOrqs97CksZUVdRWvbZK6MNRupVkqScEVbA+MgvP//G+F7MkUwIMOBI27q8nkxfufMOm/LSiPz86sJTh/2hzysYauZex+ylQbKTJFvB4gWodCXvjLzBDzrQWWxbuArMIzZ1vJZ3XmFGFJ1/w3RIYLasNOOPltnPyd/QHC8T7O3HTwlbTZkvoDIRJIzUKZH0YEEtUbbHiE3Tc6oA51nVJMQdhEtEOdfJNQdL2QBYq9gWOWbA1Iq/jpCxtCxjixkYuv9XVO4YUF+d3CNMB584q3HjXdbQyQgibcOoRmKNFWcRMRSA+wIDAQAB',
     // version is read from package.json by WXT — bump there (npm version) only.
     permissions: ['cookies', 'storage', 'alarms', 'tabs', 'declarativeNetRequest'],
-    host_permissions: ['https://www.linkedin.com/*', 'https://generativelanguage.googleapis.com/*'],
+    host_permissions: ['https://www.linkedin.com/*', 'https://generativelanguage.googleapis.com/*', 'https://api.github.com/*'],
     action: {
       default_icon: {
         '16': 'icon-16.png',
