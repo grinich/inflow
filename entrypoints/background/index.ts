@@ -130,6 +130,12 @@ export default defineBackground(() => {
   // Open the app tab when the toolbar icon is clicked (no popup)
   chrome.action.onClicked.addListener(openAppTab);
 
+  // Open/focus the app tab when a native notification is clicked
+  chrome.notifications.onClicked.addListener((notificationId) => {
+    chrome.notifications.clear(notificationId);
+    openAppTab();
+  });
+
   // Re-open the app tab after extension reload in dev mode
   chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'update') {
