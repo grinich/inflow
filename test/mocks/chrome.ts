@@ -76,6 +76,13 @@ function createChromeMock() {
     windows: {
       update: vi.fn(),
     },
+    notifications: {
+      create: vi.fn(),
+      clear: vi.fn(),
+      onClicked: {
+        addListener: vi.fn(),
+      },
+    },
   };
 }
 

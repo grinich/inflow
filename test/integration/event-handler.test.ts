@@ -499,6 +499,178 @@ describe('event-handler', () => {
       expect(incomingCalls).toHaveLength(0);
     });
 
+    it('shows a native notification for inbound messages when tab is not focused', async () => {
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+
+      await testDb.conversations.put(makeConversation({ id: 'conv-native' }));
+
+      // Tab is NOT focused (default mock returns [])
+      vi.mocked(chrome.tabs.query).mockResolvedValue([]);
+
+      const { eventType, data } = buildMessengerMessageEvent([
+        {
+          entityUrn: 'urn:li:msg_message:NATIVE',
+          conversationUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,conv-native)',
+          senderProfileId: 'BOB',
+          senderFirstName: 'Bob',
+          senderLastName: 'Smith',
+          body: 'Hello from Bob',
+          deliveredAt: 11000,
+        },
+      ]);
+
+      await handleRealtimeEvent(eventType, data);
+      // Allow the fire-and-forget showNativeNotification to settle
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(chrome.notifications.create).toHaveBeenCalledWith(
+        'conv-native',
+        expect.objectContaining({
+          type: 'basic',
+          title: 'Bob Smith',
+          message: 'Hello from Bob',
+        })
+      );
+    });
+
+    it('does NOT show a native notification for own outbound messages', async () => {
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+
+      await testDb.conversations.put(makeConversation({ id: 'conv-own-notif' }));
+      vi.mocked(chrome.tabs.query).mockResolvedValue([]);
+      vi.mocked(chrome.notifications.create).mockClear();
+
+      const { eventType, data } = buildMessengerMessageEvent([
+        {
+          entityUrn: 'urn:li:msg_message:OWN_NOTIF',
+          conversationUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,conv-own-notif)',
+          senderProfileId: 'SELF',
+          body: 'My own outbound message',
+          deliveredAt: 13000,
+        },
+      ]);
+
+      await handleRealtimeEvent(eventType, data);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(chrome.notifications.create).not.toHaveBeenCalled();
+    });
+
+    it('native notification uses fallback icon when sender has no picture', async () => {
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+
+      await testDb.conversations.put(makeConversation({ id: 'conv-nopic' }));
+      vi.mocked(chrome.tabs.query).mockResolvedValue([]);
+
+      const { eventType, data } = buildMessengerMessageEvent([
+        {
+          entityUrn: 'urn:li:msg_message:NOPIC',
+          conversationUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,conv-nopic)',
+          senderProfileId: 'CHARLIE',
+          senderFirstName: 'Charlie',
+          senderLastName: 'Brown',
+          body: 'No profile picture here',
+          deliveredAt: 14000,
+        },
+      ]);
+
+      await handleRealtimeEvent(eventType, data);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(chrome.notifications.create).toHaveBeenCalledWith(
+        'conv-nopic',
+        expect.objectContaining({
+          iconUrl: 'chrome-extension://test-extension-id/icon-128.png',
+        })
+      );
+    });
+
+    it('native notification uses conversation ID so rapid messages replace each other', async () => {
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+
+      await testDb.conversations.put(makeConversation({ id: 'conv-replace' }));
+      vi.mocked(chrome.tabs.query).mockResolvedValue([]);
+      vi.mocked(chrome.notifications.create).mockClear();
+
+      // First message
+      const ev1 = buildMessengerMessageEvent([
+        {
+          entityUrn: 'urn:li:msg_message:REPLACE1',
+          conversationUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,conv-replace)',
+          senderProfileId: 'DAN',
+          senderFirstName: 'Dan',
+          senderLastName: 'Lee',
+          body: 'First message',
+          deliveredAt: 15000,
+        },
+      ]);
+      await handleRealtimeEvent(ev1.eventType, ev1.data);
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Second message in the same conversation
+      const ev2 = buildMessengerMessageEvent([
+        {
+          entityUrn: 'urn:li:msg_message:REPLACE2',
+          conversationUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,conv-replace)',
+          senderProfileId: 'DAN',
+          senderFirstName: 'Dan',
+          senderLastName: 'Lee',
+          body: 'Second message',
+          deliveredAt: 16000,
+        },
+      ]);
+      await handleRealtimeEvent(ev2.eventType, ev2.data);
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Both calls should use the same notification ID (conversation ID)
+      const calls = vi.mocked(chrome.notifications.create).mock.calls;
+      expect(calls.length).toBe(2);
+      expect(calls[0][0]).toBe('conv-replace');
+      expect(calls[1][0]).toBe('conv-replace');
+      // Second call should have the newer message body
+      expect(calls[1][1]).toEqual(expect.objectContaining({ message: 'Second message' }));
+    });
+
+    it('suppresses native notification when the inflow tab is focused', async () => {
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+
+      await testDb.conversations.put(makeConversation({ id: 'conv-focused' }));
+
+      // Simulate the inflow tab being active and focused
+      vi.mocked(chrome.tabs.query).mockResolvedValue([
+        { id: 1, windowId: 1, active: true, url: 'chrome-extension://test/app.html' } as any,
+      ]);
+
+      vi.mocked(chrome.notifications.create).mockClear();
+
+      const { eventType, data } = buildMessengerMessageEvent([
+        {
+          entityUrn: 'urn:li:msg_message:SUPPRESSED',
+          conversationUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,conv-focused)',
+          senderProfileId: 'ALICE',
+          senderFirstName: 'Alice',
+          senderLastName: 'Jones',
+          body: 'This should not trigger a native notification',
+          deliveredAt: 12000,
+        },
+      ]);
+
+      await handleRealtimeEvent(eventType, data);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(chrome.notifications.create).not.toHaveBeenCalled();
+    });
+
     it('creates minimal conversation when conv does not exist in DB', async () => {
       const { handleRealtimeEvent } = await import(
         '../../entrypoints/background/realtime/event-handler'

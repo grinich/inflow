@@ -127,6 +127,35 @@ async function applyInboundMessageToConversation(
 }
 import type { Message, MessageAttachment, ReactionSummary } from '@/types/message';
 
+/**
+ * Show a native OS notification for an inbound message.
+ * Suppressed when the inflow tab is active and focused (the in-app toast
+ * handles that case). Uses the conversation ID as the notification ID so
+ * rapid messages in the same thread replace the previous notification.
+ * Fire-and-forget — errors are swallowed.
+ */
+function showNativeNotification(msg: {
+  senderName: string;
+  senderPicture: string;
+  body: string;
+  conversationId: string;
+}): void {
+  (async () => {
+    const appUrl = chrome.runtime.getURL('app.html');
+    const activeTabs = await chrome.tabs.query({ url: appUrl, active: true, lastFocusedWindow: true });
+    if (activeTabs.length > 0) return; // in-app toast will show instead
+
+    chrome.notifications.create(msg.conversationId, {
+      type: 'basic',
+      iconUrl: msg.senderPicture || chrome.runtime.getURL('icon-128.png'),
+      title: msg.senderName,
+      message: msg.body || 'New message',
+    });
+  })().catch((err) => {
+    debugLog('warn', `[RT] Failed to show notification: ${err}`);
+  });
+}
+
 /** Enrich a single profile if it's missing company data. Non-blocking, fire-and-forget. */
 function enrichProfileIfNeeded(ctx: RealtimeContext, urn: string): void {
   if (!ENABLE_PROFILE_ENRICHMENT) return;
@@ -562,6 +591,7 @@ async function handleVoyagerEvent(
       body: latest.body,
       conversationId: latest.conversationId,
     }).catch(() => {});
+    showNativeNotification(latest);
   }
 
   // Enrich sender profiles for inbound messages (non-blocking)
@@ -930,6 +960,7 @@ async function handleIncludedMessage(
       body: latestInbound.body,
       conversationId: latestInbound.conversationId,
     }).catch(() => {});
+    showNativeNotification(latestInbound);
   }
 
   // Enrich sender profiles for inbound messages (non-blocking)
