@@ -23,6 +23,17 @@ export function useConversations() {
   // re-runs (triggered by markRead) keep showing those same conversations.
   const filterSnapshotRef = useRef<{ query: string; tab: InboxTab; ids: Set<string> } | null>(null);
 
+  // Per-tab result memory: on a tab switch, useLiveQuery keeps returning the
+  // PREVIOUS tab's rows until the fresh query resolves — the list briefly
+  // showed the wrong folder's content. Detect that stale window (tab changed
+  // but the value identity hasn't) and serve the target tab's own previous
+  // results synchronously instead. Not used while searching.
+  const lastResultsRef = useRef(new Map<InboxTab, Conversation[]>());
+  const lastSeenRef = useRef<{ tab: InboxTab; value: Conversation[] | undefined }>({
+    tab: inboxTab,
+    value: undefined,
+  });
+
   const conversations = useLiveQuery(async () => {
     if (!db) return [];
     // Drop any stale is:unread snapshot once the search box is cleared, so a
@@ -286,9 +297,23 @@ export function useConversations() {
     return state?.phase === 'discovering';
   }, [category]);
 
+  let effective = conversations;
+  if (!searchQuery) {
+    const stale =
+      lastSeenRef.current.tab !== inboxTab && conversations === lastSeenRef.current.value;
+    if (stale) {
+      // The live query hasn't caught up with the tab switch yet — the current
+      // value belongs to the previous tab. Show this tab's own last results.
+      effective = lastResultsRef.current.get(inboxTab);
+    } else {
+      lastSeenRef.current = { tab: inboxTab, value: conversations };
+      if (conversations !== undefined) lastResultsRef.current.set(inboxTab, conversations);
+    }
+  }
+
   return {
-    conversations: conversations ?? [],
-    isLoading: conversations === undefined,
+    conversations: effective ?? [],
+    isLoading: effective === undefined,
     isDiscovering: isDiscovering ?? false,
     category,
   };

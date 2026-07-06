@@ -1,89 +1,44 @@
-import { useRef, useEffect, useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useRef, useEffect, memo } from 'react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { GroupAvatar } from '../common/GroupAvatar';
 import { useUIStore } from '@/store/ui-store';
-import { db } from '@/db/database';
 import { preloadImages, useCachedImage } from '@/hooks/useCachedImage';
 import { stripFilterTokens } from '@/lib/search-filters';
 import type { Conversation } from '@/types/conversation';
 
-interface DraftInfo {
-  text: string;
-  attachmentCount: number;
-}
-
-function useDraft(conversationId: string): DraftInfo {
-  const [draft, setDraft] = useState<DraftInfo>({ text: '', attachmentCount: 0 });
-
-  useEffect(() => {
-    function refresh() {
-      db.draftAttachments.get(conversationId).then((row) => {
-        const text = row?.text || '';
-        const attachmentCount = row?.files?.length || 0;
-        // Only update when the value actually changed. ComposeBox dispatches
-        // inflow:draft-change every second, which would otherwise re-render this
-        // row (and the list) every tick for no reason.
-        setDraft((prev) => (prev.text === text && prev.attachmentCount === attachmentCount ? prev : { text, attachmentCount }));
-      }).catch(() => {
-        setDraft((prev) => (prev.text === '' && prev.attachmentCount === 0 ? prev : { text: '', attachmentCount: 0 }));
-      });
-    }
-    refresh(); // read once on mount
-
-    function onDraftChange(e: Event) {
-      if ((e as CustomEvent).detail === conversationId) refresh();
-    }
-    document.addEventListener('inflow:draft-change', onDraftChange);
-    return () => document.removeEventListener('inflow:draft-change', onDraftChange);
-  }, [conversationId]);
-
-  return draft;
-}
-
-function useHasFailedMessage(conversationId: string): boolean {
-  const [hasFailed, setHasFailed] = useState(false);
-
-  useEffect(() => {
-    function refresh() {
-      db.messages
-        .where('conversationId')
-        .equals(conversationId)
-        .filter((m) => m.status === 'failed')
-        .count()
-        .then((n) => setHasFailed(n > 0))
-        .catch(() => setHasFailed(false));
-    }
-    refresh(); // read once on mount
-
-    function onFailedChange(e: Event) {
-      if ((e as CustomEvent).detail === conversationId) refresh();
-    }
-    document.addEventListener('inflow:failed-change', onFailedChange);
-    return () => document.removeEventListener('inflow:failed-change', onFailedChange);
-  }, [conversationId]);
-
-  return hasFailed;
-}
-
 interface ConversationRowProps {
   conversation: Conversation;
   selected: boolean;
-  onClick: () => void;
+  index: number;
+  onOpen: (conversation: Conversation, index: number) => void;
+  /** Persisted draft text/attachments for this conversation (batched at the
+   *  list level — a per-row DB read here made folder switches O(rows) in
+   *  IndexedDB queries). */
+  draftText: string;
+  draftAttachmentCount: number;
+  /** True when this conversation has a failed outgoing message. */
+  hasFailed: boolean;
+  /** First participant's company name + logo (batched at the list level). */
+  company: string;
+  companyLogoUrl: string;
+  /** Minute-level counter so relative timestamps refresh despite memoization. */
+  timeTick: number;
 }
 
-export function ConversationRow({ conversation, selected, onClick }: ConversationRowProps) {
+function RowImpl({
+  conversation,
+  selected,
+  index,
+  onOpen,
+  draftText,
+  draftAttachmentCount,
+  hasFailed,
+  company,
+  companyLogoUrl,
+}: ConversationRowProps) {
   const ref = useRef<HTMLDivElement>(null);
   const searchQuery = useUIStore((s) => s.searchQuery);
-  const draft = useDraft(conversation.id);
-  const hasFailed = useHasFailedMessage(conversation.id);
-  const firstUrn = conversation.participantUrns[0];
-  const profileInfo = useLiveQuery(
-    () => (firstUrn && db) ? db.profiles.get(firstUrn).then((p) => ({ company: p?.company || '', logoUrl: p?.companyLogoUrl || '' })) : { company: '', logoUrl: '' },
-    [firstUrn]
-  ) || { company: '', logoUrl: '' };
-  const company = profileInfo.company;
-  const companyLogoSrc = useCachedImage(profileInfo.logoUrl || undefined);
+  const companyLogoSrc = useCachedImage(companyLogoUrl || undefined);
 
   useEffect(() => {
     if (selected) {
@@ -134,7 +89,7 @@ export function ConversationRow({ conversation, selected, onClick }: Conversatio
     <div
       ref={ref}
       data-conversation-id={conversation.id}
-      onClick={onClick}
+      onClick={() => onOpen(conversation, index)}
       className={`group relative flex cursor-pointer items-center gap-1.5 py-3 pl-1.5 pr-3 ${
         selected ? 'bg-surface-active' : 'hover:bg-surface-hover'
       }`}
@@ -188,8 +143,8 @@ export function ConversationRow({ conversation, selected, onClick }: Conversatio
             <><span className="font-medium text-red-400/70">failed:</span> {conversation.lastMessage || 'message failed to send'}</>
           ) : conversation.draft === 1 ? (
             <><span className="font-medium text-orange-400/70">draft:</span> {conversation.lastMessage || 'new message'}</>
-          ) : (draft.text || draft.attachmentCount > 0) ? (
-            <><span className="font-medium text-orange-400/70">draft:</span> {draft.text || `${draft.attachmentCount} file${draft.attachmentCount !== 1 ? 's' : ''}`}</>
+          ) : (draftText || draftAttachmentCount > 0) ? (
+            <><span className="font-medium text-orange-400/70">draft:</span> {draftText || `${draftAttachmentCount} file${draftAttachmentCount !== 1 ? 's' : ''}`}</>
           ) : searchQuery && conversation.lastMessage
             ? highlightMatch(conversation.lastMessage, searchQuery)
             : conversation.lastMessage || <em className="text-fg-faint">image</em>}
@@ -198,6 +153,36 @@ export function ConversationRow({ conversation, selected, onClick }: Conversatio
     </div>
   );
 }
+
+/** Value-compare the fields a row actually renders, so live-query churn during
+ *  background sync (new array identities every run) doesn't re-render hundreds
+ *  of unchanged rows. */
+function rowPropsEqual(prev: ConversationRowProps, next: ConversationRowProps): boolean {
+  const a = prev.conversation;
+  const b = next.conversation;
+  return (
+    prev.selected === next.selected &&
+    prev.index === next.index &&
+    prev.onOpen === next.onOpen &&
+    prev.draftText === next.draftText &&
+    prev.draftAttachmentCount === next.draftAttachmentCount &&
+    prev.hasFailed === next.hasFailed &&
+    prev.company === next.company &&
+    prev.companyLogoUrl === next.companyLogoUrl &&
+    prev.timeTick === next.timeTick &&
+    a.id === b.id &&
+    a.read === b.read &&
+    a.starred === b.starred &&
+    a.draft === b.draft &&
+    a.lastMessage === b.lastMessage &&
+    a.lastActivityAt === b.lastActivityAt &&
+    a.participantNames.join('\0') === b.participantNames.join('\0') &&
+    a.participantPictures.join('\0') === b.participantPictures.join('\0') &&
+    (a.mergedIds ?? []).join('\0') === (b.mergedIds ?? []).join('\0')
+  );
+}
+
+export const ConversationRow = memo(RowImpl, rowPropsEqual);
 
 /** Highlight the first occurrence of `query` in a name string. */
 function highlightName(text: string, query: string): React.ReactNode {
@@ -236,7 +221,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   const CONTEXT = 20;
   const prefix = idx <= CONTEXT
     ? text.slice(0, idx)
-    : '\u2026' + text.slice(idx - CONTEXT, idx);
+    : '…' + text.slice(idx - CONTEXT, idx);
 
   return (
     <>

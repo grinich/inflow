@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
+import { computeWindow } from '@/lib/list-window';
 import { ConversationListHeader } from './ConversationListHeader';
 import { ConversationRow } from './ConversationRow';
 import { SyncStatusIndicator } from '../common/SyncStatusIndicator';
@@ -19,15 +21,141 @@ interface ConversationListProps {
   onOpenDebug?: () => void;
 }
 
+/** Fallback row height until the first rendered row is measured. */
+const DEFAULT_ROW_HEIGHT = 64;
+const OVERSCAN = 8;
+
+interface DraftMeta {
+  text: string;
+  attachmentCount: number;
+}
+
 export function ConversationList({ conversations, isLoading, isDiscovering, category, isSearching, hasMoreSearchResults, onLoadMoreSearch, onOpenDebug }: ConversationListProps) {
   const selectedConversationId = useUIStore((s) => s.selectedConversationId);
-  const openThread = useUIStore((s) => s.openThread);
-  const { markRead, archiveConversation } = useOptimisticAction();
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lastTriggerRef = useRef(0);
   const prefetchedRef = useRef<Set<string>>(new Set());
   const inboxTab = useUIStore((s) => s.inboxTab);
+
+  // ── Batched row metadata ───────────────────────────────────────────────────
+  // These used to be three IndexedDB queries PER ROW on mount (draft, failed
+  // message, company profile) — ~900 queries when switching to a large folder,
+  // plus one live profile subscription per row. Batch them into three
+  // list-level queries and pass values down as props.
+
+  const draftsByConv = useLiveQuery(
+    async () => {
+      const map = new Map<string, DraftMeta>();
+      if (!db) return map;
+      // Tiny table: one row per conversation with a saved draft.
+      for (const row of await db.draftAttachments.toArray()) {
+        map.set(row.conversationId, {
+          text: row.text || '',
+          attachmentCount: row.files?.length || 0,
+        });
+      }
+      return map;
+    },
+    [],
+    new Map<string, DraftMeta>()
+  );
+
+  const failedConvIds = useLiveQuery(
+    async () => {
+      const set = new Set<string>();
+      if (!db) return set;
+      // Failed sends are always optimistic temp- rows — an indexed primary-key
+      // prefix scan over the handful of temps, not a per-conversation count.
+      const temps = await db.messages.where('id').startsWith('temp-').toArray();
+      for (const t of temps) {
+        if (t.status === 'failed') set.add(t.conversationId);
+      }
+      return set;
+    },
+    [],
+    new Set<string>()
+  );
+
+  const firstUrnKey = useMemo(
+    () => [...new Set(conversations.map((c) => c.participantUrns[0]).filter(Boolean))].join(','),
+    [conversations]
+  );
+  const companyByUrn = useLiveQuery(
+    async () => {
+      const map = new Map<string, { company: string; logoUrl: string }>();
+      if (!db || !firstUrnKey) return map;
+      const urns = firstUrnKey.split(',');
+      const profiles = await db.profiles.bulkGet(urns);
+      for (const p of profiles) {
+        if (p) map.set(p.urn, { company: p.company || '', logoUrl: p.companyLogoUrl || '' });
+      }
+      return map;
+    },
+    [firstUrnKey],
+    new Map<string, { company: string; logoUrl: string }>()
+  );
+
+  // Minute counter so memoized rows still refresh their relative timestamps.
+  const [timeTick, setTimeTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTimeTick((t) => t + 1), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // ── Windowed rendering ─────────────────────────────────────────────────────
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
+  const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const update = () => setViewportHeight(el.clientHeight || 600);
+    update();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(update);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+  }, []);
+
+  // Measure the real row height from the first rendered row (uniform rows).
+  useLayoutEffect(() => {
+    const row = scrollContainerRef.current?.querySelector<HTMLElement>('[data-conversation-id]');
+    if (row && row.offsetHeight > 0 && Math.abs(row.offsetHeight - rowHeight) > 1) {
+      setRowHeight(row.offsetHeight);
+    }
+  });
+
+  const { start, end, topPad, bottomPad } = computeWindow(
+    scrollTop,
+    viewportHeight,
+    rowHeight,
+    conversations.length,
+    OVERSCAN
+  );
+  const visibleRows = conversations.slice(start, end);
+
+  // Keep the selected row mounted/visible: when selection moves outside the
+  // rendered window (j/k held down, tab restore), scroll the container so the
+  // window includes it. The row's own scrollIntoView fine-tunes once mounted.
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
+  useEffect(() => {
+    if (!selectedConversationId) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const idx = conversationsRef.current.findIndex((c) => c.id === selectedConversationId);
+    if (idx === -1) return;
+    const rowTop = idx * rowHeight;
+    const rowBottom = rowTop + rowHeight;
+    if (rowTop < el.scrollTop) {
+      el.scrollTop = rowTop;
+    } else if (rowBottom > el.scrollTop + el.clientHeight) {
+      el.scrollTop = rowBottom - el.clientHeight;
+    }
+  }, [selectedConversationId, rowHeight]);
 
   // Clear prefetch cache on tab change or DB reset
   useEffect(() => {
@@ -137,9 +265,14 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
     };
   }, [handleScrollIdle]);
 
-  function handleRowClick(conv: Conversation, index: number) {
+  // Stable click handler (via refs) so memoized rows never re-render because a
+  // parent render recreated their onClick closure.
+  const actions = useOptimisticAction();
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  const handleOpen = useCallback((conv: Conversation, index: number) => {
+    const store = useUIStore.getState();
     if (conv.draft === 1) {
-      const store = useUIStore.getState();
       if (conv.lastMessage) {
         // Draft with text in ComposeBox → open ThreadView
         store.setSelectedConversationId(conv.id);
@@ -153,9 +286,9 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
       }
       return;
     }
-    openThread(conv.id, index);
-    markRead(conv.id, conv.mergedIds);
-  }
+    store.openThread(conv.id, index);
+    actionsRef.current.markRead(conv.id, conv.mergedIds);
+  }, []);
 
   const [accountName, setAccountName] = useState<string | undefined>();
   useEffect(() => {
@@ -168,15 +301,32 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
   return (
     <div className="flex h-full flex-col">
       <ConversationListHeader conversationCount={conversations.length} />
-      <div ref={scrollContainerRef} className="flex-1 select-none overflow-y-auto overscroll-contain">
-        {conversations.map((conv, i) => (
-          <ConversationRow
-            key={conv.id}
-            conversation={conv}
-            selected={conv.id === selectedConversationId}
-            onClick={() => handleRowClick(conv, i)}
-          />
-        ))}
+      <div
+        ref={scrollContainerRef}
+        onScroll={(e) => setScrollTop((e.target as HTMLElement).scrollTop)}
+        className="flex-1 select-none overflow-y-auto overscroll-contain"
+      >
+        {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
+        {visibleRows.map((conv, i) => {
+          const draft = draftsByConv.get(conv.id);
+          const info = companyByUrn.get(conv.participantUrns[0]);
+          return (
+            <ConversationRow
+              key={conv.id}
+              conversation={conv}
+              selected={conv.id === selectedConversationId}
+              index={start + i}
+              onOpen={handleOpen}
+              draftText={draft?.text || ''}
+              draftAttachmentCount={draft?.attachmentCount || 0}
+              hasFailed={failedConvIds.has(conv.id)}
+              company={info?.company || ''}
+              companyLogoUrl={info?.logoUrl || ''}
+              timeTick={timeTick}
+            />
+          );
+        })}
+        {bottomPad > 0 && <div style={{ height: bottomPad }} aria-hidden />}
         {/* Keep the infinite-scroll sentinel mounted whenever a search/discovery
             is in flight — even with zero local matches — so pagination can fire
             and the loading state stays visible. */}
