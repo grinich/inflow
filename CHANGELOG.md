@@ -4,6 +4,20 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.5] - 2026-07-05
+
+### Added
+- **Resizable sidebar** — drag the divider between the conversation list and
+  the thread to resize it (280px up to 60% of the window); double-click the
+  divider to reset. Your chosen width persists across sessions. Thanks
+  @sharkymark for the suggestion (#6).
+- When the sidebar is narrow, the Focused/Other/Archive/Spam tabs collapse
+  into a compact dropdown so the header never overflows.
+
+### Changed
+- README: install steps moved to the top (#7) and screenshots now illustrate
+  the feature tour.
+
 ## [0.3.4] - 2026-07-05
 
 ### Fixed
@@ -136,6 +150,7 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.3.5]: https://github.com/grinich/inflow/releases/tag/v0.3.5
 [0.3.4]: https://github.com/grinich/inflow/releases/tag/v0.3.4
 [0.3.3]: https://github.com/grinich/inflow/releases/tag/v0.3.3
 [0.3.2]: https://github.com/grinich/inflow/releases/tag/v0.3.2
