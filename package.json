@@ -1,6 +1,6 @@
 {
   "name": "inflow",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "A better inbox for LinkedIn messaging — a Chrome extension.",
   "license": "MIT",
   "type": "module",
