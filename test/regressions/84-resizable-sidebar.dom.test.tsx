@@ -26,7 +26,7 @@ if (!existing || typeof existing.getItem !== 'function') {
   });
 }
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, render, screen, fireEvent } from '@testing-library/react';
 import {
   useResizableSidebar,
   clampSidebarWidth,
@@ -34,6 +34,13 @@ import {
   MIN_SIDEBAR_WIDTH,
   MAX_SIDEBAR_WIDTH,
 } from '@/hooks/useResizableSidebar';
+import { ConversationListHeader } from '@/components/conversations/ConversationListHeader';
+import { useUIStore } from '@/store/ui-store';
+
+const sendBridgeMessage = vi.fn();
+vi.mock('@/lib/bridge', () => ({
+  sendBridgeMessage: (...args: any[]) => sendBridgeMessage(...args),
+}));
 
 function mouseDownAt(x: number): React.MouseEvent {
   return { clientX: x, preventDefault: () => {} } as unknown as React.MouseEvent;
@@ -134,5 +141,45 @@ describe('useResizableSidebar', () => {
     expect(document.body.style.cursor).toBe('col-resize');
     act(() => releaseMouse());
     expect(document.body.style.cursor).toBe('');
+  });
+});
+
+describe('narrow-sidebar folder dropdown', () => {
+  beforeEach(() => {
+    useUIStore.setState({ inboxTab: 'focused', searchQuery: '' });
+    sendBridgeMessage.mockReset();
+    sendBridgeMessage.mockResolvedValue({ success: true });
+  });
+
+  it('renders both selector variants, container-gated by sidebar width', () => {
+    render(<ConversationListHeader />);
+    // Segmented control: visible only when the sidebar is wide enough.
+    const segmented = screen.getByRole('button', { name: 'Focused' }).parentElement!;
+    expect(segmented.className).toContain('hidden');
+    expect(segmented.className).toContain('@min-[370px]:flex');
+    // Dropdown: the narrow-width replacement.
+    const select = screen.getByLabelText('Folder');
+    expect(select.parentElement!.className).toContain('@min-[370px]:hidden');
+    expect((select as HTMLSelectElement).value).toBe('focused');
+  });
+
+  it('changing the dropdown switches folders and triggers the category sync', () => {
+    render(<ConversationListHeader />);
+
+    fireEvent.change(screen.getByLabelText('Folder'), { target: { value: 'archived' } });
+
+    expect(useUIStore.getState().inboxTab).toBe('archived');
+    expect(sendBridgeMessage).toHaveBeenCalledWith({ type: 'BURST_DISCOVER', category: 'ARCHIVE' });
+    expect(sendBridgeMessage).toHaveBeenCalledWith({ type: 'SYNC_CATEGORY', category: 'ARCHIVE' });
+  });
+
+  it('switching to Focused via the dropdown does not fire a category sync (poller owns it)', () => {
+    useUIStore.setState({ inboxTab: 'other' });
+    render(<ConversationListHeader />);
+
+    fireEvent.change(screen.getByLabelText('Folder'), { target: { value: 'focused' } });
+
+    expect(useUIStore.getState().inboxTab).toBe('focused');
+    expect(sendBridgeMessage).not.toHaveBeenCalled();
   });
 });

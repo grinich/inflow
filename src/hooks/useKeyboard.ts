@@ -38,7 +38,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
       const store = useUIStore.getState();
       const convs = conversationsRef.current;
       const act = actionsRef.current;

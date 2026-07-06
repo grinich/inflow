@@ -149,15 +149,18 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
   }
 
   return (
-    <div className="flex flex-col gap-2 border-b border-edge px-4 py-3">
+    // @container enables the width-based visibility below: with the sidebar
+    // now resizable, secondary controls yield space before the row overflows.
+    <div className="@container flex flex-col gap-2 border-b border-edge px-4 py-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
         <h1 className="shrink-0 text-base font-semibold text-fg-strong">
           <span className="text-blue-400">in</span>ƒlow
         </h1>
 
-        {/* Segmented control */}
-        <div className="flex rounded-md bg-surface-input p-0.5">
+        {/* Folder selector — segmented control when the (resizable) sidebar is
+            wide enough, a compact dropdown when it's narrow. */}
+        <div className="hidden rounded-md bg-surface-input p-0.5 @min-[370px]:flex">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -171,6 +174,31 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
               {tab.label}
             </button>
           ))}
+        </div>
+        <div className="relative @min-[370px]:hidden">
+          <select
+            aria-label="Folder"
+            value={inboxTab}
+            onChange={(e) => handleTabSelect(e.target.value as InboxTab)}
+            className="cursor-pointer appearance-none rounded-md bg-surface-input py-1 pl-2 pr-6 text-[11px] font-medium text-fg-strong outline-none ring-1 ring-transparent transition-colors focus:ring-blue-500/50"
+          >
+            {TABS.map((tab) => (
+              <option key={tab.id} value={tab.id}>
+                {tab.label}
+              </option>
+            ))}
+          </select>
+          <svg
+            className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-fg-muted"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
         </div>
 
         {/* Unread quick-filter — sets/clears the is:unread search filter */}
