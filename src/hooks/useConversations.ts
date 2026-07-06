@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import Dexie from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
+import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { isFocusedCategory } from '@/lib/inbox-filters';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
 import type { Conversation } from '@/types/conversation';
@@ -17,6 +18,9 @@ const TAB_TO_CATEGORY: Record<InboxTab, string> = {
 export function useConversations() {
   const searchQuery = useUIStore((s) => s.searchQuery);
   const inboxTab = useUIStore((s) => s.inboxTab);
+  // Re-subscribe queries when the DB opens/switches — a query that ran while
+  // `db` was null observed no tables and would stay blank forever otherwise.
+  const dbGen = useDbGeneration();
 
   // Snapshot filter results so the list stays stable while browsing.
   // e.g. `is:unread` captures matching IDs on first run; subsequent live-query
@@ -287,7 +291,7 @@ export function useConversations() {
     }
 
     return results;
-  }, [searchQuery, inboxTab]);
+  }, [searchQuery, inboxTab, dbGen]);
 
   // Check if discovery is in progress for the current tab's category
   const category = TAB_TO_CATEGORY[inboxTab];
@@ -295,7 +299,7 @@ export function useConversations() {
     if (!db) return false;
     const state = await db.syncState.get(category);
     return state?.phase === 'discovering';
-  }, [category]);
+  }, [category, dbGen]);
 
   let effective = conversations;
   if (!searchQuery) {

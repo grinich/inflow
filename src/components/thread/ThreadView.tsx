@@ -4,6 +4,7 @@ import { useThread } from '@/hooks/useThread';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { preloadImages } from '@/hooks/useCachedImage';
 import { db } from '@/db/database';
+import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { ThreadHeader } from './ThreadHeader';
 import { MessageBubble, TIME_GAP_MS, formatSeparatorTime } from './MessageBubble';
 import { ComposeBox } from './ComposeBox';
@@ -16,6 +17,7 @@ interface ThreadViewProps {
 
 export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
   const messages = useThread(conversation.id, conversation.mergedIds);
+  const dbGen = useDbGeneration();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { sendMessage, markRead } = useOptimisticAction();
 
@@ -40,7 +42,7 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
       });
       return map;
     },
-    [senderUrnKey],
+    [senderUrnKey, dbGen],
     new Map<string, string>(),
   );
 

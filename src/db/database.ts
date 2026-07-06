@@ -277,6 +277,17 @@ let activeMemberId: string | null = null;
 let _db: InflowDatabase = null as any;
 export let db: InflowDatabase = null as any;
 
+/**
+ * Monotonic counter bumped on every account/database switch. Long-running
+ * background loops (backfill, drain, discovery) capture it and bail if it
+ * changes mid-loop, so an account switch can't redirect their writes into the
+ * newly-active account's database.
+ */
+let _dbGeneration = 0;
+export function getDbGeneration(): number {
+  return _dbGeneration;
+}
+
 // Eagerly restore the persisted account ID on module init.
 // Opens the correct DB before any switchDatabase() call arrives.
 (async () => {
@@ -289,10 +300,38 @@ export let db: InflowDatabase = null as any;
         _db = createDatabase(`InflowDB_${stored}`);
         db = _db;
         await _db.open();
+        // Wake any live query that already ran while `db` was null (see
+        // subscribeDbChanged) — this restore races React's first render.
+        _dbGeneration++;
+        notifyDbChanged();
       }
     }
   } catch {}
 })();
+
+// ---------------------------------------------------------------------------
+// DB-readiness signal. A Dexie live query that executes while `db` is null
+// returns its fallback WITHOUT subscribing to any table — nothing would ever
+// re-run it once the database opens (a blank UI until a lucky reload). UI
+// queries include useDbGeneration() in their deps so they re-subscribe the
+// moment the database becomes (or switches to) ready.
+// ---------------------------------------------------------------------------
+
+const _dbChangeListeners = new Set<() => void>();
+
+/** Subscribe to database open/switch events. Returns an unsubscribe fn. */
+export function subscribeDbChanged(listener: () => void): () => void {
+  _dbChangeListeners.add(listener);
+  return () => _dbChangeListeners.delete(listener);
+}
+
+function notifyDbChanged(): void {
+  for (const listener of _dbChangeListeners) {
+    try {
+      listener();
+    } catch {}
+  }
+}
 
 export function getActiveAccountId(): string | null {
   return activeMemberId;
@@ -329,17 +368,7 @@ async function _doSwitchDatabase(memberId: string): Promise<void> {
   _dbGeneration++;
   persistAccountId(memberId);
   await _db.open();
-}
-
-/**
- * Monotonic counter bumped on every account/database switch. Long-running
- * background loops (backfill, drain, discovery) capture it and bail if it
- * changes mid-loop, so an account switch can't redirect their writes into the
- * newly-active account's database.
- */
-let _dbGeneration = 0;
-export function getDbGeneration(): number {
-  return _dbGeneration;
+  notifyDbChanged();
 }
 
 /** Persist account ID to chrome.storage.session (fire-and-forget). */

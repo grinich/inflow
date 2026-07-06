@@ -5,6 +5,7 @@ import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
 import { computeWindow } from '@/lib/list-window';
+import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { ConversationListHeader } from './ConversationListHeader';
 import { ConversationRow } from './ConversationRow';
 import { SyncStatusIndicator } from '../common/SyncStatusIndicator';
@@ -37,6 +38,9 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
   const lastTriggerRef = useRef(0);
   const prefetchedRef = useRef<Set<string>>(new Set());
   const inboxTab = useUIStore((s) => s.inboxTab);
+  // Re-subscribe the batched metadata queries when the DB opens/switches — a
+  // query that ran while `db` was null observed no tables and stays frozen.
+  const dbGen = useDbGeneration();
 
   // ── Batched row metadata ───────────────────────────────────────────────────
   // These used to be three IndexedDB queries PER ROW on mount (draft, failed
@@ -57,7 +61,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
       }
       return map;
     },
-    [],
+    [dbGen],
     new Map<string, DraftMeta>()
   );
 
@@ -73,7 +77,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
       }
       return set;
     },
-    [],
+    [dbGen],
     new Set<string>()
   );
 
@@ -92,7 +96,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
       }
       return map;
     },
-    [firstUrnKey],
+    [firstUrnKey, dbGen],
     new Map<string, { company: string; logoUrl: string }>()
   );
 

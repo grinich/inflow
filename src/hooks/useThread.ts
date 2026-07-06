@@ -2,12 +2,15 @@ import Dexie from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useRef } from 'react';
 import { db } from '@/db/database';
+import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { dedupeMessagesForDisplay } from '@/lib/message-dedup';
 
 const DEBOUNCE_MS = 150; // debounce rapid thread switches
 
 export function useThread(conversationId: string | null, mergedIds?: string[]) {
+  // Re-subscribe when the DB opens/switches (see useDbGeneration).
+  const dbGen = useDbGeneration();
   const messages = useLiveQuery(
     async () => {
       if (!conversationId || !db) return [];
@@ -25,7 +28,7 @@ export function useThread(conversationId: string | null, mergedIds?: string[]) {
       // uses urn:li:msg_message:. When both exist, drop the non-canonical one.
       return dedupeMessagesForDisplay(chunks.flat());
     },
-    [conversationId, mergedIds?.join(',')],
+    [conversationId, mergedIds?.join(','), dbGen],
     []
   );
 

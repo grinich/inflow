@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
+import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { useUIStore } from '@/store/ui-store';
 import type { Conversation } from '@/types/conversation';
@@ -14,6 +15,7 @@ import type { Conversation } from '@/types/conversation';
  */
 export function useRemoteSearch() {
   const searchQuery = useUIStore((s) => s.searchQuery);
+  const dbGen = useDbGeneration();
   const [resultIds, setResultIds] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -102,7 +104,7 @@ export function useRemoteSearch() {
     if (resultIds.length === 0 || !db) return [];
     const convs = await db.conversations.bulkGet(resultIds);
     return convs.filter((c): c is Conversation => c !== undefined);
-  }, [resultIds]) ?? [];
+  }, [resultIds, dbGen]) ?? [];
 
   return { remoteResults, isSearching, hasMore, loadMore };
 }
