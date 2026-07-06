@@ -4,6 +4,14 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.3] - 2026-07-05
+
+### Fixed
+- **Duplicate bubble after sending** — a message you just sent could briefly
+  show twice (the copy stored from the send response and the realtime echo
+  carry timestamps a few ms apart) until the next thread refresh reconciled
+  it. The two copies now collapse immediately.
+
 ## [0.3.2] - 2026-07-05
 
 A deep sync-consistency release: a systematic audit of everything flowing
@@ -112,6 +120,7 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.3.3]: https://github.com/grinich/inflow/releases/tag/v0.3.3
 [0.3.2]: https://github.com/grinich/inflow/releases/tag/v0.3.2
 [0.3.1]: https://github.com/grinich/inflow/releases/tag/v0.3.1
 [0.3.0]: https://github.com/grinich/inflow/releases/tag/v0.3.0
