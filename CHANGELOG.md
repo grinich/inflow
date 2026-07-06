@@ -4,6 +4,22 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.4] - 2026-07-05
+
+### Fixed
+- **Blank app on load** — opening inflow could intermittently show an empty
+  conversation list until a (lucky) reload. The first render raced the local
+  database opening; queries that lost the race never recovered. They now
+  reconnect the moment the database is ready.
+
+### Changed
+- **Much faster folder switching** — the conversation list now renders only
+  the rows in view instead of every conversation in the folder, batches its
+  per-row lookups, and skips re-rendering unchanged rows during background
+  sync. Switching between Focused/Other/Archived/Spam is instant even with
+  hundreds of conversations, and revisiting a folder paints immediately from
+  memory.
+
 ## [0.3.3] - 2026-07-05
 
 ### Fixed
@@ -120,6 +136,7 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.3.4]: https://github.com/grinich/inflow/releases/tag/v0.3.4
 [0.3.3]: https://github.com/grinich/inflow/releases/tag/v0.3.3
 [0.3.2]: https://github.com/grinich/inflow/releases/tag/v0.3.2
 [0.3.1]: https://github.com/grinich/inflow/releases/tag/v0.3.1
