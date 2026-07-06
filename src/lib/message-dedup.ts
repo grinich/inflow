@@ -78,16 +78,43 @@ export function dedupeMessagesForDisplay(all: Message[]): Message[] {
   };
 
   const canonicalKeys = buildCanonicalKeySet(all);
+
+  // Near-time fallback (mirrors planSseDedup): after a send, the canonical row
+  // stored from the send response and the SSE echo can carry server timestamps
+  // a few ms apart — an exact-key check alone rendered the message twice until
+  // the next fetch reconciled the DB. Canonicals already claimed by an exact
+  // key twin are excluded, so two genuine rapid same-body sends don't collapse.
+  const sseKeys = new Set(
+    all.filter((m) => isSseMessageId(m.id)).map((m) => messageDedupeKey(m))
+  );
+  const fallbackCandidates = all.filter(
+    (m) => isCanonicalMessageId(m.id) && !sseKeys.has(messageDedupeKey(m))
+  );
+  const consumedFallbackIds = new Set<string>();
+  const hasNearTimeCanonicalTwin = (m: Message): boolean => {
+    const twin = fallbackCandidates.find(
+      (c) =>
+        !consumedFallbackIds.has(c.id) &&
+        c.senderUrn === m.senderUrn &&
+        c.body === m.body &&
+        Math.abs(c.createdAt - m.createdAt) <= FALLBACK_MATCH_WINDOW_MS
+    );
+    if (twin) consumedFallbackIds.add(twin.id);
+    return !!twin;
+  };
+
   const keptSseKeys = new Set<string>();
   const out: Message[] = [];
   for (const msg of all) {
     // Each canonical id and each optimistic temp- id is a distinct message.
     if (msg.id.startsWith('temp-')) { out.push(msg); continue; }
     if (isCanonicalMessageId(msg.id)) { out.push(withFreshestEdit(msg)); continue; }
-    // SSE entry: drop if a canonical twin exists, or if we already kept an SSE
-    // copy of the same logical message (e.g. original fs_event + edited fsd_message).
+    // SSE entry: drop if a canonical twin exists (exact key or near-time), or
+    // if we already kept an SSE copy of the same logical message (e.g. original
+    // fs_event + edited fsd_message).
     const key = messageDedupeKey(msg);
     if (canonicalKeys.has(key) || keptSseKeys.has(key)) continue;
+    if (hasNearTimeCanonicalTwin(msg)) continue;
     keptSseKeys.add(key);
     out.push(withFreshestEdit(msg));
   }

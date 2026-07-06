@@ -195,10 +195,15 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       // the shape isn't recognized this is a no-op and the echo path handles it.
       const sent = extractSentMessage(response, msg.conversationId, await getMemberUrn());
       if (sent) {
+        debugLog(
+          'info',
+          `[SEND] Stored canonical from response: ${sent.id.substring(0, 50)}... deliveredAt=${sent.createdAt}`
+        );
         await db.transaction('rw', db.messages, async () => {
-          // Retire at most ONE matching temp (same rules as the SSE echo
+          // Retire at most ONE matching temp — the OLDEST, since rapid
+          // same-body sends resolve in order (same rules as the SSE echo
           // cleanup: failed/queued temps have no server copy and must stay).
-          const temps = await db.messages
+          const temps = (await db.messages
             .where('conversationId')
             .equals(msg.conversationId)
             .filter((m) =>
@@ -207,7 +212,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
               m.status !== 'failed' &&
               m.status !== 'queued'
             )
-            .toArray();
+            .toArray()).sort((a, b) => a.createdAt - b.createdAt);
           if (temps.length > 0) await db.messages.delete(temps[0].id);
           await db.messages.put(sent);
         });
