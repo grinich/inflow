@@ -5,11 +5,11 @@ import { debugLog } from '@/lib/debug-log';
 import { db, mergeProfiles, type SyncQueueItem } from '@/db/database';
 import { mergeConversation } from './merge-conversation';
 import { getBackfillCutoff } from '@/lib/sync-settings';
-import type { Conversation } from '@/types/conversation';
+import type { ServerConversation } from '@/types/conversation';
 import type { Profile } from '@/types/profile';
 
 export interface DiscoveryResult {
-  conversations: Conversation[];
+  conversations: ServerConversation[];
   profiles: Profile[];
   isLastPage: boolean;
   nextCursor: string | null;
@@ -48,7 +48,7 @@ export async function discoverPage(
     }
     const dedupedProfiles = [...profileMap.values()];
 
-    await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions], async () => {
+    await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions, db.tombstones], async () => {
       if (dedupedProfiles.length > 0) {
         await mergeProfiles(dedupedProfiles);
       }
@@ -69,7 +69,7 @@ export async function discoverPage(
  * - Already up-to-date: skip
  */
 export async function enqueueConversations(
-  conversations: Conversation[],
+  conversations: ServerConversation[],
   category: InboxCategory
 ): Promise<{ enqueued: number; skipped: number }> {
   let enqueued = 0;
@@ -82,12 +82,19 @@ export async function enqueueConversations(
     for (const conv of conversations) {
       const existing = await db.syncQueue.get(conv.id);
       const tooOld = cutoff > 0 && conv.lastActivityAt < cutoff;
+      // Prefer the conversation's OWN category over the category being
+      // discovered — a conversation can be seen by several discoveries, and
+      // stamping the discoverer's category churned queue items between
+      // categories and skewed per-category completion accounting.
+      // Legacy 'INBOX' rows normalize to PRIMARY_INBOX.
+      const itemCategory =
+        conv.category === 'INBOX' ? 'PRIMARY_INBOX' : conv.category || category;
 
       if (!existing) {
         // New conversation — add to queue
         const item: SyncQueueItem = {
           conversationId: conv.id,
-          category,
+          category: itemCategory,
           lastActivityAt: conv.lastActivityAt,
           messagesSyncedAt: 0,
           status: tooOld ? 'done' : 'pending',
@@ -110,7 +117,7 @@ export async function enqueueConversations(
           status: 'pending',
           lastActivityAt: conv.lastActivityAt,
           priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
-          category,
+          category: itemCategory,
           failCount: 0,
           lastFailedAt: 0,
         });
@@ -120,7 +127,7 @@ export async function enqueueConversations(
         if (conv.lastActivityAt > existing.lastActivityAt) {
           await db.syncQueue.update(conv.id, {
             lastActivityAt: conv.lastActivityAt,
-            category,
+            category: itemCategory,
           });
         }
         skipped++;

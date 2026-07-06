@@ -1,10 +1,12 @@
 import { fetchAllMessages } from '../api/messages';
 import { getMemberUrn } from '../auth/session';
 import { normalizeMessages } from '@/lib/voyager-normalizer';
-import { planSseDedup, preserveSseFields } from '@/lib/message-dedup';
+import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
+import { reconcileRecalledMessages } from './reconcile-messages';
 import { prefetchSharedPosts } from './prefetch-posts';
 import { debugLog } from '@/lib/debug-log';
 import { db, getDbGeneration } from '@/db/database';
+import type { Message } from '@/types/message';
 
 /** Small delay between backfill conversations to yield the event loop. */
 function backfillDelay(): Promise<void> {
@@ -58,6 +60,9 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
       // — writing would leak this account's messages into the other account.
       if (getDbGeneration() !== gen) break;
       let totalMessages = 0;
+      const allFetched: Message[] = [];
+      // Server-clock watermark for messagesSyncedAt (see SyncQueueItem).
+      let maxFetchedCreatedAt = 0;
 
       for (const raw of pages) {
         const messages = normalizeMessages(raw, item.conversationId);
@@ -66,7 +71,16 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
           if (msg.senderUrn === memberUrn) {
             msg.isFromMe = true;
           }
+          if (msg.createdAt > maxFetchedCreatedAt) {
+            maxFetchedCreatedAt = msg.createdAt;
+          }
         }
+        allFetched.push(...messages);
+
+        // Never STORE recalled tombstone entities — they render as an empty
+        // bubble under an orphaned time separator. They stay in allFetched so
+        // the reconcile below deletes any previously stored copies.
+        const live = withoutRecalled(messages);
 
         // Preserve SSE-written fields the pagination API doesn't return, so a
         // re-sync doesn't wipe read receipts / reactions / edits already stored
@@ -74,13 +88,13 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
         // SSE write can't land between the bulkGet and the bulkPut and get
         // overwritten with the stale preserved values.
         await db.transaction('rw', db.messages, async () => {
-          const existingRows = await db.messages.bulkGet(messages.map((m) => m.id));
-          preserveSseFields(messages, existingRows);
-          await db.messages.bulkPut(messages);
+          const existingRows = await db.messages.bulkGet(live.map((m) => m.id));
+          preserveSseFields(live, existingRows);
+          await db.messages.bulkPut(live);
         });
 
         // Update hasAttachments flag
-        if (messages.some((m) => m.attachments && m.attachments.length > 0)) {
+        if (live.some((m) => m.attachments && m.attachments.length > 0)) {
           await db.conversations.update(item.conversationId, {
             hasAttachments: 1,
           });
@@ -113,10 +127,17 @@ async function _backfillBatchInner(batchSize: number, onProgress?: () => void): 
         await db.messages.bulkDelete(plan.deleteIds);
       });
 
-      // Mark as done
+      // Remove stored canonical messages the fetch no longer returned within
+      // its time range — messages recalled/unsent on LinkedIn.
+      await reconcileRecalledMessages(item.conversationId, allFetched);
+
+      // Mark as done. messagesSyncedAt is a SERVER-clock watermark (the newest
+      // server timestamp this sync covered) — never the local wall clock, which
+      // may be skewed relative to LinkedIn's and would make newer server
+      // activity look already-synced (silently skipping those messages).
       await db.syncQueue.update(item.conversationId, {
         status: 'done',
-        messagesSyncedAt: Date.now(),
+        messagesSyncedAt: Math.max(item.lastActivityAt, maxFetchedCreatedAt),
       });
 
       completed++;

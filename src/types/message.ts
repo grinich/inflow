@@ -52,6 +52,10 @@ export interface Message {
   attachments?: MessageAttachment[];
   repliedMessage?: RepliedMessage;
   editedAt?: number;  // timestamp of last edit
+  /** Set when the server reports this message as recalled/unsent. Flagged rows
+   *  are never STORED — the flag flows through normalize → reconcile so stored
+   *  copies get deleted. */
+  recalledAt?: number;
   seenAt?: number;    // timestamp when recipient read this message
   reactions?: ReactionSummary[];
 }

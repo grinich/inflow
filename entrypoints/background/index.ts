@@ -8,16 +8,16 @@ import { getSession, invalidateSessionCache, clearCachedMemberUrn } from './auth
 import { invalidateCookieRule } from './api/client';
 import { clearSuppression } from './realtime/mark-read-suppression';
 import { clearSendQueue } from './send-queue';
+import { countUnreadFocused } from '@/lib/inbox-filters';
+import { openAppTab } from './open-app-tab';
 import { setupUpdateChecker } from './update-check';
 
-/** Count unread non-draft focused-inbox conversations and update the toolbar badge. */
+/** Count unread Focused-tab conversations and update the toolbar badge.
+ *  Uses the same predicate as the Focused list (isFocusedConversation) so the
+ *  badge can never disagree with what the list shows. */
 async function updateBadge() {
   try {
-    const count = await db.conversations
-      .where('read')
-      .equals(0)
-      .filter((c) => c.draft !== 1 && c.category === 'PRIMARY_INBOX')
-      .count();
+    const count = await countUnreadFocused(db);
     chrome.action.setBadgeText({ text: count > 0 ? String(count) : '' });
     chrome.action.setBadgeBackgroundColor({ color: '#2563EB' });
   } catch {
@@ -64,18 +64,6 @@ export default defineBackground(() => {
   // Update badge on startup and periodically
   updateBadge();
   setInterval(updateBadge, 5_000);
-
-  // Open the app tab (reused by icon click and dev reload)
-  async function openAppTab() {
-    const appUrl = chrome.runtime.getURL('app.html');
-    const tabs = await chrome.tabs.query({ url: appUrl });
-    if (tabs.length > 0 && tabs[0].id) {
-      chrome.tabs.update(tabs[0].id, { active: true });
-      chrome.windows.update(tabs[0].windowId!, { focused: true });
-    } else {
-      chrome.tabs.create({ url: appUrl });
-    }
-  }
 
   // -----------------------------------------------------------------------
   // Proactive account-switch detection via cookie monitoring
@@ -128,7 +116,7 @@ export default defineBackground(() => {
   }
 
   // Open the app tab when the toolbar icon is clicked (no popup)
-  chrome.action.onClicked.addListener(openAppTab);
+  chrome.action.onClicked.addListener(() => openAppTab());
 
   // Open/focus the app tab when a native notification is clicked
   chrome.notifications.onClicked.addListener((notificationId) => {

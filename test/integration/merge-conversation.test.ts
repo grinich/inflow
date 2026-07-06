@@ -64,8 +64,13 @@ describe('mergeConversation — starred is local-only (never downgraded by a pol
   });
 
   it('applies a star reported by the server (cross-client 0 → 1 upgrade)', async () => {
-    await testDb.conversations.put(makeConversation({ id: 'c-star-add', starred: 0 }));
-    await mergeConversation(makeConversation({ id: 'c-star-add', starred: 1 }));
+    await testDb.conversations.put(
+      makeConversation({ id: 'c-star-add', starred: 0, lastActivityAt: 1000 }),
+    );
+    // Page at least as fresh as local state — flags apply.
+    await mergeConversation(
+      makeConversation({ id: 'c-star-add', starred: 1, lastActivityAt: 1000 }),
+    );
     expect((await get('c-star-add'))!.starred).toBe(1);
   });
 
@@ -127,12 +132,14 @@ describe('mergeConversation — pending-action guard', () => {
 
   it('does not guard when the only matching action is already failed (rolled back)', async () => {
     await testDb.conversations.put(
-      makeConversation({ id: 'c-failed', category: 'PRIMARY_INBOX' }),
+      makeConversation({ id: 'c-failed', category: 'PRIMARY_INBOX', lastActivityAt: 1000 }),
     );
     await testDb.pendingActions.put(
       makePendingAction({ conversationId: 'c-failed', status: 'failed' }),
     );
-    await mergeConversation(makeConversation({ id: 'c-failed', category: 'SECONDARY_INBOX' }));
+    await mergeConversation(
+      makeConversation({ id: 'c-failed', category: 'SECONDARY_INBOX', lastActivityAt: 1000 }),
+    );
     // 'failed' actions are already rolled back, so the server value wins.
     expect((await get('c-failed'))!.category).toBe('SECONDARY_INBOX');
   });
@@ -170,10 +177,24 @@ describe('mergeConversation — suppression windows', () => {
 describe('mergeConversation — normal (unguarded) field merges', () => {
   it('updates category/archived/read from the server when nothing is in-flight', async () => {
     await testDb.conversations.put(
-      makeConversation({ id: 'c-merge', category: 'PRIMARY_INBOX', archived: 0, read: 1 }),
+      makeConversation({
+        id: 'c-merge',
+        category: 'PRIMARY_INBOX',
+        archived: 0,
+        read: 1,
+        lastActivityAt: 1000,
+      }),
     );
+    // Page at least as fresh as local state — flags apply (an OLDER page must
+    // not: see regression 59).
     await mergeConversation(
-      makeConversation({ id: 'c-merge', category: 'SECONDARY_INBOX', archived: 0, read: 0 }),
+      makeConversation({
+        id: 'c-merge',
+        category: 'SECONDARY_INBOX',
+        archived: 0,
+        read: 0,
+        lastActivityAt: 1000,
+      }),
     );
     const row = (await get('c-merge'))!;
     expect(row.category).toBe('SECONDARY_INBOX');

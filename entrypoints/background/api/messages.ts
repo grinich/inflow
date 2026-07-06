@@ -170,12 +170,18 @@ async function uploadFile(attachment: BridgeAttachment): Promise<string> {
   return assetUrn;
 }
 
+/**
+ * Send a message. Resolves with the parsed response body (or null when it
+ * isn't JSON) — the caller opportunistically extracts the created message
+ * entity from it so the canonical row can be stored without waiting for the
+ * SSE echo.
+ */
 export async function sendMessage(
   conversationId: string,
   body: string,
   attachments?: BridgeAttachment[],
   replyTo?: { messageUrn: string; senderUrn: string; sentAt: number; body: string }
-): Promise<void> {
+): Promise<any> {
   const memberUrn = await getMemberUrn();
   const conversationUrn = `urn:li:msg_conversation:(${memberUrn},${conversationId})`;
 
@@ -258,6 +264,7 @@ export async function sendMessage(
   }
 
   debugLog('info', 'sendMessage: success');
+  return res.json().catch(() => null);
 }
 
 export async function editMessage(

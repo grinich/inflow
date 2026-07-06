@@ -2,6 +2,7 @@ import { type InboxCategory } from '../api/conversations';
 import { syncConversations } from './sync-engine';
 import { discoverPage, enqueueConversations } from './sync-discovery';
 import { backfillBatch, recoverStuckItems } from './sync-backfill';
+import { sweepDeletedConversations } from './sweep-deleted';
 import { isRealtimeConnected } from '../realtime/sse-client';
 import { drainActionQueue } from '../action-queue';
 import { debugLog } from '@/lib/debug-log';
@@ -13,6 +14,15 @@ const POLL_INTERVAL_MINUTES = 0.5; // 30 seconds
 const STALENESS_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
 const BACKFILL_BATCH_SIZE = 10;
 const BURST_MAX_PAGES = 5;
+/**
+ * Max discovery pages per tick (across all categories). Discovery used to
+ * exhaust every category in a single tick — with 1.5–3s inter-page delays a
+ * large mailbox monopolized the coordinator for hours while `_tickRunning`
+ * blocked every subsequent tick, including the quick poll that reconciles
+ * cross-device read state. Cursors are saved per page, so the next tick
+ * resumes where this one stopped.
+ */
+const MAX_DISCOVERY_PAGES_PER_TICK = 20;
 /**
  * Even while SSE is connected, run the quick poll at least this often. Realtime
  * events don't reliably carry cross-device read-state changes (a thread read on
@@ -92,6 +102,11 @@ export function setupSyncCoordinator() {
  * 5. Staleness — re-discover categories not checked in 15 min
  */
 let _tickRunning = false;
+/** DB generation for which recoverStuckItems has already run. Startup covers
+ *  the initial generation; a login/account switch after startup bumps the
+ *  generation, and the next tick recovers the new DB's stuck 'syncing' rows
+ *  (which would otherwise stay stuck until some future SW restart). */
+let _recoveredGeneration = -1;
 async function onSyncTick(): Promise<void> {
   if (!db) return; // unauthenticated — no DB open yet; a later alarm tick retries once it is
   if (_tickRunning) return; // a previous tick is still running — don't overlap on the next alarm
@@ -109,13 +124,23 @@ async function _onSyncTickInner(): Promise<void> {
   }
   debugLog('info', '[COORDINATOR] Tick started');
 
+  // Recover items stuck in 'syncing' for a DB we haven't recovered yet
+  // (first tick after startup, or after an account switch).
+  const currentGen = getDbGeneration();
+  if (currentGen !== _recoveredGeneration) {
+    await recoverStuckItems().catch((err) => {
+      debugLog('error', `[COORDINATOR] Stuck-item recovery failed: ${err}`);
+    });
+    _recoveredGeneration = currentGen;
+  }
+
   // Drain any queued offline actions before syncing
   await drainActionQueue().catch((err) => {
     debugLog('error', `[COORDINATOR] Action queue drain failed: ${err}`);
   });
 
   // Ensure sync state is initialized
-  await initializeSync();
+  await ensureSyncStateInitialized();
 
   // 1. Quick poll: sync Focused inbox (metadata only — no message fetching).
   //    When SSE is connected, realtime events handle new messages, so normally
@@ -174,77 +199,11 @@ async function _onSyncTickInner(): Promise<void> {
     }
   }
 
-  // 3. Rapid discovery: exhaust all discovering categories before backfilling.
-  //    Loops through every category, paginating fully with a small delay
-  //    between pages to avoid rate limiting.
-  const allStates = await db.syncState.toArray();
-  const stateMap = new Map(allStates.map((s) => [s.category, s]));
-
-  for (const cat of CATEGORIES) {
-    const state = stateMap.get(cat);
-    if (!state || state.phase !== 'discovering') continue;
-    if (paused) break;
-    if (_discoveringCategories.has(cat)) {
-      debugLog('info', `[COORDINATOR] Skipping ${cat} — discovery already in progress`);
-      continue;
-    }
-
-    _discoveringCategories.add(cat);
-    let cursor: string | null = state.cursor || null;
-    let totalDiscovered = state.totalDiscovered;
-
-    debugLog('info', `[COORDINATOR] Rapid discovery started for ${cat}`);
-
-    try {
-      const MAX_DISCOVERY_PAGES = 1000; // hard backstop against a runaway cursor
-      const gen = getDbGeneration();
-      let pageCount = 0;
-      while (!paused) {
-        if (getDbGeneration() !== gen) break; // account switched mid-discovery — don't write into the new DB
-        const { conversations, isLastPage, nextCursor } = await discoverPage(cat, cursor);
-        // Re-check after the network await — switchDatabase may have completed
-        // mid-fetch, and `db` now points at the new account's database.
-        if (getDbGeneration() !== gen) break;
-        await enqueueConversations(conversations, cat);
-        totalDiscovered += conversations.length;
-        pageCount++;
-
-        // Stop when the server says it's done, OR when the cursor stops advancing
-        // / we've paged absurdly far. `isLastPage` is just `!nextCursor`, so an
-        // empty-page-with-cursor (or stuck-cursor) tail would otherwise loop
-        // forever hammering the API — the burst path is capped, this one wasn't.
-        if (isLastPage || nextCursor === cursor || pageCount >= MAX_DISCOVERY_PAGES) {
-          if (!isLastPage) {
-            debugLog('warn', `[COORDINATOR] Discovery for ${cat} stopped early at page ${pageCount} (cursor not advancing or page cap)`);
-          }
-          await db.syncState.update(cat, {
-            phase: 'backfilling',
-            cursor: '',
-            totalDiscovered,
-            discoveryCompletedAt: Date.now(),
-          });
-          debugLog('info', `[COORDINATOR] Discovery complete for ${cat}: ${totalDiscovered} conversations`);
-          break;
-        }
-
-        // Save cursor after each page so we can resume if interrupted
-        cursor = nextCursor;
-        await db.syncState.update(cat, {
-          cursor: cursor || '',
-          totalDiscovered,
-        });
-
-        // Broadcast progress so UI updates during discovery
-        await emitSyncProgress();
-
-        await discoveryDelay();
-      }
-    } catch (err) {
-      debugLog('error', `[COORDINATOR] Discovery failed for ${cat}: ${err}`);
-    } finally {
-      _discoveringCategories.delete(cat);
-    }
-  }
+  // 3. Discovery: process a bounded number of pages across discovering
+  //    categories, then yield. Cursors persist per page, so the next tick
+  //    resumes — the quick poll and backfill are never starved by a large
+  //    initial sync.
+  await runDiscoveryRound();
 
   // 4. Second backfill pass: pick up items enqueued by discovery
   const pendingCount = await db.syncQueue
@@ -317,6 +276,94 @@ async function _onSyncTickInner(): Promise<void> {
 }
 
 /**
+ * One bounded round of discovery: paginate discovering categories, at most
+ * `maxPages` pages in total, saving the cursor after every page. When a
+ * category reaches its genuine last page it transitions to 'backfilling' and
+ * the deletion sweep runs for it (a fully-paginated discovery is the only
+ * point where "the server no longer returns this conversation" is knowable).
+ *
+ * Exported for tests; the tick calls it with defaults.
+ */
+export async function runDiscoveryRound(
+  maxPages: number = MAX_DISCOVERY_PAGES_PER_TICK,
+  delay: () => Promise<void> = discoveryDelay
+): Promise<void> {
+  const allStates = await db.syncState.toArray();
+  const stateMap = new Map(allStates.map((s) => [s.category, s]));
+  let pagesThisRound = 0;
+
+  for (const cat of CATEGORIES) {
+    const state = stateMap.get(cat);
+    if (!state || state.phase !== 'discovering') continue;
+    if (paused || pagesThisRound >= maxPages) break;
+    if (_discoveringCategories.has(cat)) {
+      debugLog('info', `[COORDINATOR] Skipping ${cat} — discovery already in progress`);
+      continue;
+    }
+
+    _discoveringCategories.add(cat);
+    let cursor: string | null = state.cursor || null;
+    let totalDiscovered = state.totalDiscovered;
+
+    debugLog('info', `[COORDINATOR] Discovery round started for ${cat}`);
+
+    try {
+      const gen = getDbGeneration();
+      while (!paused && pagesThisRound < maxPages) {
+        if (getDbGeneration() !== gen) return; // account switched mid-discovery — don't write into the new DB
+        const { conversations, isLastPage, nextCursor } = await discoverPage(cat, cursor);
+        // Re-check after the network await — switchDatabase may have completed
+        // mid-fetch, and `db` now points at the new account's database.
+        if (getDbGeneration() !== gen) return;
+        await enqueueConversations(conversations, cat);
+        totalDiscovered += conversations.length;
+        pagesThisRound++;
+
+        // Stop when the server says it's done, OR when the cursor stops
+        // advancing. `isLastPage` is just `!nextCursor`, so a stuck-cursor tail
+        // would otherwise loop forever hammering the API.
+        if (isLastPage || nextCursor === cursor) {
+          if (!isLastPage) {
+            debugLog('warn', `[COORDINATOR] Discovery for ${cat} stopped early (cursor not advancing)`);
+          }
+          await db.syncState.update(cat, {
+            phase: 'backfilling',
+            cursor: '',
+            totalDiscovered,
+            discoveryCompletedAt: Date.now(),
+          });
+          debugLog('info', `[COORDINATOR] Discovery complete for ${cat}: ${totalDiscovered} conversations`);
+          // Only a genuinely complete pagination proves absence — a stuck
+          // cursor doesn't, so no sweep in that case.
+          if (isLastPage) {
+            await sweepDeletedConversations(cat, state.lastSyncStartedAt).catch((err) => {
+              debugLog('error', `[COORDINATOR] Deletion sweep failed for ${cat}: ${err}`);
+            });
+          }
+          break;
+        }
+
+        // Save cursor after each page so we can resume if interrupted
+        cursor = nextCursor;
+        await db.syncState.update(cat, {
+          cursor: cursor || '',
+          totalDiscovered,
+        });
+
+        // Broadcast progress so UI updates during discovery
+        await emitSyncProgress();
+
+        await delay();
+      }
+    } catch (err) {
+      debugLog('error', `[COORDINATOR] Discovery failed for ${cat}: ${err}`);
+    } finally {
+      _discoveringCategories.delete(cat);
+    }
+  }
+}
+
+/**
  * Burst-discover a category immediately.
  * Called when the UI switches to a non-Focused tab to populate it quickly.
  *
@@ -380,6 +427,11 @@ export async function burstDiscover(
           discoveryCompletedAt: Date.now(),
         });
         debugLog('info', `[COORDINATOR] Burst discovery complete for ${category}: ${totalDiscovered} conversations in ${page + 1} pages`);
+        // Full pagination reached — safe point to sweep server-deleted rows.
+        const startedAt = (await db.syncState.get(category))?.lastSyncStartedAt ?? state.lastSyncStartedAt;
+        await sweepDeletedConversations(category, startedAt).catch((err) => {
+          debugLog('error', `[COORDINATOR] Deletion sweep failed for ${category}: ${err}`);
+        });
         break;
       }
 
@@ -422,17 +474,20 @@ export async function burstDiscover(
 }
 
 /**
- * Initialize sync state on first run (when syncState table is empty).
- * Sets all 4 categories to 'discovering' phase.
+ * Ensure every category has a sync-state row, creating missing ones in the
+ * 'discovering' phase. Per-category (not all-or-nothing): a category added in
+ * a later version — or a partially-initialized table — must still get a row,
+ * otherwise it is never discovered. Existing rows are left untouched.
+ *
+ * Exported for tests; the tick calls it every cycle (cheap no-op when all
+ * rows exist).
  */
-async function initializeSync(): Promise<void> {
-  const count = await db.syncState.count();
-  if (count > 0) return;
-
-  debugLog('info', '[COORDINATOR] Initializing sync state for all categories');
+export async function ensureSyncStateInitialized(): Promise<void> {
   const now = Date.now();
-
   for (const category of CATEGORIES) {
+    const existing = await db.syncState.get(category);
+    if (existing) continue;
+    debugLog('info', `[COORDINATOR] Initializing sync state for ${category}`);
     await db.syncState.put({
       category,
       phase: 'discovering',

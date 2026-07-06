@@ -3,7 +3,9 @@ import { db } from '@/db/database';
 import { debugLog } from '@/lib/debug-log';
 import type { Message } from '@/types/message';
 
-const POST_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+/** Shared by prefetch and the on-demand FETCH_POST handler — both paths must
+ *  age out cached posts (and not-found sentinels) on the same schedule. */
+export const POST_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /** In-flight post fetches — deduplicates concurrent prefetch calls for the same URN. */
 const _inflightPostFetches = new Map<string, Promise<void>>();

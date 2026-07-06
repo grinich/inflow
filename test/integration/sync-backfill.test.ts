@@ -519,7 +519,7 @@ describe('sync-backfill', () => {
       expect(fsEvt).toBeUndefined();
     });
 
-    it('marks completed items as done with messagesSyncedAt timestamp', async () => {
+    it('marks completed items as done with a SERVER-clock messagesSyncedAt watermark', async () => {
       const { fetchAllMessages } = await import(
         '../../entrypoints/background/api/messages'
       );
@@ -527,18 +527,31 @@ describe('sync-backfill', () => {
         '../../entrypoints/background/sync/sync-backfill'
       );
 
-      await testDb.syncQueue.put(makeSyncQueueItem({ conversationId: 'conv-done' }));
+      // Server timestamps deliberately far in the local clock's past — the
+      // watermark must come from them, never from Date.now() (clock skew would
+      // otherwise make newer server activity look already-synced).
+      const activityAt = Date.now() - 10 * 60_000;
+      await testDb.syncQueue.put(
+        makeSyncQueueItem({ conversationId: 'conv-done', lastActivityAt: activityAt })
+      );
 
-      vi.mocked(fetchAllMessages).mockResolvedValue([buildMessagesPage([])]);
+      vi.mocked(fetchAllMessages).mockResolvedValue([
+        buildMessagesPage([
+          {
+            id: 'urn:li:msg_message:WM_1',
+            body: 'newest',
+            senderProfileId: 'W',
+            deliveredAt: activityAt + 500,
+          },
+        ]),
+      ]);
 
-      const before = Date.now();
       await backfillBatch(1);
-      const after = Date.now();
 
       const item = await testDb.syncQueue.get('conv-done');
       expect(item.status).toBe('done');
-      expect(item.messagesSyncedAt).toBeGreaterThanOrEqual(before);
-      expect(item.messagesSyncedAt).toBeLessThanOrEqual(after);
+      // max(item.lastActivityAt, newest fetched deliveredAt)
+      expect(item.messagesSyncedAt).toBe(activityAt + 500);
     });
 
     it('calls onProgress callback after each completed item', async () => {

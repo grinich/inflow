@@ -1,4 +1,4 @@
-import type { Conversation } from '@/types/conversation';
+import type { Conversation, ServerConversation } from '@/types/conversation';
 import type { Message, MessageAttachment, RepliedMessage, ReactionSummary } from '@/types/message';
 import type { Profile } from '@/types/profile';
 import type { VoyagerResponse, VoyagerEntity } from '@/types/voyager';
@@ -16,6 +16,12 @@ export function extractProfileId(urn: string): string {
 }
 
 const VALID_PROFILE_URN = /^urn:li:fsd_profile:[A-Za-z0-9_-]+$/;
+
+/** True when the string is a well-formed fsd_profile URN (a real member id,
+ *  not a placeholder assembled from an unparseable reference). */
+export function isValidProfileUrn(urn: string): boolean {
+  return VALID_PROFILE_URN.test(urn);
+}
 
 /**
  * True when a conversation's stored participant data is missing or unusable and
@@ -129,7 +135,7 @@ export function getParticipantPicture(participant: VoyagerEntity): string {
 }
 
 export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: string): {
-  conversations: Conversation[];
+  conversations: ServerConversation[];
   profiles: Profile[];
 } {
   const profiles: Profile[] = [];
@@ -169,7 +175,7 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
     (e) => e.$type === 'com.linkedin.messenger.Conversation'
   );
 
-  const conversations: Conversation[] = conversationEntities.map((conv) => {
+  const conversations: ServerConversation[] = conversationEntities.map((conv) => {
     const participantRefs: string[] = conv['*conversationParticipants'] || [];
     const participantUrns: string[] = [];
     const participantNames: string[] = [];
@@ -199,6 +205,10 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
 
     const convId = extractConversationId(conv.entityUrn) || conv.entityUrn;
 
+    // Absence is NOT a value: an endpoint that omits unreadCount/categories
+    // (sparse search entities, thinner projections) must not read as
+    // "read + un-archived + Focused" — leave those fields undefined so
+    // mergeConversation keeps the existing local state.
     return {
       id: convId,
       participantUrns,
@@ -206,9 +216,9 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
       participantPictures,
       lastMessage,
       lastActivityAt: conv.lastActivityAt || 0,
-      read: (conv.unreadCount || 0) === 0 ? 1 : 0,
-      archived: conv.categories?.includes('ARCHIVE') ? 1 : 0,
-      category: pickInboxCategory(conv.categories),
+      read: conv.unreadCount !== undefined ? (conv.unreadCount === 0 ? 1 : 0) : undefined,
+      archived: conv.categories ? (conv.categories.includes('ARCHIVE') ? 1 : 0) : undefined,
+      category: conv.categories ? pickInboxCategory(conv.categories) : undefined,
       starred: conv.categories ? (conv.categories.includes('STARRED') ? 1 : 0) : undefined,
     };
   });
@@ -240,6 +250,13 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
 
     const editedAt = entity.editedAt || entity.lastEditedAt || undefined;
 
+    // Recalled/unsent messages come back as tombstone entities (empty body,
+    // RECALLED render format). Flag rather than drop them: the reconciler uses
+    // the flag to delete any stored copies, and write paths skip storing them.
+    const recalledAt =
+      entity.recalledAt ||
+      (entity.messageBodyRenderFormat === 'RECALLED' ? entity.deliveredAt || Date.now() : undefined);
+
     // Extract seen receipts — LinkedIn may include seenReceipts on the message entity
     let seenAt: number | undefined;
     if (entity.seenReceipts?.length) {
@@ -269,6 +286,7 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(repliedMessage ? { repliedMessage } : {}),
       ...(editedAt ? { editedAt } : {}),
+      ...(recalledAt ? { recalledAt } : {}),
       ...(seenAt ? { seenAt } : {}),
       ...(reactions.length > 0 ? { reactions } : {}),
     });
@@ -297,6 +315,47 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
   }
 
   return messages.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/**
+ * Extract the created message entity from a createMessage action response.
+ * DEFENSIVE by design: LinkedIn's REST action responses wrap the entity as
+ * `{ value: {...} }` (sometimes `{ data: { value: {...} } }`, or normalized
+ * with an included[] array) — but if the shape is anything unexpected this
+ * returns null and callers fall back to the SSE-echo path, so a payload change
+ * can never corrupt state.
+ */
+export function extractSentMessage(
+  data: any,
+  conversationId: string,
+  memberUrn: string,
+): Message | null {
+  if (!data || typeof data !== 'object') return null;
+  const candidates: any[] = [data.value, data.data?.value];
+  if (Array.isArray(data.included)) {
+    candidates.push(
+      data.included.find((e: any) => e?.$type === 'com.linkedin.messenger.Message'),
+    );
+  }
+  for (const entity of candidates) {
+    if (!entity || typeof entity !== 'object') continue;
+    const urn = entity.entityUrn;
+    // Require the canonical message URN and a server timestamp — anything less
+    // identifiable is not worth storing.
+    if (typeof urn !== 'string' || !urn.startsWith('urn:li:msg_message:')) continue;
+    if (typeof entity.deliveredAt !== 'number') continue;
+    return {
+      id: urn,
+      conversationId,
+      senderUrn: memberUrn,
+      senderName: 'You',
+      senderPicture: '',
+      body: entity.body?.text || '',
+      createdAt: entity.deliveredAt,
+      isFromMe: true,
+    };
+  }
+  return null;
 }
 
 /**

@@ -14,8 +14,10 @@
 import { getMemberUrn } from '../auth/session';
 import { fetchProfileByUrn } from '../api/profiles';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair, extractAudioAttachment, extractParticipantsFromIncluded, type ExtractedParticipants } from '@/lib/voyager-normalizer';
+import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair, extractAudioAttachment, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
+import { withoutRecalled } from '@/lib/message-dedup';
 import { repairConversationParticipants } from '../sync/repair-participants';
+import { reconcileRecalledMessages } from '../sync/reconcile-messages';
 import { debugLog } from '@/lib/debug-log';
 import { db, getDbGeneration, mergeProfiles } from '@/db/database';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
@@ -37,18 +39,60 @@ function isStaleContext(ctx: RealtimeContext): boolean {
 }
 
 /**
+ * Of a batch's messages for one conversation, return the genuinely NEW inbound
+ * ones: not already stored under their id, and newer (in server time) than
+ * every stored non-temp message — falling back to the conversation's
+ * lastActivityAt when no messages are stored yet. Re-deliveries of old
+ * messages (edit/reaction echoes) and SSE copies of already-fetched canonical
+ * rows return empty. MUST be called BEFORE the batch is written to the DB.
+ *
+ * Temp (optimistic) rows are excluded from the threshold because their
+ * createdAt is the local wall clock — a fast local clock would otherwise mask
+ * a genuine reply arriving right after our own send.
+ */
+async function findNewInboundMessages(
+  ctx: RealtimeContext,
+  convId: string,
+  msgs: Message[],
+): Promise<Message[]> {
+  const inbound = msgs.filter((m) => !m.isFromMe);
+  if (inbound.length === 0) return [];
+  const database = ctx.database;
+  const existingRows = await database.messages.bulkGet(inbound.map((m) => m.id));
+  const fresh = inbound.filter((_, i) => !existingRows[i]);
+  if (fresh.length === 0) return [];
+
+  const stored = await database.messages.where('conversationId').equals(convId).toArray();
+  let threshold = 0;
+  for (const m of stored) {
+    if (!m.id.startsWith('temp-') && m.createdAt > threshold) threshold = m.createdAt;
+  }
+  if (threshold === 0) {
+    const conv = await database.conversations.get(convId);
+    threshold = conv?.lastActivityAt ?? 0;
+  }
+  return fresh.filter((m) => m.createdAt > threshold);
+}
+
+/**
  * Apply an inbound SSE message batch to its parent conversation: bump
  * lastMessage/lastActivityAt and (unless suppressed or a pending optimistic
  * action exists) mark unread + move to Focused + un-archive on a reply. Creates
  * a minimal conversation if none exists yet. Shared by handleNewMessage and
  * handleIncludedMessage (previously copy-pasted in both).
+ *
+ * `hasNewInbound` (from findNewInboundMessages, computed before the batch was
+ * written) gates the unread/move/un-archive side effects: LinkedIn re-delivers
+ * Message entities for edits and reactions, and those echoes of OLD messages
+ * must not act like new mail.
  */
 async function applyInboundMessageToConversation(
   ctx: RealtimeContext,
   convId: string,
   convMessages: any[],
   memberUrn: string,
-  eventParticipants?: ExtractedParticipants,
+  eventParticipants: ExtractedParticipants | undefined,
+  hasNewInbound: boolean,
 ): Promise<void> {
   if (isStaleContext(ctx)) return;
   const database = ctx.database;
@@ -57,7 +101,6 @@ async function applyInboundMessageToConversation(
   // sent from another device. Prefer it so the conversation never shows "Unknown".
   const haveEventParts = !!eventParticipants && eventParticipants.participantUrns.length > 0;
   const latest = convMessages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
-  const hasInbound = convMessages.some((m) => !m.isFromMe);
   // Read pending-actions (a different table) outside the conversations transaction.
   const pending = await hasPendingAction(convId);
   const existing = await database.conversations.get(convId);
@@ -70,10 +113,16 @@ async function applyInboundMessageToConversation(
       const conv = await database.conversations.get(convId);
       if (!conv) return;
       const updates: Record<string, any> = {
-        lastMessage: latest.body || 'New message',
         lastActivityAt: Math.max(latest.createdAt, conv.lastActivityAt),
       };
-      if (!isMutationSuppressed(convId) && !pending && conv.category !== 'SPAM' && hasInbound) {
+      // Only advance the preview for genuinely new mail or for the current
+      // latest message (an edit of the latest message re-arrives with the same
+      // deliveredAt and should update the preview text). An edit echo of an
+      // OLDER message must not rewind the preview under a newer timestamp.
+      if (hasNewInbound || latest.createdAt >= conv.lastActivityAt) {
+        updates.lastMessage = latest.body || 'New message';
+      }
+      if (!isMutationSuppressed(convId) && !pending && conv.category !== 'SPAM' && hasNewInbound) {
         updates.read = 0;
         // Move to Focused and un-archive when someone replies
         if (conv.category !== 'PRIMARY_INBOX') updates.category = 'PRIMARY_INBOX';
@@ -105,6 +154,9 @@ async function applyInboundMessageToConversation(
     const senders = convMessages.filter((m) => !m.isFromMe);
     const sender = senders[0];
     if (isStaleContext(ctx)) return;
+    // A live SSE message means the thread is active again on LinkedIn's side —
+    // clear any local delete tombstone so the resurrected conversation can sync.
+    await database.tombstones.delete(convId).catch(() => {});
     await database.conversations.put({
       id: convId,
       participantUrns: haveEventParts ? eventParticipants!.participantUrns : sender ? [sender.senderUrn] : [],
@@ -194,6 +246,70 @@ function backfillConversationParticipants(ctx: RealtimeContext, conversationId: 
     .catch((err) => {
       debugLog('warn', `[RT] Failed to backfill participants for ${conversationId}: ${err}`);
     });
+}
+
+/**
+ * Delete the local copies of a message the server reports as recalled/unsent.
+ * Matches by the event's SSE ids and — for the canonical copy fetched via REST
+ * under a different id — by sender + server timestamp. Rewinds the
+ * conversation preview when the recalled message was the latest activity.
+ * Never touches optimistic temps and never creates a conversation.
+ */
+async function removeRecalledMessage(
+  ctx: RealtimeContext,
+  conversationId: string,
+  target: { ids: string[]; createdAt?: number; senderUrn?: string },
+): Promise<void> {
+  if (isStaleContext(ctx)) return;
+  const database = ctx.database;
+
+  let deleted = 0;
+  await database.transaction('rw', database.messages, async () => {
+    const all = await database.messages
+      .where('conversationId')
+      .equals(conversationId)
+      .toArray();
+    const toDelete = all.filter((m) => {
+      if (m.id.startsWith('temp-')) return false;
+      if (target.ids.includes(m.id)) return true;
+      if (typeof target.createdAt !== 'number' || m.createdAt !== target.createdAt) return false;
+      // Timestamp match alone could hit a coincidentally-simultaneous message
+      // from someone else — require the sender when the event resolved one.
+      return !target.senderUrn || m.senderUrn === target.senderUrn;
+    });
+    if (toDelete.length > 0) {
+      await database.messages.bulkDelete(toDelete.map((m) => m.id));
+      deleted = toDelete.length;
+    }
+  });
+  if (deleted === 0) return;
+
+  debugLog(
+    'info',
+    `[RT] Recall: removed ${deleted} message(s) from ${conversationId.substring(0, 20)}...`
+  );
+
+  // If the recalled message was the newest activity, rewind the preview text to
+  // the newest remaining message (lastActivityAt is left alone — merges only
+  // ever raise it, and lowering it would fight the freshness checks).
+  await database.transaction('rw', [database.conversations, database.messages], async () => {
+    if (isStaleContext(ctx)) return;
+    const conv = await database.conversations.get(conversationId);
+    if (!conv) return;
+    if (typeof target.createdAt === 'number' && conv.lastActivityAt !== target.createdAt) return;
+    const remaining = await database.messages
+      .where('conversationId')
+      .equals(conversationId)
+      .toArray();
+    let newest: Message | null = null;
+    for (const m of remaining) {
+      if (m.id.startsWith('temp-')) continue;
+      if (!newest || m.createdAt > newest.createdAt) newest = m;
+    }
+    if (newest) {
+      await database.conversations.update(conversationId, { lastMessage: newest.body || '' });
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +606,19 @@ async function handleVoyagerEvent(
     const ec = entity.eventContent || {};
     const body = ec.attributedBody?.text || ec.body || '';
 
+    // Recall/unsend events arrive as MessageEvents with recalledAt set and an
+    // empty body — previously misclassified as typing indicators and dropped,
+    // so the recalled message only vanished on the next fetch reconcile.
+    if (ec.recalledAt || ec.messageBodyRenderFormat === 'RECALLED') {
+      const fromMember = memberMap.get(entity['*from'] || '');
+      const recallProfileId = (fromMember?.['*miniProfile'] || '').split(':').pop() || '';
+      await removeRecalledMessage(ctx, conversationId, {
+        ids: [entity.dashEntityUrn, entity.entityUrn].filter(Boolean),
+        createdAt: typeof entity.createdAt === 'number' ? entity.createdAt : undefined,
+        senderUrn: recallProfileId ? `urn:li:fsd_profile:${recallProfileId}` : undefined,
+      });
+      continue;
+    }
 
     // Typing indicators arrive as Voyager Events with empty body.
     // Skip them — don't store as messages.
@@ -567,22 +696,31 @@ async function handleVoyagerEvent(
     );
   }
 
-  if (messages.length > 0) {
-    if (isStaleContext(ctx)) return;
-    await ctx.database.messages.bulkPut(messages);
-    await cleanupOptimisticMessages(ctx, messages);
+  if (isStaleContext(ctx)) return;
+
+  // Detect genuinely new inbound messages BEFORE writing the batch — edit
+  // echoes of old messages must not mark the thread unread or notify.
+  const newInboundByConv = new Map<string, Message[]>();
+  for (const convId of conversationIds) {
+    const convMessages = messages.filter((m) => m.conversationId === convId);
+    newInboundByConv.set(convId, await findNewInboundMessages(ctx, convId, convMessages));
   }
+
+  if (isStaleContext(ctx)) return;
+  await ctx.database.messages.bulkPut(messages);
+  await cleanupOptimisticMessages(ctx, messages);
 
   // Update parent conversations
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
-    await applyInboundMessageToConversation(ctx, convId, convMessages, memberUrn);
+    const hasNewInbound = (newInboundByConv.get(convId)?.length ?? 0) > 0;
+    await applyInboundMessageToConversation(ctx, convId, convMessages, memberUrn, undefined, hasNewInbound);
   }
 
-  // Notify UI of inbound messages for toast notifications
-  const inbound = messages.filter((m) => !m.isFromMe);
-  if (inbound.length > 0) {
-    const latest = inbound.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+  // Notify UI of genuinely NEW inbound messages for toast notifications
+  const newInbound = [...newInboundByConv.values()].flat();
+  if (newInbound.length > 0) {
+    const latest = newInbound.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
     chrome.runtime.sendMessage({
       type: 'INCOMING_MESSAGE',
       id: latest.id,
@@ -595,7 +733,7 @@ async function handleVoyagerEvent(
   }
 
   // Enrich sender profiles for inbound messages (non-blocking)
-  const senderUrns = new Set(inbound.map((m) => m.senderUrn));
+  const senderUrns = new Set(messages.filter((m) => !m.isFromMe).map((m) => m.senderUrn));
   for (const urn of senderUrns) {
     enrichProfileIfNeeded(ctx, urn);
   }
@@ -641,9 +779,13 @@ async function handleDashConversationUpdate(ctx: RealtimeContext, convEntity: an
   // reverts a just-applied optimistic Mark-Unread.
   const suppressed = shouldSuppressConversationUpdate(convId) || isMutationSuppressed(convId);
 
+  // DIAGNOSTIC (star/unstar sync): log the full category overlay + field list.
+  // Cross-device star changes update LinkedIn's web UI live, so the echo very
+  // likely arrives here with a `categories` array (± STARRED) — capture it to
+  // confirm the shape before wiring star reconciliation.
   debugLog(
     'info',
-    `[RT] Dash conversation update: ${convId.substring(0, 20)}... read=${convEntity.read} unreadCount=${convEntity.unreadCount} lastReadAt=${convEntity.lastReadAt}${suppressed ? ' (suppressed)' : ''}`
+    `[RT] Dash conversation update: ${convId.substring(0, 20)}... read=${convEntity.read} unreadCount=${convEntity.unreadCount} lastReadAt=${convEntity.lastReadAt} lastActivityAt=${convEntity.lastActivityAt} categories=${JSON.stringify(convEntity.categories)} keys=${Object.keys(convEntity).join(',')}${suppressed ? ' (suppressed)' : ''}`
   );
 
   if (suppressed) return;
@@ -651,6 +793,18 @@ async function handleDashConversationUpdate(ctx: RealtimeContext, convEntity: an
   if (isStaleContext(ctx)) return;
   const existing = await ctx.database.conversations.get(convId);
   if (!existing) return;
+
+  // Staleness guard (same rule as mergeConversation): an entity describing the
+  // conversation BEFORE its newest local activity is a delayed echo — its read
+  // flag predates the newest message and must not hide the unread indicator.
+  // Entities without lastActivityAt apply as before (freshness unknown).
+  if (
+    typeof convEntity.lastActivityAt === 'number' &&
+    convEntity.lastActivityAt < existing.lastActivityAt
+  ) {
+    debugLog('info', `[RT] Ignoring stale Dash update for ${convId.substring(0, 20)}... (entity older than local state)`);
+    return;
+  }
 
   const newRead = isRead ? 1 : 0;
   if (existing.read !== newRead) {
@@ -688,6 +842,28 @@ async function handleConversationUpdate(
     return;
   }
 
+  // Cross-device star/unstar arrives as a top-level boolean on this entity
+  // (captured live — see regression 80). Unlike category-page overlays (which
+  // unreliably omit STARRED, hence the merge's never-downgrade rule), this is
+  // authoritative per-conversation state, so BOTH directions apply. Runs
+  // before the suppression/archived early-returns: a star change must land
+  // even for archived threads and during the mark-read echo window.
+  if (typeof realtimeConv.starred === 'boolean') {
+    const starGuarded =
+      (await hasPendingAction(conversationId)) || isMutationSuppressed(conversationId);
+    if (!starGuarded && !isStaleContext(ctx)) {
+      const newStarred = realtimeConv.starred ? 1 : 0;
+      const existing = await ctx.database.conversations.get(conversationId);
+      if (existing && (existing.starred ?? 0) !== newStarred) {
+        await ctx.database.conversations.update(conversationId, { starred: newStarred });
+        debugLog(
+          'info',
+          `[RT] Star sync: ${conversationId.substring(0, 20)}... starred=${newStarred} (from another client)`
+        );
+      }
+    }
+  }
+
   // unreadConversationsCount is an inbox-wide count, NOT per-conversation.
   // Don't use it to mark individual conversations as read — that's handled
   // by the Dash-format handleDashConversationUpdate and handleReadReceipt.
@@ -707,7 +883,10 @@ async function handleConversationUpdate(
     return;
   }
 
-  debugLog('info', `[RT] Conversation update: ${conversationId.substring(0, 20)}...`);
+  debugLog(
+    'info',
+    `[RT] Conversation update: ${conversationId.substring(0, 20)}... starred=${realtimeConv.starred} action=${realtimeConv.action}`
+  );
 
   // Fetch latest messages to detect genuinely new messages.
   // _doFetchLatest has correct per-conversation read/unread logic.
@@ -765,37 +944,50 @@ async function _doFetchLatest(
   if (isStaleContext(ctx)) return;
   const rawPage = await fetchMessages(conversationId, 20, 0, { skipJitter: true });
   if (isStaleContext(ctx)) return;
-  const messages = normalizeMessages(rawPage, conversationId);
+  const allFetched = normalizeMessages(rawPage, conversationId);
 
-  for (const m of messages) {
+  for (const m of allFetched) {
     if (m.senderUrn === memberUrn) m.isFromMe = true;
   }
 
-  if (messages.length === 0) return;
+  if (allFetched.length === 0) return;
+
+  // Recalled tombstones are never stored; they only feed the reconcile below.
+  const messages = withoutRecalled(allFetched);
+
+  // Newness computed BEFORE the write, against stored server timestamps rather
+  // than conversation.lastActivityAt — an optimistic send stamps lastActivityAt
+  // with the local wall clock, and a fast local clock would otherwise mask a
+  // genuine reply arriving right after our own send.
+  const newInbound = await findNewInboundMessages(ctx, conversationId, messages);
+  if (isStaleContext(ctx)) return;
 
   await ctx.database.messages.bulkPut(messages);
 
+  // Remove stored copies of messages this fetch no longer returned live within
+  // its time range — messages recalled/unsent on LinkedIn disappear live.
+  await reconcileRecalledMessages(conversationId, allFetched);
+
+  if (messages.length === 0) return;
+
   // Update conversation preview text, timestamp, and read status.
-  // Only mark as unread if there is a genuinely new inbound message
-  // (createdAt newer than what we had, and not from us).
   //
   // This fetch runs detached from the SSE event-serialization chain, so the
   // read-modify-write is wrapped in a transaction and re-reads the row inside it.
-  // That keeps it atomic against a concurrent message/conversation handler writing
-  // the same fields (read/category/lastActivityAt) and reconciles hasNewInbound
-  // against the current lastActivityAt rather than a pre-write snapshot.
+  // That keeps it atomic against a concurrent message/conversation handler
+  // writing the same fields (read/category/lastActivityAt).
   const latest = messages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+  const hasNewInbound = newInbound.length > 0;
   await ctx.database.transaction('rw', ctx.database.conversations, async () => {
     if (isStaleContext(ctx)) return;
     const existing = await ctx.database.conversations.get(conversationId);
     if (!existing) return;
     const updates: Record<string, any> = {
-      lastMessage: latest.body || 'New message',
       lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
     };
-    const hasNewInbound = messages.some(
-      (m) => !m.isFromMe && m.createdAt > existing.lastActivityAt
-    );
+    if (hasNewInbound || latest.createdAt >= existing.lastActivityAt) {
+      updates.lastMessage = latest.body || 'New message';
+    }
     if (hasNewInbound && !isMutationSuppressed(conversationId) && existing.category !== 'SPAM') {
       // Always mark as unread for genuinely new messages, even during
       // suppression window — suppression is for read-echoes, not new messages.
@@ -822,11 +1014,17 @@ async function _doFetchLatest(
  * Decide whether an SSE message is the viewer's own outbound echo.
  *
  * LinkedIn reliably includes the *sender* participant for inbound messages, but
- * frequently OMITS the viewer's own participant from outbound echo events. So a
- * message whose sender we couldn't resolve from the payload, and whose best-effort
- * senderUrn isn't a known OTHER participant of the conversation, is almost
- * certainly ours — including the very first message to a brand-new contact, where
- * the conversation has no stored participants yet.
+ * frequently OMITS the viewer's own participant from outbound echo events. Even
+ * then, the sender REFERENCE usually embeds the sender's fsd_profile URN — a
+ * valid profile URN that isn't ours identifies a real other sender (e.g. a
+ * group member we haven't stored yet) and MUST stay inbound: claiming it as
+ * self would hide the unread flag/notification and rewrite senderUrn to the
+ * member URN, breaking dedup against the canonical copy (permanent duplicate).
+ *
+ * Only a sender we truly cannot identify (no parseable profile URN anywhere,
+ * and not a known participant) is treated as our own omitted-self echo —
+ * including the very first message to a brand-new contact, where the
+ * conversation has no stored participants yet.
  *
  * Returns the corrected isFromMe and a senderUrn aligned to the member URN when
  * self (so the SSE entry dedups against the REST-fetched canonical copy).
@@ -842,8 +1040,12 @@ async function resolveSelfSender(
   // A sender we successfully resolved from the payload that isn't us is genuinely
   // someone else — trust it.
   if (resolvedFromPayload) return { isFromMe: false, senderUrn };
-  // Unresolved sender: if it matches a known other participant, keep it as
-  // inbound; otherwise treat it as our own omitted-self echo.
+  // The reference itself carries a well-formed profile URN that isn't ours —
+  // a real other sender even if their participant entity was omitted.
+  if (isValidProfileUrn(senderUrn)) return { isFromMe: false, senderUrn };
+  // Garbage/unparseable sender: if it matches a known other participant
+  // (legacy rows store such URNs), keep it inbound; otherwise treat it as our
+  // own omitted-self echo.
   const conv = await ctx.database.conversations.get(conversationId);
   if (conv?.participantUrns?.includes(senderUrn)) return { isFromMe: false, senderUrn };
   debugLog('info', `[RT] Unresolved sender treated as self for conv ${conversationId.substring(0, 20)}...`);
@@ -874,6 +1076,23 @@ async function handleIncludedMessage(
       convRef || entity.conversationUrn || ''
     );
     if (!conversationId) continue;
+
+    // Recall/unsend delivered in the new Messenger format — delete local
+    // copies instead of storing a tombstone (mirrors the Voyager recall path).
+    if (entity.recalledAt || entity.messageBodyRenderFormat === 'RECALLED') {
+      const recallSenderRef = entity['*sender'] || entity['*actor'] || '';
+      const recallSender = participantMap.get(recallSenderRef);
+      const recallProfileId = extractProfileId(recallSender?.hostIdentityUrn || recallSenderRef);
+      await removeRecalledMessage(ctx, conversationId, {
+        ids: [entity.entityUrn].filter(Boolean),
+        createdAt: typeof entity.deliveredAt === 'number' ? entity.deliveredAt : undefined,
+        senderUrn:
+          recallProfileId && isValidProfileUrn(`urn:li:fsd_profile:${recallProfileId}`)
+            ? `urn:li:fsd_profile:${recallProfileId}`
+            : undefined,
+      });
+      continue;
+    }
 
     conversationIds.add(conversationId);
 
@@ -922,6 +1141,17 @@ async function handleIncludedMessage(
     `[RT] New message(s): ${messages.length} in ${conversationIds.size} conversation(s)`
   );
 
+  if (isStaleContext(ctx)) return;
+
+  // Detect genuinely new inbound messages BEFORE writing the batch — LinkedIn
+  // re-delivers Message entities for edits/reactions, and those echoes of old
+  // messages must not mark the thread unread, un-archive it, or notify.
+  const newInboundByConv = new Map<string, Message[]>();
+  for (const convId of conversationIds) {
+    const convMessages = messages.filter((m) => m.conversationId === convId);
+    newInboundByConv.set(convId, await findNewInboundMessages(ctx, convId, convMessages));
+  }
+
   // Write messages to DB
   if (isStaleContext(ctx)) return;
   await ctx.database.messages.bulkPut(messages);
@@ -935,7 +1165,8 @@ async function handleIncludedMessage(
   // Update parent conversations
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
-    await applyInboundMessageToConversation(ctx, convId, convMessages, memberUrn, eventParticipants);
+    const hasNewInbound = (newInboundByConv.get(convId)?.length ?? 0) > 0;
+    await applyInboundMessageToConversation(ctx, convId, convMessages, memberUrn, eventParticipants, hasNewInbound);
   }
 
   // Update hasAttachments flag if any messages have attachments
@@ -948,10 +1179,10 @@ async function handleIncludedMessage(
     }
   }
 
-  // Notify UI of inbound messages for toast notifications
-  const inboundMsgs = messages.filter((m) => !m.isFromMe);
-  if (inboundMsgs.length > 0) {
-    const latestInbound = inboundMsgs.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+  // Notify UI of genuinely NEW inbound messages for toast notifications
+  const newInbound = [...newInboundByConv.values()].flat();
+  if (newInbound.length > 0) {
+    const latestInbound = newInbound.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
     chrome.runtime.sendMessage({
       type: 'INCOMING_MESSAGE',
       id: latestInbound.id,
@@ -964,7 +1195,7 @@ async function handleIncludedMessage(
   }
 
   // Enrich sender profiles for inbound messages (non-blocking)
-  const senderUrns = new Set(inboundMsgs.map((m) => m.senderUrn));
+  const senderUrns = new Set(messages.filter((m) => !m.isFromMe).map((m) => m.senderUrn));
   for (const urn of senderUrns) {
     enrichProfileIfNeeded(ctx, urn);
   }
@@ -1023,28 +1254,21 @@ async function handleSingleMessageEntity(
   );
 
   if (isStaleContext(ctx)) return;
+  // Newness check before the write, then reuse the shared (transactional)
+  // conversation-update path — this legacy shape previously did its own
+  // non-transactional read-modify-write with no re-delivery guard.
+  const newInbound = await findNewInboundMessages(ctx, conversationId, [message]);
+  if (isStaleContext(ctx)) return;
   await ctx.database.messages.put(message);
   await cleanupOptimisticMessages(ctx, [message]);
-
-  // Update conversation
-  const existing = await ctx.database.conversations.get(conversationId);
-  if (existing) {
-    const updates: Record<string, any> = {
-      lastMessage: message.body || 'New message',
-      lastActivityAt: Math.max(message.createdAt, existing.lastActivityAt),
-    };
-    if (!message.isFromMe && !isMutationSuppressed(conversationId)) {
-      updates.read = 0;
-      // Move to Focused and un-archive when someone replies
-      if (existing.category !== 'PRIMARY_INBOX') {
-        updates.category = 'PRIMARY_INBOX';
-      }
-      if (existing.archived === 1) {
-        updates.archived = 0;
-      }
-    }
-    await ctx.database.conversations.update(conversationId, updates);
-  }
+  await applyInboundMessageToConversation(
+    ctx,
+    conversationId,
+    [message],
+    memberUrn,
+    undefined,
+    newInbound.length > 0,
+  );
 }
 
 // ---------------------------------------------------------------------------

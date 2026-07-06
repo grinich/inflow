@@ -22,10 +22,11 @@ import { burstDiscover, toggleSyncPause, broadcastProgress } from './sync/sync-c
 
 import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
-import { prefetchSharedPosts } from './sync/prefetch-posts';
-import { normalizeConversations, normalizeMessages } from '@/lib/voyager-normalizer';
-import { planSseDedup, preserveSseFields } from '@/lib/message-dedup';
+import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
+import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
+import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
 import { repairConversationParticipants } from './sync/repair-participants';
+import { reconcileRecalledMessages } from './sync/reconcile-messages';
 import { debugLog, getDebugLogs, clearDebugLogs } from '@/lib/debug-log';
 import { getBackfillCutoff } from '@/lib/sync-settings';
 import { db, mergeProfiles } from '@/db/database';
@@ -37,6 +38,28 @@ import { getSSEStatus } from './realtime/sse-client';
 import { checkForUpdate } from './update-check';
 import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
+
+/**
+ * Serialize a mutation (archive/move/read/star/delete/edit) on the same
+ * per-conversation chain as sends. Category mutations used to run as
+ * independent concurrent fetches, so archive + quick undo (UNARCHIVE) raced
+ * and could land on LinkedIn out of order — leaving the server archived while
+ * the UI showed unarchived (and the next poll re-archiving it).
+ *
+ * `record` starts the echo-suppression window immediately (guards merges while
+ * the mutation waits in the chain) and again right before the API call.
+ */
+function enqueueMutation(
+  conversationId: string,
+  record: ((conversationId: string) => void) | null,
+  fn: () => Promise<unknown>,
+): Promise<unknown> {
+  record?.(conversationId);
+  return enqueueSend(conversationId, () => {
+    record?.(conversationId);
+    return fn();
+  });
+}
 
 export function setupMessageRouter() {
   chrome.runtime.onMessage.addListener(
@@ -93,16 +116,22 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         for (const m of messages) {
           if (m.senderUrn === memberUrn) m.isFromMe = true;
         }
+        // Recalled tombstones are never stored (orphaned-separator bug) but
+        // stay in `messages` so the reconcile below removes stored copies.
+        const live = withoutRecalled(messages);
         // Re-fetched rows lack SSE-only fields (seenAt/reactions/editedAt) —
         // carry them over from the existing rows inside one transaction so a
         // concurrent SSE write can't land between the read and the put.
         await db.transaction('rw', db.messages, async () => {
-          const existingRows = await db.messages.bulkGet(messages.map((m) => m.id));
-          preserveSseFields(messages, existingRows);
-          await db.messages.bulkPut(messages);
+          const existingRows = await db.messages.bulkGet(live.map((m) => m.id));
+          preserveSseFields(live, existingRows);
+          await db.messages.bulkPut(live);
         });
-        if (messages.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
-        prefetchSharedPosts(messages).catch(() => {});
+        if (live.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
+        prefetchSharedPosts(live).catch(() => {});
+        // Drop stored copies of messages this page no longer returned live
+        // within its time range — messages recalled/unsent on LinkedIn.
+        await reconcileRecalledMessages(msg.conversationId, messages);
         await repairConversationParticipants(msg.conversationId, rawPage.included || [], memberUrn);
       } else {
         // New conversation — fetch page by page, writing each to DB immediately
@@ -111,7 +140,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         const PAGE_SIZE = 20;
         for (let page = 0; page < MAX_PAGES; page++) {
           const rawPage = await fetchMessages(msg.conversationId, PAGE_SIZE, page * PAGE_SIZE, { skipJitter: page === 0 });
-          const messages = normalizeMessages(rawPage, msg.conversationId);
+          const messages = withoutRecalled(normalizeMessages(rawPage, msg.conversationId));
           for (const m of messages) {
             if (m.senderUrn === memberUrn) m.isFromMe = true;
           }
@@ -157,74 +186,110 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     case 'SEND_MESSAGE': {
       // Serialize per conversation (shared with the offline drainer) so a rapid
       // second message is delivered in order rather than racing/rejected.
-      await enqueueSend(msg.conversationId, () =>
+      const response = await enqueueSend(msg.conversationId, () =>
         sendMessage(msg.conversationId, msg.body, msg.attachments, msg.replyTo),
       );
+      // Opportunistic: the createMessage response usually carries the created
+      // message entity — store the canonical row now (server timestamp, no
+      // wait for the SSE echo) and retire the matching optimistic temp. When
+      // the shape isn't recognized this is a no-op and the echo path handles it.
+      const sent = extractSentMessage(response, msg.conversationId, await getMemberUrn());
+      if (sent) {
+        await db.transaction('rw', db.messages, async () => {
+          // Retire at most ONE matching temp (same rules as the SSE echo
+          // cleanup: failed/queued temps have no server copy and must stay).
+          const temps = await db.messages
+            .where('conversationId')
+            .equals(msg.conversationId)
+            .filter((m) =>
+              m.id.startsWith('temp-') &&
+              m.body === sent.body &&
+              m.status !== 'failed' &&
+              m.status !== 'queued'
+            )
+            .toArray();
+          if (temps.length > 0) await db.messages.delete(temps[0].id);
+          await db.messages.put(sent);
+        });
+        await db.transaction('rw', db.conversations, async () => {
+          const conv = await db.conversations.get(msg.conversationId);
+          if (!conv) return;
+          if (sent.createdAt > conv.lastActivityAt) {
+            await db.conversations.update(msg.conversationId, {
+              lastActivityAt: sent.createdAt,
+              lastMessage: sent.body || conv.lastMessage,
+            });
+          } else if (conv.lastMessage === sent.body && conv.lastActivityAt > sent.createdAt) {
+            // The preview already shows this send, so the newer local value is
+            // the optimistic Date.now() stamp. Correct it DOWN to the server's
+            // deliveredAt — a fast local clock would otherwise mask genuinely
+            // new inbound messages from the freshness checks.
+            await db.conversations.update(msg.conversationId, {
+              lastActivityAt: sent.createdAt,
+            });
+          }
+        });
+      }
       return { success: true };
     }
     case 'ARCHIVE': {
-      recordMutation(msg.conversationId);
-      await archiveConversation(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMutation, () => archiveConversation(msg.conversationId));
       return { success: true };
     }
     case 'UNARCHIVE': {
-      recordMutation(msg.conversationId);
-      await unarchiveConversation(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMutation, () => unarchiveConversation(msg.conversationId));
       return { success: true };
     }
     case 'MOVE_TO_OTHER': {
-      recordMutation(msg.conversationId);
-      await moveToOther(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMutation, () => moveToOther(msg.conversationId));
       return { success: true };
     }
     case 'MOVE_TO_FOCUSED': {
-      recordMutation(msg.conversationId);
-      await moveToFocused(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMutation, () => moveToFocused(msg.conversationId));
       return { success: true };
     }
     case 'MOVE_TO_SPAM': {
-      recordMutation(msg.conversationId);
-      await moveToSpam(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMutation, () => moveToSpam(msg.conversationId));
       return { success: true };
     }
     case 'MARK_READ': {
-      recordMarkRead(msg.conversationId);
-      await markConversationRead(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMarkRead, () => markConversationRead(msg.conversationId));
       return { success: true };
     }
     case 'MARK_UNREAD': {
-      recordMutation(msg.conversationId);
-      await markConversationUnread(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMutation, () => markConversationUnread(msg.conversationId));
       return { success: true };
     }
     case 'DELETE_CONVERSATION': {
-      await deleteConversation(msg.conversationId);
+      await enqueueMutation(msg.conversationId, null, () => deleteConversation(msg.conversationId));
       return { success: true };
     }
     case 'STAR': {
-      recordMutation(msg.conversationId);
-      await starConversation(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMutation, () => starConversation(msg.conversationId));
       return { success: true };
     }
     case 'UNSTAR': {
-      recordMutation(msg.conversationId);
-      await unstarConversation(msg.conversationId);
+      await enqueueMutation(msg.conversationId, recordMutation, () => unstarConversation(msg.conversationId));
       return { success: true };
     }
     case 'EDIT_MESSAGE': {
-      await editMessage(msg.conversationId, msg.messageId, msg.body);
-      // Update message in DB
-      await db.messages.update(msg.messageId, { body: msg.body, editedAt: Date.now() });
+      await enqueueMutation(msg.conversationId, null, async () => {
+        await editMessage(msg.conversationId, msg.messageId, msg.body);
+        // Update message in DB
+        await db.messages.update(msg.messageId, { body: msg.body, editedAt: Date.now() });
+      });
       return { success: true };
     }
     case 'REACT_EMOJI': {
-      await reactWithEmoji(msg.messageId, msg.emoji);
+      await enqueueMutation(msg.conversationId, null, () => reactWithEmoji(msg.messageId, msg.emoji));
       return { success: true };
     }
     case 'RECALL_MESSAGE': {
-      await recallMessage(msg.messageId);
-      // Remove message from DB
-      await db.messages.delete(msg.messageId);
+      await enqueueMutation(msg.conversationId, null, async () => {
+        await recallMessage(msg.messageId);
+        // Remove message from DB
+        await db.messages.delete(msg.messageId);
+      });
       return { success: true };
     }
     case 'TYPEAHEAD_SEARCH': {
@@ -233,6 +298,10 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     }
     case 'CREATE_CONVERSATION': {
       const result = await createConversation(msg.recipientUrns, msg.body, msg.attachments);
+      // LinkedIn REUSES the conversation id when messaging a person whose
+      // thread was deleted — the thread is live again, so a leftover delete
+      // tombstone must not keep blocking sync from re-inserting it.
+      await db.tombstones.delete(result.conversationId).catch(() => {});
       return { success: true, data: result };
     }
     case 'CHECK_FOR_UPDATE': {
@@ -253,7 +322,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     }
     case 'RESET_DB': {
       // Clear all tables (safer than db.delete() which can break the Dexie instance)
-      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments], async () => {
+      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones], async () => {
         await db.conversations.clear();
         await db.messages.clear();
         await db.profiles.clear();
@@ -263,6 +332,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         await db.syncState.clear();
         await db.syncQueue.clear();
         await db.draftAttachments.clear();
+        await db.tombstones.clear();
       });
       clearDebugLogs();
       await syncConversations();
@@ -309,9 +379,12 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       return { success: true };
     }
     case 'FETCH_POST': {
-      // Check cache first
+      // Check cache first — but only serve entries within the TTL. A stale row
+      // (or stale not-found sentinel) falls through to a refetch, matching the
+      // prefetch path's policy; serving it forever meant edited/deleted posts
+      // never refreshed and a transient fetch failure was cached permanently.
       const cached = await db.postCache.get(msg.activityUrn);
-      if (cached) {
+      if (cached && Date.now() - cached.cachedAt < POST_CACHE_TTL) {
         // Return null for "not found" sentinels (empty authorName + text)
         const data = (cached.authorName || cached.text) ? cached : null;
         return { success: true, data };
@@ -335,9 +408,20 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       const { response: rawData, nextCursor } = await searchConversations(msg.query, msg.cursor || null);
       const { conversations, profiles } = normalizeConversations(rawData, memberUrn);
 
+      // Diagnostic: settle whether LinkedIn's search entities are sparse
+      // (missing categories/unreadCount). Sparse fields are already guarded by
+      // the merge (kept as "unknown"), this only makes it visible in the logs.
+      const sparse = conversations.filter(
+        (c) => c.category === undefined || c.read === undefined
+      ).length;
+      debugLog(
+        'info',
+        `[SEARCH] ${conversations.length} result(s)${sparse > 0 ? ` — ${sparse} sparse (categories/unreadCount omitted; merge-guarded)` : ' — all carry full category/read fields'}`
+      );
+
       // Store in IndexedDB using shared merge logic
       if (conversations.length > 0 || profiles.length > 0) {
-        await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions], async () => {
+        await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions, db.tombstones], async () => {
           await mergeProfiles(profiles);
           for (const conv of conversations) {
             await mergeConversation(conv);
@@ -373,10 +457,13 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
 
             const pages = await fetchAllMessages(convId);
             let hasAttachments = false;
+            // Server-clock watermark for messagesSyncedAt (see SyncQueueItem).
+            let maxCreatedAt = 0;
             for (const rawPage of pages) {
-              const messages = normalizeMessages(rawPage, convId);
+              const messages = withoutRecalled(normalizeMessages(rawPage, convId));
               for (const m of messages) {
                 if (m.senderUrn === memberUrn) m.isFromMe = true;
+                if (m.createdAt > maxCreatedAt) maxCreatedAt = m.createdAt;
               }
               await db.messages.bulkPut(messages);
               if (messages.some(m => m.attachments && m.attachments.length > 0)) {
@@ -387,10 +474,12 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
             if (hasAttachments) {
               await db.conversations.update(convId, { hasAttachments: 1 });
             }
+            const syncedThrough =
+              Math.max(maxCreatedAt, convRecord?.lastActivityAt ?? 0) || Date.now();
             await db.syncQueue
               .where('conversationId')
               .equals(convId)
-              .modify({ messagesSyncedAt: Date.now(), status: 'done' });
+              .modify({ messagesSyncedAt: syncedThrough, status: 'done' });
             debugLog('info', `[PREFETCH] Prefetched messages for ${convId}`);
           } catch (err) {
             debugLog('error', `[PREFETCH] Failed for ${convId}: ${err}`);

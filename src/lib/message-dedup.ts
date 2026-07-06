@@ -123,6 +123,14 @@ export interface DedupPlan {
 }
 
 /**
+ * Window for the near-time fallback match: an SSE entry whose timestamp was
+ * fabricated locally (Date.now() when the event lacked deliveredAt) can never
+ * key-match its canonical twin, so we also match same-sender + same-body
+ * entries within this window.
+ */
+const FALLBACK_MATCH_WINDOW_MS = 5_000;
+
+/**
  * Plan a DB-cleanup dedup over all messages in a conversation. Pure — the caller
  * performs the actual `db.messages.update` / `bulkDelete` from the returned plan.
  *
@@ -132,19 +140,53 @@ export interface DedupPlan {
 export function planSseDedup(allMsgs: Message[], opts: { includeSentTemps?: boolean } = {}): DedupPlan {
   const canonicalKeys = buildCanonicalKeySet(allMsgs);
 
-  const stale = allMsgs.filter((m) => {
-    if (opts.includeSentTemps && m.id.startsWith('temp-') && m.status === 'sent') return true;
-    return isSseMessageId(m.id) && canonicalKeys.has(messageDedupeKey(m));
-  });
+  // Canonical entries already claimed by an exact key twin are not available
+  // for fallback matching — otherwise a rapid repeat of the same text ("ok"
+  // sent twice) would let one canonical absorb both SSE copies.
+  const consumedCanonicalKeys = new Set(
+    allMsgs
+      .filter((m) => !isCanonicalMessageId(m.id) && canonicalKeys.has(messageDedupeKey(m)))
+      .map((m) => messageDedupeKey(m))
+  );
+  const fallbackCandidates = allMsgs.filter(
+    (m) => isCanonicalMessageId(m.id) && !consumedCanonicalKeys.has(messageDedupeKey(m))
+  );
+  const consumedFallbackIds = new Set<string>();
+
+  /** Canonical twin for an SSE orphan: exact key match, else one near-time
+   *  same-sender+body match (each canonical absorbs at most one orphan). */
+  const findCanonicalTwin = (orphan: Message): Message | undefined => {
+    const exact = allMsgs.find(
+      (m) => isCanonicalMessageId(m.id) && messageDedupeKey(m) === messageDedupeKey(orphan)
+    );
+    if (exact) return exact;
+    const near = fallbackCandidates.find(
+      (m) =>
+        !consumedFallbackIds.has(m.id) &&
+        m.senderUrn === orphan.senderUrn &&
+        m.body === orphan.body &&
+        Math.abs(m.createdAt - orphan.createdAt) <= FALLBACK_MATCH_WINDOW_MS
+    );
+    if (near) consumedFallbackIds.add(near.id);
+    return near;
+  };
+
+  const staleWithTwins = allMsgs
+    .map((m) => {
+      if (opts.includeSentTemps && m.id.startsWith('temp-') && m.status === 'sent') {
+        return { orphan: m, canonical: undefined };
+      }
+      if (!isSseMessageId(m.id)) return null;
+      const canonical = findCanonicalTwin(m);
+      return canonical ? { orphan: m, canonical } : null;
+    })
+    .filter((x): x is { orphan: Message; canonical: Message | undefined } => x !== null);
 
   const updates: DedupPlan['updates'] = [];
-  for (const orphan of stale) {
+  for (const { orphan, canonical } of staleWithTwins) {
     // Only SSE entries carry editedAt / reactions worth preserving.
     if (!isSseMessageId(orphan.id)) continue;
     if (!orphan.editedAt && !orphan.reactions?.length) continue;
-    const canonical = allMsgs.find(
-      (m) => isCanonicalMessageId(m.id) && messageDedupeKey(m) === messageDedupeKey(orphan)
-    );
     if (!canonical) continue;
     const u: DedupPlan['updates'][number]['updates'] = {};
     // An edited SSE copy carries the new body/editedAt the canonical (fetched
@@ -160,5 +202,63 @@ export function planSseDedup(allMsgs: Message[], opts: { includeSentTemps?: bool
     if (Object.keys(u).length > 0) updates.push({ id: canonical.id, updates: u });
   }
 
-  return { deleteIds: stale.map((m) => m.id), updates };
+  return { deleteIds: staleWithTwins.map((s) => s.orphan.id), updates };
+}
+
+/** Messages safe to STORE from a fetch/event — recalled tombstones excluded. */
+export function withoutRecalled(msgs: Message[]): Message[] {
+  return msgs.filter((m) => !m.recalledAt);
+}
+
+/**
+ * Plan deletions for messages recalled/unsent on the server. Pure.
+ *
+ * A freshly fetched page is authoritative for its own time range
+ * [min fetched, max fetched] (recalled tombstone entities count toward the
+ * range — a recalled LATEST message must still be removable):
+ * - a stored CANONICAL row inside the range that the fetch no longer returned
+ *   (or only returned as a recalled tombstone) was deleted server-side;
+ * - a stored SSE-format row inside the range with no LIVE twin in the fetch
+ *   (no exact senderUrn|createdAt key match, and no near-time same-sender+body
+ *   match for fabricated timestamps) was recalled before its canonical copy
+ *   was ever fetched — without this it would stay visible forever.
+ * Rows outside the range (older pages, or a concurrent newer send) and
+ * optimistic temps are never touched.
+ */
+export function planRecalledDeletions(fetched: Message[], stored: Message[]): string[] {
+  const fetchedCanonical = fetched.filter((m) => isCanonicalMessageId(m.id));
+  if (fetchedCanonical.length === 0) return [];
+
+  let min = Infinity;
+  let max = -Infinity;
+  const liveIds = new Set<string>();
+  const liveKeys = new Set<string>();
+  const liveByBody: Message[] = [];
+  for (const m of fetchedCanonical) {
+    if (m.createdAt < min) min = m.createdAt;
+    if (m.createdAt > max) max = m.createdAt;
+    if (m.recalledAt) continue; // a tombstone proves deletion — never "keeps" a row
+    liveIds.add(m.id);
+    liveKeys.add(messageDedupeKey(m));
+    liveByBody.push(m);
+  }
+
+  const hasLiveTwin = (m: Message): boolean => {
+    if (liveKeys.has(messageDedupeKey(m))) return true;
+    return liveByBody.some(
+      (f) =>
+        f.senderUrn === m.senderUrn &&
+        f.body === m.body &&
+        Math.abs(f.createdAt - m.createdAt) <= FALLBACK_MATCH_WINDOW_MS
+    );
+  };
+
+  return stored
+    .filter((m) => {
+      if (m.createdAt < min || m.createdAt > max) return false;
+      if (isCanonicalMessageId(m.id)) return !liveIds.has(m.id);
+      if (isSseMessageId(m.id)) return !hasLiveTwin(m);
+      return false; // temps and anything else are never touched
+    })
+    .map((m) => m.id);
 }

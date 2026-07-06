@@ -4,7 +4,7 @@ import { normalizeConversations } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
 import { db, mergeProfiles } from '@/db/database';
 import { mergeConversation } from './merge-conversation';
-import type { Conversation } from '@/types/conversation';
+import type { ServerConversation } from '@/types/conversation';
 import type { Profile } from '@/types/profile';
 
 const IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -152,7 +152,7 @@ async function storeConversationPage(
   const { conversations: rawConversations, profiles: rawProfiles } = normalizeConversations(raw, memberUrn);
 
   // Deduplicate within the page
-  const conversationMap = new Map<string, Conversation>();
+  const conversationMap = new Map<string, ServerConversation>();
   for (const conv of rawConversations) {
     const existing = conversationMap.get(conv.id);
     if (!existing || conv.lastActivityAt > existing.lastActivityAt) {
@@ -173,7 +173,7 @@ async function storeConversationPage(
 
   // Store immediately so UI updates via useLiveQuery
   // mergeConversation preserves local-only fields and respects pending actions
-  await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions], async () => {
+  await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions, db.tombstones], async () => {
     await mergeProfiles(profiles);
     for (const conv of conversations) {
       await mergeConversation(conv);

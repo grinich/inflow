@@ -22,7 +22,7 @@ import { sendMessage, editMessage, reactWithEmoji, recallMessage } from './api/m
 import { enqueueSend } from './send-queue';
 import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression';
 import { debugLog } from '@/lib/debug-log';
-import { db, getDbGeneration } from '@/db/database';
+import { db, getDbGeneration, TOMBSTONE_TTL_MS } from '@/db/database';
 import type { PendingAction } from '@/db/database';
 
 let draining = false;
@@ -57,7 +57,7 @@ function orderQueuedActions(a: PendingAction, b: PendingAction): number {
 
 /**
  * Remove old confirmed/failed pending actions to prevent unbounded table growth.
- * Called at the start of every drain cycle.
+ * Also prunes expired delete-tombstones. Called at the start of every drain cycle.
  */
 async function cleanupStaleActions(): Promise<void> {
   try {
@@ -71,6 +71,14 @@ async function cleanupStaleActions(): Promise<void> {
     if (stale.length > 0) {
       await db.pendingActions.bulkDelete(stale.map((a) => a.id));
       debugLog('info', `[ACTION-QUEUE] Cleaned up ${stale.length} stale action(s)`);
+    }
+
+    const tombstoneCutoff = Date.now() - TOMBSTONE_TTL_MS;
+    const expired = await db.tombstones
+      .filter((t) => t.deletedAt < tombstoneCutoff)
+      .toArray();
+    if (expired.length > 0) {
+      await db.tombstones.bulkDelete(expired.map((t) => t.conversationId));
     }
   } catch (err) {
     debugLog('warn', `[ACTION-QUEUE] Cleanup failed: ${err}`);
@@ -154,6 +162,10 @@ export async function drainActionQueue(): Promise<void> {
 
 /**
  * Replay a single queued action by calling the API directly.
+ *
+ * Category/read/star mutations go through enqueueSend so a drain replay can't
+ * race a live mutation for the same conversation (same ordering guarantee as
+ * the live handlers in messages.ts).
  */
 async function replayAction(action: PendingAction): Promise<void> {
   const convId = action.conversationId;
@@ -161,43 +173,43 @@ async function replayAction(action: PendingAction): Promise<void> {
   switch (action.type) {
     case 'archive':
       recordMutation(convId);
-      await archiveConversation(convId);
+      await enqueueSend(convId, () => archiveConversation(convId));
       break;
     case 'unarchive':
       recordMutation(convId);
-      await unarchiveConversation(convId);
+      await enqueueSend(convId, () => unarchiveConversation(convId));
       break;
     case 'move_to_focused':
       recordMutation(convId);
-      await moveToFocused(convId);
+      await enqueueSend(convId, () => moveToFocused(convId));
       break;
     case 'move_to_other':
       recordMutation(convId);
-      await moveToOther(convId);
+      await enqueueSend(convId, () => moveToOther(convId));
       break;
     case 'move_to_spam':
       recordMutation(convId);
-      await moveToSpam(convId);
+      await enqueueSend(convId, () => moveToSpam(convId));
       break;
     case 'markRead':
       recordMarkRead(convId);
-      await markConversationRead(convId);
+      await enqueueSend(convId, () => markConversationRead(convId));
       break;
     case 'markUnread':
       recordMutation(convId);
-      await markConversationUnread(convId);
+      await enqueueSend(convId, () => markConversationUnread(convId));
       break;
     case 'star':
       recordMutation(convId);
-      await starConversation(convId);
+      await enqueueSend(convId, () => starConversation(convId));
       break;
     case 'unstar':
       recordMutation(convId);
-      await unstarConversation(convId);
+      await enqueueSend(convId, () => unstarConversation(convId));
       break;
     case 'delete':
       try {
-        await deleteConversation(convId);
+        await enqueueSend(convId, () => deleteConversation(convId));
       } catch (err: any) {
         // 404 = already deleted server-side — treat as success
         if (err?.status === 404 || err?.message?.includes('404')) return;
@@ -296,7 +308,10 @@ async function rollbackAction(action: PendingAction): Promise<void> {
       await db.conversations.update(action.conversationId, data).catch(() => {});
       break;
     case 'delete':
-      // rollbackData is { conversation, messages }
+      // rollbackData is { conversation, messages }. The delete is being undone,
+      // so the tombstone must go too — otherwise sync would refuse to merge the
+      // restored conversation.
+      await db.tombstones.delete(action.conversationId).catch(() => {});
       if (data.conversation) {
         await db.conversations.put(data.conversation).catch(() => {});
       }

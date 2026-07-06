@@ -55,12 +55,26 @@ export interface SyncQueueItem {
   conversationId: string;
   category: string;
   lastActivityAt: number;
+  /** Server-clock watermark: the newest server timestamp (lastActivityAt /
+   *  message deliveredAt) covered by the last completed message sync. Compared
+   *  against the server's lastActivityAt to decide re-queueing — never against
+   *  the local wall clock, which may be skewed relative to LinkedIn's. */
   messagesSyncedAt: number;
   status: 'pending' | 'syncing' | 'done' | 'failed';
   failCount: number;
   lastFailedAt: number;
   priority: number;
 }
+
+/** Marker that a conversation was deleted locally, so a stale server page
+ *  fetched before the delete can't re-insert it. Expires after TOMBSTONE_TTL_MS
+ *  (the server stops returning deleted conversations long before that). */
+export interface Tombstone {
+  conversationId: string;
+  deletedAt: number;
+}
+
+export const TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 type InflowDatabase = Dexie & {
   conversations: EntityTable<Conversation, 'id'>;
@@ -72,6 +86,7 @@ type InflowDatabase = Dexie & {
   syncState: EntityTable<SyncState, 'category'>;
   syncQueue: EntityTable<SyncQueueItem, 'conversationId'>;
   draftAttachments: EntityTable<DraftAttachment, 'conversationId'>;
+  tombstones: EntityTable<Tombstone, 'conversationId'>;
 };
 
 export function applySchema(database: Dexie): void {
@@ -221,6 +236,21 @@ export function applySchema(database: Dexie): void {
   // via migrateDraftsFromLocalStorage(). It cannot run here: this upgrade normally
   // executes first in the service worker, where `localStorage` is undefined, so the
   // migration silently no-oped and the version still advanced (never re-running).
+
+  // v12: add tombstones table so deleted conversations aren't resurrected by
+  // stale server pages fetched before the delete.
+  database.version(12).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, starred, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+    draftAttachments: 'conversationId',
+    tombstones: 'conversationId',
+  });
 }
 
 function createDatabase(name: string): InflowDatabase {

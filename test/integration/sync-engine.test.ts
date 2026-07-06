@@ -977,13 +977,15 @@ describe('sync-engine', () => {
         starred: 0,
       });
 
-      // Pending action exists but is already confirmed — should not guard
+      // Pending action exists but was confirmed OUTSIDE the 15s echo window —
+      // should not guard. (A recently-confirmed action DOES guard now: the
+      // durable echo window survives service-worker restarts; see regression 64.)
       await testDb.pendingActions.put({
         id: 'pa-confirmed',
         type: 'archive',
         conversationId: 'conv-confirmed',
         status: 'confirmed',
-        timestamp: Date.now(),
+        timestamp: Date.now() - 60_000,
       });
 
       const pageData = buildConversationsPage([

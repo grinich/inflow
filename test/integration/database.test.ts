@@ -45,6 +45,7 @@ describe('applySchema', () => {
       'profiles',
       'syncQueue',
       'syncState',
+      'tombstones',
     ]);
   });
 
