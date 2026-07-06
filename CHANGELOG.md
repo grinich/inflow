@@ -4,6 +4,61 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.2] - 2026-07-05
+
+A deep sync-consistency release: a systematic audit of everything flowing
+between LinkedIn and inflow, with 31 fixes — each locked in by a regression
+test (the suite grew to 656 tests).
+
+### Added
+- **Cross-device star sync** — starring or unstarring a conversation on the
+  LinkedIn website or your phone now updates inflow live, in both directions.
+- **Unsend sync** — when someone unsends a message, it disappears from inflow
+  immediately instead of lingering until the next refetch. Previously-stored
+  copies of recalled messages are cleaned up too.
+- **Deletion sync** — conversations you delete on the LinkedIn website (or
+  another device) are now removed from inflow instead of living there forever.
+  Conservative by design: a conversation must be absent from two consecutive
+  full syncs before it's removed.
+
+### Fixed
+- **Unread accuracy** — a batch of fixes for unread indicators that were wrong
+  or stuck:
+  - A sync page fetched moments before a new message arrived could clear the
+    unread dot for a message you never saw.
+  - Someone editing or reacting to an *old* message no longer marks the thread
+    unread, pulls it out of Archive, or fires a "new message" notification.
+  - Duplicate threads with the same person (InMail + regular) are shown merged,
+    but the hidden twin's unread could never be cleared — the thread stayed
+    unread forever and inflated the badge.
+  - The toolbar badge now counts exactly what the Focused list shows.
+- **Message ordering and timestamps** — sent messages now get their real server
+  timestamp immediately from the send response instead of the local clock, and
+  a skewed system clock can no longer make the background sync silently skip
+  newly arrived messages.
+- **Group chats** — a message from a participant we hadn't synced yet could
+  render as "You" and later show duplicated. Senders are now resolved from the
+  event itself.
+- **Folder consistency** — moving an archived conversation to Other or Spam no
+  longer leaves it visible in Archived as well, and archive followed by a quick
+  undo can no longer land on LinkedIn out of order and snap back.
+- **Deleted conversations stay deleted** — a sync page fetched just before a
+  local delete could silently resurrect the conversation.
+- **Unsent messages** no longer leave an orphaned timestamp in the thread when
+  they were the only message under it.
+- **Shared post previews** refresh after a week — a post that failed to load
+  once was cached as missing forever.
+- **Large mailboxes** — the initial full sync no longer monopolizes the sync
+  engine for hours; it works in short rounds so read-state reconciliation keeps
+  running throughout.
+- **Sign-in after startup** — interrupted sync items now recover on the next
+  cycle instead of waiting for a browser restart; same after an account switch.
+- **Toolbar icon clicks while dragging a tab** no longer error and do nothing —
+  the click retries once the drag ends.
+
+### Changed
+- Database schema v12 (automatic, data-preserving migration).
+
 ## [0.3.1] - 2026-06-27
 
 ### Fixed
@@ -57,6 +112,7 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.3.2]: https://github.com/grinich/inflow/releases/tag/v0.3.2
 [0.3.1]: https://github.com/grinich/inflow/releases/tag/v0.3.1
 [0.3.0]: https://github.com/grinich/inflow/releases/tag/v0.3.0
 [0.2.0]: https://github.com/grinich/inflow/releases/tag/v0.2.0
