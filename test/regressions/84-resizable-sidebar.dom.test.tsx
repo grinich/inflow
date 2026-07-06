@@ -156,10 +156,10 @@ describe('narrow-sidebar folder dropdown', () => {
     // Segmented control: visible only when the sidebar is wide enough.
     const segmented = screen.getByRole('button', { name: 'Focused' }).parentElement!;
     expect(segmented.className).toContain('hidden');
-    expect(segmented.className).toContain('@min-[370px]:flex');
+    expect(segmented.className).toContain('@min-[352px]:flex');
     // Dropdown: the narrow-width replacement.
     const select = screen.getByLabelText('Folder');
-    expect(select.parentElement!.className).toContain('@min-[370px]:hidden');
+    expect(select.parentElement!.className).toContain('@min-[352px]:hidden');
     expect((select as HTMLSelectElement).value).toBe('focused');
   });
 

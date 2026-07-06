@@ -160,7 +160,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
 
         {/* Folder selector — segmented control when the (resizable) sidebar is
             wide enough, a compact dropdown when it's narrow. */}
-        <div className="hidden rounded-md bg-surface-input p-0.5 @min-[370px]:flex">
+        <div className="hidden rounded-md bg-surface-input p-0.5 @min-[352px]:flex">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -175,7 +175,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
             </button>
           ))}
         </div>
-        <div className="relative @min-[370px]:hidden">
+        <div className="relative @min-[352px]:hidden">
           <select
             aria-label="Folder"
             value={inboxTab}

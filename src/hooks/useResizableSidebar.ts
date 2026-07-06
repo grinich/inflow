@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-/** Default sidebar width — matches the previous fixed Tailwind w-96. */
-export const DEFAULT_SIDEBAR_WIDTH = 384;
+/** Default sidebar width. Wide enough that the header shows the horizontal
+ *  folder tabs (the narrow-width dropdown kicks in below ~384px total). */
+export const DEFAULT_SIDEBAR_WIDTH = 416;
 /** Narrow enough to save space, wide enough for the tab bar + previews. */
 export const MIN_SIDEBAR_WIDTH = 280;
 /** Hard ceiling; also capped to a fraction of the window (see clamp). */
