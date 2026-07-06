@@ -15,7 +15,12 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['./test/setup.ts'],
     include: ['test/**/*.test.{ts,tsx}'],
-    testTimeout: 10_000,
+    // Generous per-test budget: on a starved dev box (dev server + browser
+    // competing for cores) a jsdom worker can take seconds just to render.
+    // Passing tests are unaffected — they finish when they finish; only
+    // genuinely-hanging tests report slower. Must exceed the 10s waitFor
+    // floors in test/setup.ts and test/dom-setup.ts.
+    testTimeout: 30_000,
     pool: 'forks',
     coverage: {
       provider: 'v8',
