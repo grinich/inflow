@@ -64,7 +64,9 @@ describe('moveToOther', () => {
     expect(actions).toHaveLength(1);
     expect(actions[0].type).toBe('move_to_other');
     expect(actions[0].status).toBe('confirmed');
-    expect(actions[0].rollbackData).toEqual({ category: 'PRIMARY_INBOX' });
+    // moveToOther now clears `archived` (see regression 66), so the rollback
+    // snapshot includes the prior archived state.
+    expect(actions[0].rollbackData).toEqual({ archived: 0, category: 'PRIMARY_INBOX' });
   });
 
   it('rolls back to the previous category when the server rejects', async () => {

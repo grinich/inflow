@@ -19,10 +19,10 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
 
   // Delayed mark-as-read: only mark read after viewing a thread for 1+ second
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleMarkRead = (conversationId: string) => {
+  const scheduleMarkRead = (conversationId: string, mergedIds?: string[]) => {
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
     markReadTimerRef.current = setTimeout(() => {
-      actionsRef.current.markRead(conversationId);
+      actionsRef.current.markRead(conversationId, mergedIds);
       markReadTimerRef.current = null;
     }, 1000);
   };
@@ -254,7 +254,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
             }
           } else {
             store.openThread(conv.id, newIndex);
-            scheduleMarkRead(conv.id);
+            scheduleMarkRead(conv.id, conv.mergedIds);
           }
         }
         return;
@@ -280,7 +280,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
             }
           } else {
             store.openThread(conv.id, newIndex);
-            scheduleMarkRead(conv.id);
+            scheduleMarkRead(conv.id, conv.mergedIds);
           }
         }
         return;
@@ -349,7 +349,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
             act.markUnread(conv.id);
             document.dispatchEvent(new CustomEvent('inflow:manual-unread', { detail: conv.id }));
           } else {
-            act.markRead(conv.id);
+            act.markRead(conv.id, conv.mergedIds);
           }
         }
         return;

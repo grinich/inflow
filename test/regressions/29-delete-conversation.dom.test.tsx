@@ -73,10 +73,17 @@ it('restores conversation, messages, and syncQueue row on failure', async () => 
   sendBridgeMessage.mockResolvedValue({ success: false });
   await del('c1');
 
-  expect(await testDb.conversations.get('c1')).toBeDefined();
+  // The bridge reconciliation (and therefore the restore) is fire-and-forget —
+  // wait for it to land rather than racing its microtask chain.
+  await vi.waitFor(async () => {
+    expect(await testDb.conversations.get('c1')).toBeDefined();
+  });
   const msgs = await testDb.messages.where('conversationId').equals('c1').toArray();
   expect(msgs.map((m: any) => m.id).sort()).toEqual(['m1', 'm2']);
   expect(await testDb.syncQueue.get('c1')).toBeDefined();
+  // The delete tombstone must be gone, or sync would refuse to re-merge the
+  // restored conversation.
+  expect(await testDb.tombstones.get('c1')).toBeUndefined();
 });
 
 it('queues a delete action when offline (no bridge call)', async () => {

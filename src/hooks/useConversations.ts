@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import Dexie from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
+import { isFocusedCategory } from '@/lib/inbox-filters';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
 import type { Conversation } from '@/types/conversation';
 
@@ -37,11 +38,9 @@ export function useConversations() {
         .between([0, Dexie.minKey], [0, Dexie.maxKey])
         .reverse()
         .toArray();
-      // Further filter out conversations that are in Other (SECONDARY_INBOX)
-      // Accept INBOX as equivalent to PRIMARY_INBOX (LinkedIn returns both)
-      results = results.filter(
-        (c) => !c.category || c.category === 'PRIMARY_INBOX' || c.category === 'INBOX'
-      );
+      // Further filter out conversations that are in Other (SECONDARY_INBOX).
+      // Shared with the toolbar badge (see inbox-filters) so counts agree.
+      results = results.filter((c) => isFocusedCategory(c.category));
     } else if (inboxTab === 'other') {
       results = await db.conversations
         .where('[category+lastActivityAt]')

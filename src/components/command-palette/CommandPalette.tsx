@@ -52,7 +52,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       if (selectedConv) useUIStore.getState().setSpamConfirmId(selectedConv.id);
     },
     markReadSelected: () => {
-      if (selectedConv) markRead(selectedConv.id);
+      if (selectedConv) markRead(selectedConv.id, selectedConv.mergedIds);
     },
     markUnreadSelected: () => {
       if (selectedConv) markUnread(selectedConv.id);
@@ -60,7 +60,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
     openSelected: () => {
       if (selectedConv) {
         openThread(selectedConv.id, selectedIndex);
-        markRead(selectedConv.id);
+        markRead(selectedConv.id, selectedConv.mergedIds);
       }
     },
     reply: () => {

@@ -154,7 +154,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
       return;
     }
     openThread(conv.id, index);
-    markRead(conv.id);
+    markRead(conv.id, conv.mergedIds);
   }
 
   const [accountName, setAccountName] = useState<string | undefined>();

@@ -74,7 +74,7 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
 
     autoReadTimer.current = setTimeout(() => {
       autoReadTimer.current = null;
-      if (!suppressAutoRead.current) markRead(conversation.id);
+      if (!suppressAutoRead.current) markRead(conversation.id, conversation.mergedIds);
     }, 2000);
 
     return () => {
@@ -93,7 +93,7 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
       if (autoReadTimer.current) clearTimeout(autoReadTimer.current);
       autoReadTimer.current = setTimeout(() => {
         autoReadTimer.current = null;
-        if (!suppressAutoRead.current) markRead(conversation.id);
+        if (!suppressAutoRead.current) markRead(conversation.id, conversation.mergedIds);
       }, 2000);
     }
     document.addEventListener('visibilitychange', onVisible);

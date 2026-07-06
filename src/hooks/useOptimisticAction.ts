@@ -120,7 +120,20 @@ export function useOptimisticAction() {
       });
   }
 
-  async function markRead(conversationId: string) {
+  /**
+   * Mark a conversation read. `mergedIds` are duplicate threads the list
+   * display-merged into this one (see useConversations) — their messages were
+   * shown in this thread's view, and their unread flag surfaces on this row,
+   * so any unread twin must be cleared too or the row stays unread forever
+   * (the twin isn't in the list, so nothing else can ever mark it).
+   */
+  async function markRead(conversationId: string, mergedIds?: string[]) {
+    if (mergedIds?.length) {
+      for (const id of mergedIds) {
+        const twin = await db.conversations.get(id);
+        if (twin && twin.read === 0) await markRead(id);
+      }
+    }
     await db.conversations.update(conversationId, { read: 1 });
 
     const bridgeMsg = { type: 'MARK_READ' as const, conversationId };
@@ -504,7 +517,10 @@ export function useOptimisticAction() {
     return categoryMove(conversation, {
       type: 'move_to_other',
       bridgeType: 'MOVE_TO_OTHER',
-      patch: { category: 'SECONDARY_INBOX' },
+      // Clear archived like moveToFocused does — LinkedIn's category move
+      // replaces ARCHIVE, and leaving the flag set would show the conversation
+      // in BOTH the Other and Archived tabs (flag and category disagree).
+      patch: { archived: 0, category: 'SECONDARY_INBOX' },
       toastMessage: 'Moved to Other',
       failMessage: 'Failed to move — rolled back',
     });
@@ -514,7 +530,7 @@ export function useOptimisticAction() {
     return categoryMove(conversation, {
       type: 'move_to_spam',
       bridgeType: 'MOVE_TO_SPAM',
-      patch: { category: 'SPAM' },
+      patch: { archived: 0, category: 'SPAM' },
       toastMessage: 'Marked as spam',
       failMessage: 'Failed to mark as spam — rolled back',
     });
@@ -526,11 +542,14 @@ export function useOptimisticAction() {
     const savedQueueItem = await db.syncQueue.get(conversation.id).catch(() => undefined);
     const bridgeMsg = { type: 'DELETE_CONVERSATION' as const, conversationId: conversation.id };
 
-    // Remove from IndexedDB immediately (atomic transaction)
-    await db.transaction('rw', [db.conversations, db.messages, db.syncQueue], async () => {
+    // Remove from IndexedDB immediately (atomic transaction). The tombstone
+    // stops a server page fetched BEFORE this delete from re-inserting the
+    // conversation when it merges afterwards.
+    await db.transaction('rw', [db.conversations, db.messages, db.syncQueue, db.tombstones], async () => {
       await db.conversations.delete(conversation.id);
       await db.messages.where('conversationId').equals(conversation.id).delete();
       await db.syncQueue.delete(conversation.id).catch(() => {});
+      await db.tombstones.put({ conversationId: conversation.id, deletedAt: Date.now() });
     });
 
     if (!navigator.onLine) {
@@ -549,16 +568,21 @@ export function useOptimisticAction() {
       rollbackData: { conversation, messages: savedMessages },
       bridgeMessage: bridgeMsg,
     });
+    const restoreDeleted = async () => {
+      await db.tombstones.delete(conversation.id).catch(() => {});
+      await db.conversations.put(conversation);
+      if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
+      if (savedQueueItem) await db.syncQueue.put(savedQueueItem).catch(() => {});
+      await db.pendingActions.update(actionId, { status: 'failed' });
+      showToast({ message: 'Failed to delete — restored' });
+    };
+
     sendBridgeMessage(bridgeMsg)
       .then(async (res) => {
         if (res.success) {
           await db.pendingActions.update(actionId, { status: 'confirmed' });
         } else {
-          await db.conversations.put(conversation);
-          if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
-          if (savedQueueItem) await db.syncQueue.put(savedQueueItem).catch(() => {});
-          await db.pendingActions.update(actionId, { status: 'failed' });
-          showToast({ message: 'Failed to delete — restored' });
+          await restoreDeleted();
         }
       })
       .catch(async () => {
@@ -566,11 +590,7 @@ export function useOptimisticAction() {
           await queueAction(actionId, bridgeMsg);
           return;
         }
-        await db.conversations.put(conversation);
-        if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
-        if (savedQueueItem) await db.syncQueue.put(savedQueueItem).catch(() => {});
-        await db.pendingActions.update(actionId, { status: 'failed' });
-        showToast({ message: 'Failed to delete — restored' });
+        await restoreDeleted();
       });
   }
 
