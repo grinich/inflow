@@ -216,7 +216,16 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
       participantPictures,
       lastMessage,
       lastActivityAt: conv.lastActivityAt || 0,
-      read: conv.unreadCount !== undefined ? (conv.unreadCount === 0 ? 1 : 0) : undefined,
+      // Prefer the authoritative `read` boolean when present: a manual mark-unread
+      // on a thread with no unread *messages* keeps unreadCount at 0 while flipping
+      // `read` to false, so deriving read from unreadCount alone misses it. Fall
+      // back to unreadCount only when `read` is absent (sparse/thinner projections).
+      read:
+        typeof conv.read === 'boolean'
+          ? (conv.read ? 1 : 0)
+          : conv.unreadCount !== undefined
+            ? (conv.unreadCount === 0 ? 1 : 0)
+            : undefined,
       archived: conv.categories ? (conv.categories.includes('ARCHIVE') ? 1 : 0) : undefined,
       category: conv.categories ? pickInboxCategory(conv.categories) : undefined,
       starred: conv.categories ? (conv.categories.includes('STARRED') ? 1 : 0) : undefined,

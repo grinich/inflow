@@ -1,4 +1,5 @@
 import { debugLog } from '@/lib/debug-log';
+import { setPendingNavigation } from '@/lib/pending-navigation';
 
 /**
  * Chrome rejects tab mutations with this message while the user is dragging a
@@ -15,10 +16,23 @@ const DEFAULT_RETRY_DELAY_MS = 200;
  * click must not surface an uncaught promise rejection. While the tab strip is
  * locked by a tab drag, retries until the drag ends (bounded); other errors
  * are logged and swallowed.
+ *
+ * When `conversationId` is given (a native-notification click), the target is
+ * recorded first so the app navigates to it — whether the tab already exists
+ * (it reacts to the storage change) or is created fresh (it reads it on load).
  */
 export async function openAppTab(
-  { retryDelayMs = DEFAULT_RETRY_DELAY_MS }: { retryDelayMs?: number } = {}
+  { retryDelayMs = DEFAULT_RETRY_DELAY_MS, conversationId }:
+    { retryDelayMs?: number; conversationId?: string } = {}
 ): Promise<void> {
+  if (conversationId) {
+    try {
+      await setPendingNavigation(conversationId, Date.now());
+    } catch (err) {
+      debugLog('warn', `[TABS] failed to record pending navigation: ${err}`);
+    }
+  }
+
   const appUrl = chrome.runtime.getURL('app.html');
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {

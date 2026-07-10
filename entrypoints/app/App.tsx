@@ -11,6 +11,7 @@ import { AISetupModal } from '@/components/common/AISetupModal';
 import { Toast } from '@/components/common/Toast';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
+import { PendingNavigation } from '@/components/common/PendingNavigation';
 import { DebugPanel } from '@/components/common/DebugPanel';
 import { NewMessageComposer } from '@/components/composer/NewMessageComposer';
 import { useConversations } from '@/hooks/useConversations';
@@ -276,6 +277,7 @@ export function App() {
       <AISetupModal />
       <Toast />
       <IncomingMessageToast />
+      <PendingNavigation />
       <DebugPanel open={debugOpen} onClose={() => setDebugOpen(false)} />
     </AuthGate>
   );

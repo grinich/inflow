@@ -118,10 +118,12 @@ export default defineBackground(() => {
   // Open the app tab when the toolbar icon is clicked (no popup)
   chrome.action.onClicked.addListener(() => openAppTab());
 
-  // Open/focus the app tab when a native notification is clicked
+  // Open/focus the app tab when a native notification is clicked, and jump to
+  // the conversation it was for. The notification ID is the conversation ID
+  // (see showNativeNotification in the realtime event handler).
   chrome.notifications.onClicked.addListener((notificationId) => {
     chrome.notifications.clear(notificationId);
-    openAppTab();
+    openAppTab({ conversationId: notificationId });
   });
 
   // Re-open the app tab after extension reload in dev mode

@@ -36,6 +36,7 @@ function makeConversation(opts: {
   participantRefs: string[];
   lastActivityAt?: number;
   unreadCount?: number;
+  read?: boolean;
   categories?: string[];
 }) {
   return {
@@ -44,6 +45,7 @@ function makeConversation(opts: {
     '*conversationParticipants': opts.participantRefs,
     lastActivityAt: opts.lastActivityAt ?? 1700000000000,
     unreadCount: opts.unreadCount ?? 0,
+    ...(opts.read !== undefined ? { read: opts.read } : {}),
     categories: opts.categories ?? ['INBOX', 'PRIMARY_INBOX'],
   };
 }
@@ -130,6 +132,40 @@ describe('normalizeConversations()', () => {
 
     const { conversations } = normalizeConversations(response);
     expect(conversations[0].id).toBe('2-abc123==');
+  });
+
+  describe('read state derivation', () => {
+    const conv = (extra: { unreadCount?: number; read?: boolean }) => ({
+      data: {},
+      included: [
+        participantAlice,
+        makeConversation({
+          entityUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:X,2-read)',
+          participantRefs: [participantAlice.entityUrn],
+          ...extra,
+        }),
+      ],
+    });
+
+    it('prefers the `read` boolean: manual unread (read=false) with unreadCount 0 is unread', () => {
+      const { conversations } = normalizeConversations(conv({ read: false, unreadCount: 0 }));
+      expect(conversations[0].read).toBe(0);
+    });
+
+    it('read=true is read even if unreadCount is stale/nonzero', () => {
+      const { conversations } = normalizeConversations(conv({ read: true, unreadCount: 3 }));
+      expect(conversations[0].read).toBe(1);
+    });
+
+    it('falls back to unreadCount when `read` is absent (unreadCount>0 → unread)', () => {
+      const { conversations } = normalizeConversations(conv({ unreadCount: 2 }));
+      expect(conversations[0].read).toBe(0);
+    });
+
+    it('falls back to unreadCount when `read` is absent (unreadCount=0 → read)', () => {
+      const { conversations } = normalizeConversations(conv({ unreadCount: 0 }));
+      expect(conversations[0].read).toBe(1);
+    });
   });
 
   it('maps participant names, URNs, and pictures', () => {

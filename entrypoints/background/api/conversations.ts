@@ -204,8 +204,53 @@ async function removeConversationCategory(conversationId: string, category: stri
 }
 
 /**
+ * Inspect a rest.li batch-partial-update response body for a per-entity failure.
+ *
+ * A batch partial update can return HTTP 200 while silently rejecting the entity
+ * (e.g. an unmatched key, or a per-key error) — so `res.ok` alone doesn't prove
+ * the patch was applied. rest.li batch responses are shaped
+ * `{ results: { <key>: { status } }, errors: { <key>: {...} } }`. We flag:
+ *   - a non-empty `errors` map, or
+ *   - a matched-key result whose status is >= 300.
+ *
+ * Returns a short reason string when the update was rejected, or null when it
+ * either succeeded (204 / empty body) or the shape is unrecognized — we don't
+ * flag unknown shapes so a genuine empty-body success can't become a false
+ * failure. `keys` are the candidate map keys (raw + encoded URN) to match.
+ */
+function detectBatchPatchFailure(raw: string, keys: string[]): string | null {
+  if (!raw.trim()) return null; // 204-style empty success
+  let parsed: any;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null; // unrecognized shape — don't flag
+  }
+
+  const errors = parsed?.errors;
+  if (errors && typeof errors === 'object' && Object.keys(errors).length > 0) {
+    return `errors: ${JSON.stringify(errors).substring(0, 150)}`;
+  }
+
+  const results = parsed?.results;
+  if (results && typeof results === 'object') {
+    for (const key of keys) {
+      const r = results[key];
+      if (r && typeof r.status === 'number' && r.status >= 300) {
+        return `result status ${r.status} for entity`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Patch a conversation field via the Dash entity update API.
  * Endpoint: POST ...?ids=List(encodedUrn)
+ *
+ * Used for read/unread. Logs the full server response (both success and
+ * failure) so a silent no-op — HTTP 200 that doesn't actually change the read
+ * state on LinkedIn — is visible in the debug panel instead of passing quietly.
  */
 async function patchConversation(
   conversationId: string,
@@ -214,6 +259,8 @@ async function patchConversation(
   const memberUrn = await getMemberUrn();
   const convUrn = buildConversationUrn(memberUrn, conversationId);
   const encodedUrn = encodeConversationUrn(memberUrn, conversationId);
+  const shortId = conversationId.substring(0, 20);
+  const patchStr = JSON.stringify(patch);
 
   const res = await voyagerFetch(
     `/voyagerMessagingDashMessengerConversations?ids=List(${encodedUrn})`,
@@ -230,12 +277,21 @@ async function patchConversation(
     }
   );
 
+  const body = await res.text().catch(() => '');
+
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    debugLog('error', `patchConversation failed ${res.status}: ${body.substring(0, 200)}`);
+    debugLog('error', `patchConversation ${shortId}... ${patchStr} failed ${res.status}: ${body.substring(0, 200)}`);
     throw new Error(`Failed to patch conversation: ${res.status}`);
   }
-  debugLog('info', `Patched conversation ${conversationId.substring(0, 20)}... with ${JSON.stringify(patch)}`);
+
+  // HTTP 200 doesn't guarantee the patch landed — check for per-entity errors.
+  const failure = detectBatchPatchFailure(body, [convUrn, encodedUrn]);
+  if (failure) {
+    debugLog('error', `patchConversation ${shortId}... ${patchStr} returned ${res.status} but was rejected — ${failure} — body: ${body.substring(0, 300)}`);
+    throw new Error(`patchConversation rejected by server: ${failure}`);
+  }
+
+  debugLog('info', `Patched conversation ${shortId}... with ${patchStr} — ${res.status}, response body: ${body.length ? body.substring(0, 300) : '(empty)'}`);
 }
 
 // ---------------------------------------------------------------------------

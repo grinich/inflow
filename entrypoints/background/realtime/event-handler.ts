@@ -817,6 +817,56 @@ async function handleDashConversationUpdate(ctx: RealtimeContext, convEntity: an
 // Conversation update handler (RealtimeConversation events — old Voyager format)
 // ---------------------------------------------------------------------------
 
+// Coalesce redundant message refetches. LinkedIn emits repeated
+// RealtimeConversation echoes for the same conversation (read toggles, receipts)
+// with no new message — each triggers a 20-message fetch. We collapse a burst
+// into at most one immediate + one trailing fetch per window. The window is kept
+// short because that fetch also carries the per-conversation read reconcile
+// (_doFetchLatest), so a longer window would visibly lag read/unread sync.
+// Genuinely new messages also arrive via their own Message-type events
+// (handleIncludedMessage), and the trailing fetch always runs, so nothing is
+// dropped — only deduplicated.
+const CONV_REFETCH_COALESCE_MS = 600;
+const _lastConvRefetchAt = new Map<string, number>();
+const _trailingRefetch = new Map<string, ReturnType<typeof setTimeout>>();
+
+function refetchConversationCoalesced(
+  ctx: RealtimeContext,
+  conversationId: string,
+  memberUrn: string,
+): void {
+  const key = `${ctx.dbGeneration}:${conversationId}`;
+  const runFetch = () => {
+    _lastConvRefetchAt.set(key, Date.now());
+    fetchLatestForConversation(ctx, conversationId, memberUrn, false).catch((err) => {
+      debugLog('error', `[RT] Failed to fetch messages for ${conversationId.substring(0, 20)}...: ${err}`);
+    });
+  };
+
+  const elapsed = Date.now() - (_lastConvRefetchAt.get(key) ?? 0);
+  if (elapsed >= CONV_REFETCH_COALESCE_MS) {
+    runFetch();
+    return;
+  }
+  // Within the window: ensure exactly one trailing fetch runs after it, so a new
+  // message that arrived since the last fetch is still picked up (just later).
+  if (_trailingRefetch.has(key)) return;
+  const delay = CONV_REFETCH_COALESCE_MS - elapsed;
+  debugLog('info', `[RT] Coalescing refetch for ${conversationId.substring(0, 20)}... (trailing in ${delay}ms)`);
+  const timer = setTimeout(() => {
+    _trailingRefetch.delete(key);
+    runFetch();
+  }, delay);
+  _trailingRefetch.set(key, timer);
+}
+
+/** Test-only: clear the module-level coalesce state between cases. */
+export function __resetInboundReadState(): void {
+  _lastConvRefetchAt.clear();
+  for (const t of _trailingRefetch.values()) clearTimeout(t);
+  _trailingRefetch.clear();
+}
+
 /**
  * Handle a RealtimeConversation event — triggered when a conversation is
  * updated (new message, read status change, etc.).
@@ -841,6 +891,26 @@ async function handleConversationUpdate(
     debugLog('warn', `[RT] RealtimeConversation: no conversation ID from ${convEntityUrn}`);
     return;
   }
+
+  // Full-entity diagnostic: top-level read fields are absent on this old-format
+  // entity, but read state may be nested in `conversationBundle` or the
+  // `*conversation` reference (LinkedIn's normalized +json puts the real entity
+  // elsewhere). Dump the whole entity + bundle + any Conversation in `included`
+  // so a server-side read/unread toggle reveals where (if anywhere) read lives —
+  // if it's here we can sync read straight from the event, no extra fetch.
+  const conversationEntity = included.find(
+    (e: any) => typeof e?.$type === 'string' && /(\.|^)Conversation$/.test(e.$type),
+  );
+  debugLog(
+    'info',
+    `[RT] RealtimeConversation dump ${conversationId.substring(0, 20)}...` +
+      ` action=${realtimeConv.action} starred=${realtimeConv.starred}` +
+      ` unreadConversationsCount=${realtimeConv.unreadConversationsCount}` +
+      ` conversationRef=${JSON.stringify(realtimeConv['*conversation'] ?? null)}` +
+      ` conversationBundle=${JSON.stringify(realtimeConv.conversationBundle ?? null).substring(0, 700)}` +
+      ` entity=${JSON.stringify(realtimeConv).substring(0, 900)}` +
+      ` includedConversation=${JSON.stringify(conversationEntity ?? null).substring(0, 500)}`
+  );
 
   // Cross-device star/unstar arrives as a top-level boolean on this entity
   // (captured live — see regression 80). Unlike category-page overlays (which
@@ -888,11 +958,9 @@ async function handleConversationUpdate(
     `[RT] Conversation update: ${conversationId.substring(0, 20)}... starred=${realtimeConv.starred} action=${realtimeConv.action}`
   );
 
-  // Fetch latest messages to detect genuinely new messages.
-  // _doFetchLatest has correct per-conversation read/unread logic.
-  fetchLatestForConversation(ctx, conversationId, memberUrn, false).catch((err) => {
-    debugLog('error', `[RT] Failed to fetch messages for ${conversationId.substring(0, 20)}...: ${err}`);
-  });
+  // Fetch latest messages to detect genuinely new messages (coalesced so a
+  // burst of read-toggle/receipt echoes doesn't trigger a fetch each).
+  refetchConversationCoalesced(ctx, conversationId, memberUrn);
 }
 
 /** In-flight fetches — deduplicates concurrent fetchLatestForConversation calls for the same conversation. */
@@ -950,6 +1018,25 @@ async function _doFetchLatest(
     if (m.senderUrn === memberUrn) m.isFromMe = true;
   }
 
+  // LinkedIn decorates the messages response with the parent Conversation entity,
+  // which carries the authoritative `read` flag. The RealtimeConversation SSE
+  // event itself doesn't, and the focused-inbox reconcile poll can't see
+  // secondary/archived or lower-ranked threads — so this per-conversation signal
+  // is how a cross-device read/unread toggle reflects regardless of inbox.
+  const rawIncluded: any[] = (rawPage as any)?.included || [];
+  const convEntity = rawIncluded.find(
+    (e) =>
+      e?.$type === 'com.linkedin.messenger.Conversation' &&
+      (extractConversationId(e.entityUrn) === conversationId ||
+        (typeof e.entityUrn === 'string' && e.entityUrn.includes(conversationId))),
+  );
+  const serverRead: boolean | undefined =
+    typeof convEntity?.read === 'boolean' ? convEntity.read : undefined;
+  debugLog(
+    'info',
+    `[RT] _doFetchLatest ${conversationId.substring(0, 16)}... convEntity=${!!convEntity} serverRead=${serverRead} unreadCount=${convEntity?.unreadCount}`,
+  );
+
   if (allFetched.length === 0) return;
 
   // Recalled tombstones are never stored; they only feed the reconcile below.
@@ -978,6 +1065,15 @@ async function _doFetchLatest(
   // writing the same fields (read/category/lastActivityAt).
   const latest = messages.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
   const hasNewInbound = newInbound.length > 0;
+  // For a pure read/unread toggle (no new inbound), reconcile from the server's
+  // authoritative flag. Guard against clobbering our own optimistic mark-read.
+  const applyServerRead =
+    !suppressReadChange &&
+    !hasNewInbound &&
+    serverRead !== undefined &&
+    !isMutationSuppressed(conversationId) &&
+    !shouldSuppressConversationUpdate(conversationId) &&
+    !(await hasPendingAction(conversationId));
   await ctx.database.transaction('rw', ctx.database.conversations, async () => {
     if (isStaleContext(ctx)) return;
     const existing = await ctx.database.conversations.get(conversationId);
@@ -998,6 +1094,15 @@ async function _doFetchLatest(
       }
       if (existing.archived === 1) {
         updates.archived = 0;
+      }
+    } else if (applyServerRead) {
+      const newRead = serverRead ? 1 : 0;
+      if (existing.read !== newRead) {
+        updates.read = newRead;
+        debugLog(
+          'info',
+          `[RT] Read state reconciled for ${conversationId.substring(0, 16)}... → ${newRead ? 'read' : 'unread'} (from server)`,
+        );
       }
     }
     await ctx.database.conversations.update(conversationId, updates);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useBackgroundMessage } from '@/hooks/useBackgroundMessage';
 import { useUIStore } from '@/store/ui-store';
-import { db } from '@/db/database';
+import { navigateToConversation } from '@/lib/navigate-to-conversation';
 
 interface IncomingNotification {
   id: string;
@@ -108,22 +108,7 @@ export function IncomingMessageToast() {
     const n = notification ?? lastNotification.current;
     if (!n || n.conversationId === 'demo') return;
 
-    // Navigate to the conversation. Switch to the tab it lives in FIRST so it's
-    // present in the rendered (tab-filtered) list — otherwise App's auto-select
-    // effect can't find it and lands on an unrelated fallback conversation.
-    if (!db) return;
-    const conv = await db.conversations.get(n.conversationId);
-    if (conv) {
-      const tab = conv.archived === 1 ? 'archived'
-        : conv.category === 'SPAM' ? 'spam'
-        : conv.category === 'SECONDARY_INBOX' ? 'other'
-        : 'focused';
-      useUIStore.getState().setInboxTab(tab);
-    }
-    // Don't let setInboxTab's remembered-selection restore hijack our target.
-    useUIStore.setState({ _pendingRestore: null });
-    // The index is reconciled by App's auto-select effect once the conv is listed.
-    useUIStore.getState().openThread(n.conversationId, 0);
+    await navigateToConversation(n.conversationId);
 
     // Dismiss
     if (dismissTimer.current) clearTimeout(dismissTimer.current);

@@ -258,10 +258,12 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       return { success: true };
     }
     case 'MARK_READ': {
+      debugLog('info', `[MUTATION] MARK_READ received for ${msg.conversationId.substring(0, 20)}... — dispatching to LinkedIn`);
       await enqueueMutation(msg.conversationId, recordMarkRead, () => markConversationRead(msg.conversationId));
       return { success: true };
     }
     case 'MARK_UNREAD': {
+      debugLog('info', `[MUTATION] MARK_UNREAD received for ${msg.conversationId.substring(0, 20)}... — dispatching to LinkedIn`);
       await enqueueMutation(msg.conversationId, recordMutation, () => markConversationUnread(msg.conversationId));
       return { success: true };
     }

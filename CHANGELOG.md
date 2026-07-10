@@ -4,6 +4,24 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.6] - 2026-07-10
+
+### Fixed
+- **Notification clicks now open the right conversation** — clicking a native
+  message notification (or the in-app toast) opens the app focused on that
+  specific thread instead of just raising the window.
+- **Mark-as-read now reliably syncs to LinkedIn** — outbound read/unread
+  requests are checked against the response body, so a silently-rejected
+  batch update surfaces as an error instead of appearing to succeed.
+- **Read/unread toggled on LinkedIn now reflects in inflow** — a thread marked
+  read or unread on another device is reconciled from the authoritative server
+  flag for any conversation, not just the top of the focused inbox. Optimistic
+  local state is preserved while a mutation is in flight.
+
+### Changed
+- Redundant conversation refetches triggered by realtime echoes are coalesced
+  into far fewer network calls.
+
 ## [0.3.5] - 2026-07-05
 
 ### Added

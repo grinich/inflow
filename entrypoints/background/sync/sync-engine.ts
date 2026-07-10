@@ -149,6 +149,19 @@ async function storeConversationPage(
   raw: any,
   memberUrn: string
 ): Promise<number> {
+  // Diagnostic: confirm the page entity actually carries a `read` boolean (vs
+  // only unreadCount) so we know manual mark-unread is reflectable from a poll.
+  const convEntities = (raw?.included || []).filter(
+    (e: any) => e?.$type === 'com.linkedin.messenger.Conversation'
+  );
+  if (convEntities.length > 0) {
+    debugLog(
+      'info',
+      `[SYNC] Conversation entity keys=[${Object.keys(convEntities[0]).join(',')}] ` +
+        `readStates=${convEntities.map((e: any) => `read=${e.read}/u=${e.unreadCount}`).slice(0, 8).join(' ')}`
+    );
+  }
+
   const { conversations: rawConversations, profiles: rawProfiles } = normalizeConversations(raw, memberUrn);
 
   // Deduplicate within the page
