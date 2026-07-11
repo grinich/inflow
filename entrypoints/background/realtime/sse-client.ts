@@ -11,6 +11,7 @@
 import { realtimeFetch } from '../api/client';
 import { getMemberUrn } from '../auth/session';
 import { debugLog } from '@/lib/debug-log';
+import { networkErrorLevel } from '@/lib/transient-error';
 import { handleRealtimeEvent } from './event-handler';
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ export function isRealtimeConnected(): boolean {
 export function startRealtime(): void {
   debugLog('info', '[SSE] Starting background realtime connection');
   connect().catch((err) => {
-    debugLog('error', `[SSE] Initial connection failed: ${err}`);
+    debugLog(networkErrorLevel(err), `[SSE] Initial connection failed: ${err}`);
     scheduleReconnect();
   });
 }
@@ -190,7 +191,9 @@ async function readStream(
       debugLog('info', '[SSE] Stream read aborted');
       return;
     }
-    debugLog('error', `[SSE] Stream read error: ${err}`);
+    // A dropped stream (offline, sleep/wake, LinkedIn closing the connection)
+    // is routine — the reconnect below self-heals, so don't hit the error console.
+    debugLog(networkErrorLevel(err), `[SSE] Stream read error: ${err}`);
   }
 
   // Stream ended — reconnect
@@ -304,7 +307,7 @@ function startHeartbeat(): void {
         return;
       }
     } catch (err) {
-      debugLog('error', `[SSE] Heartbeat failed: ${err}`);
+      debugLog(networkErrorLevel(err), `[SSE] Heartbeat failed: ${err}`);
     }
   }, HEARTBEAT_INTERVAL_MS);
 }
@@ -334,7 +337,7 @@ function scheduleReconnect(): void {
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       connect().catch((err) => {
-        debugLog('error', `[SSE] Reconnect failed: ${err}`);
+        debugLog(networkErrorLevel(err), `[SSE] Reconnect failed: ${err}`);
         scheduleReconnect();
       });
     }, GIVEUP_BACKOFF_MS);
@@ -352,7 +355,7 @@ function scheduleReconnect(): void {
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connect().catch((err) => {
-      debugLog('error', `[SSE] Reconnect failed: ${err}`);
+      debugLog(networkErrorLevel(err), `[SSE] Reconnect failed: ${err}`);
       scheduleReconnect();
     });
   }, delay);

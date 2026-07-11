@@ -197,6 +197,12 @@ function showNativeNotification(msg: {
     const activeTabs = await chrome.tabs.query({ url: appUrl, active: true, lastFocusedWindow: true });
     if (activeTabs.length > 0) return; // in-app toast will show instead
 
+    // Spam stays quiet: a new message in a SPAM thread doesn't mark it unread
+    // or move it to Focused (see applyInboundMessageToConversation), so it
+    // shouldn't ping the OS either.
+    const conv = await db.conversations.get(msg.conversationId);
+    if (conv?.category === 'SPAM') return;
+
     chrome.notifications.create(msg.conversationId, {
       type: 'basic',
       iconUrl: msg.senderPicture || chrome.runtime.getURL('icon-128.png'),

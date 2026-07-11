@@ -6,6 +6,7 @@ import { sweepDeletedConversations } from './sweep-deleted';
 import { isRealtimeConnected } from '../realtime/sse-client';
 import { drainActionQueue } from '../action-queue';
 import { debugLog } from '@/lib/debug-log';
+import { networkErrorLevel } from '@/lib/transient-error';
 import { db, getDbGeneration, type SyncState } from '@/db/database';
 import type { Conversation } from '@/types/conversation';
 
@@ -72,7 +73,7 @@ export function setupSyncCoordinator() {
       .then(() => recoverStuckItems())
       .then(() => onSyncTick())
       .catch((err) => {
-        debugLog('error', `Initial sync tick failed: ${err}`);
+        debugLog(networkErrorLevel(err), `Initial sync tick failed: ${err}`);
       });
   }
 
@@ -84,7 +85,7 @@ export function setupSyncCoordinator() {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
       onSyncTick().catch((err) => {
-        debugLog('error', `Sync tick failed: ${err}`);
+        debugLog(networkErrorLevel(err), `Sync tick failed: ${err}`);
       });
     }
   });
@@ -129,14 +130,14 @@ async function _onSyncTickInner(): Promise<void> {
   const currentGen = getDbGeneration();
   if (currentGen !== _recoveredGeneration) {
     await recoverStuckItems().catch((err) => {
-      debugLog('error', `[COORDINATOR] Stuck-item recovery failed: ${err}`);
+      debugLog(networkErrorLevel(err), `[COORDINATOR] Stuck-item recovery failed: ${err}`);
     });
     _recoveredGeneration = currentGen;
   }
 
   // Drain any queued offline actions before syncing
   await drainActionQueue().catch((err) => {
-    debugLog('error', `[COORDINATOR] Action queue drain failed: ${err}`);
+    debugLog(networkErrorLevel(err), `[COORDINATOR] Action queue drain failed: ${err}`);
   });
 
   // Ensure sync state is initialized
@@ -172,7 +173,7 @@ async function _onSyncTickInner(): Promise<void> {
         await enqueueConversations(allFocused, 'PRIMARY_INBOX');
       }
     } catch (err) {
-      debugLog('error', `[COORDINATOR] Quick poll failed: ${err}`);
+      debugLog(networkErrorLevel(err), `[COORDINATOR] Quick poll failed: ${err}`);
     }
   }
 
@@ -195,7 +196,7 @@ async function _onSyncTickInner(): Promise<void> {
         `[COORDINATOR] Post-poll backfill: ${completed} conversations (${postPollPending - completed} remaining)`
       );
     } catch (err) {
-      debugLog('error', `[COORDINATOR] Post-poll backfill failed: ${err}`);
+      debugLog(networkErrorLevel(err), `[COORDINATOR] Post-poll backfill failed: ${err}`);
     }
   }
 
@@ -219,7 +220,7 @@ async function _onSyncTickInner(): Promise<void> {
         `[COORDINATOR] Backfilled ${completed} conversations (${pendingCount - completed} remaining)`
       );
     } catch (err) {
-      debugLog('error', `[COORDINATOR] Backfill failed: ${err}`);
+      debugLog(networkErrorLevel(err), `[COORDINATOR] Backfill failed: ${err}`);
     }
   }
 
@@ -337,7 +338,7 @@ export async function runDiscoveryRound(
           // cursor doesn't, so no sweep in that case.
           if (isLastPage) {
             await sweepDeletedConversations(cat, state.lastSyncStartedAt).catch((err) => {
-              debugLog('error', `[COORDINATOR] Deletion sweep failed for ${cat}: ${err}`);
+              debugLog(networkErrorLevel(err), `[COORDINATOR] Deletion sweep failed for ${cat}: ${err}`);
             });
           }
           break;
@@ -356,7 +357,9 @@ export async function runDiscoveryRound(
         await delay();
       }
     } catch (err) {
-      debugLog('error', `[COORDINATOR] Discovery failed for ${cat}: ${err}`);
+      // Offline/timeout mid-round is routine — the cursor is saved per page,
+      // so the next tick resumes where this one stopped.
+      debugLog(networkErrorLevel(err), `[COORDINATOR] Discovery failed for ${cat}: ${err}`);
     } finally {
       _discoveringCategories.delete(cat);
     }
@@ -430,7 +433,7 @@ export async function burstDiscover(
         // Full pagination reached — safe point to sweep server-deleted rows.
         const startedAt = (await db.syncState.get(category))?.lastSyncStartedAt ?? state.lastSyncStartedAt;
         await sweepDeletedConversations(category, startedAt).catch((err) => {
-          debugLog('error', `[COORDINATOR] Deletion sweep failed for ${category}: ${err}`);
+          debugLog(networkErrorLevel(err), `[COORDINATOR] Deletion sweep failed for ${category}: ${err}`);
         });
         break;
       }
@@ -454,7 +457,7 @@ export async function burstDiscover(
       debugLog('info', `[COORDINATOR] Burst discovery paused for ${category} at ${totalDiscovered} conversations (hit page limit)`);
     }
   } catch (err) {
-    debugLog('error', `[COORDINATOR] Burst discovery failed for ${category}: ${err}`);
+    debugLog(networkErrorLevel(err), `[COORDINATOR] Burst discovery failed for ${category}: ${err}`);
   } finally {
     _discoveringCategories.delete(category);
   }
@@ -468,7 +471,7 @@ export async function burstDiscover(
       };
       await backfillBatch(BACKFILL_BATCH_SIZE, emitProgress);
     } catch (err) {
-      debugLog('error', `[COORDINATOR] Burst post-backfill failed: ${err}`);
+      debugLog(networkErrorLevel(err), `[COORDINATOR] Burst post-backfill failed: ${err}`);
     }
   }
 }
