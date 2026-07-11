@@ -262,10 +262,11 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
       // Reset textarea height
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
-      // Blur the textarea so focus returns to the conversation list for j/k navigation
+      // Keep focus in the composer so the user can immediately type the next
+      // message (iMessage-style rapid sends). Escape still exits to the list
+      // for j/k navigation.
       const ta = textareaRef.current;
-      if (ta) ta.blur();
-      setComposeActive(false);
+      if (ta) ta.focus();
 
       if (conversationId.startsWith('draft-')) {
         // Draft conversation → CREATE_CONVERSATION instead of SEND_MESSAGE
