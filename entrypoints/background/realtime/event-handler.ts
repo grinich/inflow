@@ -24,6 +24,7 @@ import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { shouldSuppressConversationUpdate, isMutationSuppressed } from './mark-read-suppression';
 import { hasPendingAction } from '../sync/pending-guard';
 import { extractConversationId } from '@/lib/conversation-urn';
+import { buildNotificationIcon } from '@/lib/notification-icon';
 
 interface RealtimeContext {
   database: typeof db;
@@ -203,9 +204,16 @@ function showNativeNotification(msg: {
     const conv = await db.conversations.get(msg.conversationId);
     if (conv?.category === 'SPAM') return;
 
+    // Remote avatar URLs don't render in MV3 notifications — composite the
+    // avatar with the inflow badge into a data URL, falling back to the app
+    // icon when the avatar is missing or can't be fetched.
+    const iconUrl =
+      (msg.senderPicture ? await buildNotificationIcon(msg.senderPicture) : null) ||
+      chrome.runtime.getURL('icon-128.png');
+
     chrome.notifications.create(msg.conversationId, {
       type: 'basic',
-      iconUrl: msg.senderPicture || chrome.runtime.getURL('icon-128.png'),
+      iconUrl,
       title: msg.senderName,
       message: msg.body || 'New message',
     });
