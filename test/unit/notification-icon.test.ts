@@ -49,17 +49,16 @@ afterEach(() => {
 });
 
 describe('buildNotificationIcon', () => {
-  it('composites avatar and inflow badge into a PNG data URL', async () => {
+  it('renders the avatar alone into a PNG data URL — no app-icon badge', async () => {
     mockFetch(AVATAR_URL, async () => new Response(new Blob([new Uint8Array([1])])));
-    mockFetch(ICON_URL, async () => new Response(new Blob([new Uint8Array([2])])));
 
     const result = await buildNotificationIcon(AVATAR_URL);
 
     expect(result).toBe('data:image/png;base64,UE5HIQ==');
-    // Both the avatar and the badge were drawn
-    expect(ctx.drawImage).toHaveBeenCalledTimes(2);
+    // Only the avatar is drawn; the extension icon is never fetched
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(AVATAR_URL);
-    expect(fetch).toHaveBeenCalledWith(ICON_URL);
+    expect(fetch).not.toHaveBeenCalledWith(ICON_URL);
   });
 
   it('returns null when the avatar fetch fails (caller falls back to app icon)', async () => {
@@ -76,16 +75,6 @@ describe('buildNotificationIcon', () => {
 
     const result = await buildNotificationIcon(AVATAR_URL);
     expect(result).toBeNull();
-  });
-
-  it('still produces an avatar icon when the badge asset fails to load', async () => {
-    mockFetch(AVATAR_URL, async () => new Response(new Blob([new Uint8Array([1])])));
-    // ICON_URL is unmatched → 500 → badge skipped
-
-    const result = await buildNotificationIcon(AVATAR_URL);
-
-    expect(result).toBe('data:image/png;base64,UE5HIQ==');
-    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
   });
 
   it('returns null when OffscreenCanvas is unavailable', async () => {
