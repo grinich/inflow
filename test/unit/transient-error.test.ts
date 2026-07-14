@@ -1,4 +1,4 @@
-import { isTransientNetworkError, networkErrorLevel } from '@/lib/transient-error';
+import { isTransientNetworkError, isTransientHttpStatus, networkErrorLevel } from '@/lib/transient-error';
 
 describe('isTransientNetworkError', () => {
   it('classifies fetch network failures as transient', () => {
@@ -20,8 +20,16 @@ describe('isTransientNetworkError', () => {
     ).toBe(true);
   });
 
+  it('classifies rate-limit / server-hiccup HTTP errors as transient', () => {
+    // API helpers throw plain Errors ending with the HTTP status
+    expect(isTransientNetworkError(new Error('Failed to fetch conversations page (SPAM): 429'))).toBe(true);
+    expect(isTransientNetworkError(new Error('Search failed: 503'))).toBe(true);
+    expect(isTransientNetworkError(new Error('Failed to fetch conversations page (ARCHIVE): 500'))).toBe(true);
+  });
+
   it('does not classify unrelated errors as transient', () => {
     expect(isTransientNetworkError(new Error('SSE connect failed: 401'))).toBe(false);
+    expect(isTransientNetworkError(new Error('Failed to fetch conversations page (SPAM): 400'))).toBe(false);
     expect(isTransientNetworkError(new Error('Not authenticated — LinkedIn cookies not found'))).toBe(false);
     // A TypeError from a code bug must stay an error
     expect(
@@ -37,6 +45,21 @@ describe('networkErrorLevel', () => {
   it('maps transient → warn, everything else → error', () => {
     expect(networkErrorLevel(new TypeError('Failed to fetch'))).toBe('warn');
     expect(networkErrorLevel(new DOMException('signal timed out', 'TimeoutError'))).toBe('warn');
+    expect(networkErrorLevel(new Error('Failed to fetch conversations page (PRIMARY_INBOX): 429'))).toBe('warn');
     expect(networkErrorLevel(new Error('boom'))).toBe('error');
+  });
+});
+
+describe('isTransientHttpStatus', () => {
+  it('rate limiting and server errors are transient; client errors are not', () => {
+    expect(isTransientHttpStatus(429)).toBe(true);
+    expect(isTransientHttpStatus(408)).toBe(true);
+    expect(isTransientHttpStatus(500)).toBe(true);
+    expect(isTransientHttpStatus(502)).toBe(true);
+    expect(isTransientHttpStatus(503)).toBe(true);
+    expect(isTransientHttpStatus(400)).toBe(false);
+    expect(isTransientHttpStatus(401)).toBe(false);
+    expect(isTransientHttpStatus(403)).toBe(false);
+    expect(isTransientHttpStatus(404)).toBe(false);
   });
 });

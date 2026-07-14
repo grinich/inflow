@@ -2,6 +2,7 @@ import { fetchConversationsPage, type InboxCategory } from '../api/conversations
 import { getMemberUrn } from '../auth/session';
 import { normalizeConversations } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
+import { networkErrorLevel } from '@/lib/transient-error';
 import { db, mergeProfiles } from '@/db/database';
 import { mergeConversation } from './merge-conversation';
 import type { ServerConversation } from '@/types/conversation';
@@ -93,7 +94,7 @@ export async function syncConversations(): Promise<void> {
 
   } catch (err) {
     broadcastSyncStatus('error', 'Sync failed');
-    debugLog('error', `Sync failed: ${err}`);
+    debugLog(networkErrorLevel(err), `Sync failed: ${err}`);
     throw err;
   } finally {
     _syncingCategories.delete('PRIMARY_INBOX');
@@ -129,7 +130,7 @@ export async function syncCategory(category: InboxCategory): Promise<void> {
     chrome.runtime.sendMessage({ type: 'SYNC_COMPLETE' }).catch(() => {});
   } catch (err) {
     broadcastSyncStatus('error', 'Sync failed');
-    debugLog('error', `Category sync failed (${category}): ${err}`);
+    debugLog(networkErrorLevel(err), `Category sync failed (${category}): ${err}`);
     throw err;
   } finally {
     _syncingCategories.delete(category);

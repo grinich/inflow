@@ -15,12 +15,28 @@ export function isTransientNetworkError(err: unknown): boolean {
   if (e.name === 'TimeoutError' || e.name === 'AbortError') return true;
   // fetch() rejects with a TypeError whose message names the network failure
   // ("Failed to fetch", stream reads fail with "network error").
-  return (
+  if (
     e.name === 'TypeError' &&
     /failed to fetch|network error|fetch failed|load failed|network connection was lost/i.test(
       e.message ?? ''
     )
-  );
+  ) {
+    return true;
+  }
+  // API helpers throw plain Errors ending with the HTTP status ("Failed to
+  // fetch conversations page (SPAM): 429") — throttling and server hiccups
+  // recover on their own too.
+  const status = /:\s*(\d{3})$/.exec(e.message ?? '');
+  return status !== null && isTransientHttpStatus(Number(status[1]));
+}
+
+/**
+ * HTTP statuses produced by rate limiting or server hiccups rather than a bug
+ * on our side. Requests hitting these succeed again on a later tick without
+ * any code change, so they log as warnings, not errors.
+ */
+export function isTransientHttpStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 /** Log level for a caught fetch/network error: 'warn' when transient, 'error' otherwise. */

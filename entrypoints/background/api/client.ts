@@ -1,6 +1,7 @@
 import { getLinkedInCookies } from '../auth/cookies';
 import { invalidateSessionCache } from '../auth/session';
 import { debugLog } from '@/lib/debug-log';
+import { isTransientHttpStatus } from '@/lib/transient-error';
 
 const BASE_URL = 'https://www.linkedin.com/voyager/api';
 
@@ -175,7 +176,9 @@ export async function voyagerFetch(
     }
     const clone = res.clone();
     const body = await clone.text().catch(() => '');
-    debugLog('error', `Voyager ${res.status} ${shortPath}: responseBodyLength=${body.length}`);
+    // Rate limits / server hiccups recover on their own — warn, not error, so
+    // they don't pile up in chrome://extensions as crashes.
+    debugLog(isTransientHttpStatus(res.status) ? 'warn' : 'error', `Voyager ${res.status} ${shortPath}: responseBodyLength=${body.length}`);
   } else {
     debugLog('info', `Voyager ${res.status} OK: ${shortPath}`);
   }
