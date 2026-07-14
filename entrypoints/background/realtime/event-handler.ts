@@ -12,7 +12,6 @@
  */
 
 import { getMemberUrn } from '../auth/session';
-import { fetchProfileByUrn } from '../api/profiles';
 import { fetchMessages } from '../api/messages';
 import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair, extractAudioAttachment, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
 import { withoutRecalled } from '@/lib/message-dedup';
@@ -20,7 +19,6 @@ import { repairConversationParticipants } from '../sync/repair-participants';
 import { reconcileRecalledMessages } from '../sync/reconcile-messages';
 import { debugLog } from '@/lib/debug-log';
 import { db, getDbGeneration, mergeProfiles } from '@/db/database';
-import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { shouldSuppressConversationUpdate, isMutationSuppressed } from './mark-read-suppression';
 import { hasPendingAction } from '../sync/pending-guard';
 import { extractConversationId } from '@/lib/conversation-urn';
@@ -229,28 +227,6 @@ function showNativeNotification(msg: {
   });
 }
 
-/** Enrich a single profile if it's missing company data. Non-blocking, fire-and-forget. */
-function enrichProfileIfNeeded(ctx: RealtimeContext, urn: string): void {
-  if (!ENABLE_PROFILE_ENRICHMENT) return;
-  const database = ctx.database;
-  database.profiles.get(urn).then(async (p) => {
-    if (isStaleContext(ctx)) return;
-    if (!p || p.company) return;
-    const data = await fetchProfileByUrn(urn);
-    if (isStaleContext(ctx)) return;
-    if (!data) return;
-    const updates: Record<string, string> = {};
-    if (data.company) updates.company = data.company;
-    if (data.title) updates.title = data.title;
-    if (data.companyLogoUrl) updates.companyLogoUrl = data.companyLogoUrl;
-    if (data.locationName && !p.location) updates.location = data.locationName;
-    if (Object.keys(updates).length > 0) {
-      await database.profiles.update(urn, updates);
-    }
-  }).catch((err) => {
-    debugLog('warn', `[RT] Failed to enrich profile ${urn}: ${err}`);
-  });
-}
 
 /**
  * Fetch participant data for a conversation and update it in IndexedDB.
@@ -751,12 +727,6 @@ async function handleVoyagerEvent(
       conversationId: latest.conversationId,
     }).catch(() => {});
     showNativeNotification(latest);
-  }
-
-  // Enrich sender profiles for inbound messages (non-blocking)
-  const senderUrns = new Set(messages.filter((m) => !m.isFromMe).map((m) => m.senderUrn));
-  for (const urn of senderUrns) {
-    enrichProfileIfNeeded(ctx, urn);
   }
 }
 
@@ -1318,12 +1288,6 @@ async function handleIncludedMessage(
       conversationId: latestInbound.conversationId,
     }).catch(() => {});
     showNativeNotification(latestInbound);
-  }
-
-  // Enrich sender profiles for inbound messages (non-blocking)
-  const senderUrns = new Set(messages.filter((m) => !m.isFromMe).map((m) => m.senderUrn));
-  for (const urn of senderUrns) {
-    enrichProfileIfNeeded(ctx, urn);
   }
 }
 

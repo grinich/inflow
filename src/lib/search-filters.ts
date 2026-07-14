@@ -11,7 +11,6 @@ const FILTER_TOKEN_PATTERNS: RegExp[] = [
   /is:read/gi,
   /is:group/gi,
   /from:\S+/gi,
-  /company:\S+/gi,
   /after:\d{4}-\d{2}-\d{2}/gi,
   /before:\d{4}-\d{2}-\d{2}/gi,
   /newer:\d+d/gi,

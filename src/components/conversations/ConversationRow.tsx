@@ -2,7 +2,7 @@ import { useRef, useEffect, memo } from 'react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { GroupAvatar } from '../common/GroupAvatar';
 import { useUIStore } from '@/store/ui-store';
-import { preloadImages, useCachedImage } from '@/hooks/useCachedImage';
+import { preloadImages } from '@/hooks/useCachedImage';
 import { stripFilterTokens } from '@/lib/search-filters';
 import type { Conversation } from '@/types/conversation';
 
@@ -18,9 +18,6 @@ interface ConversationRowProps {
   draftAttachmentCount: number;
   /** True when this conversation has a failed outgoing message. */
   hasFailed: boolean;
-  /** First participant's company name + logo (batched at the list level). */
-  company: string;
-  companyLogoUrl: string;
   /** Minute-level counter so relative timestamps refresh despite memoization. */
   timeTick: number;
   /** Avatar-rail mode: render only the avatar with unread/star badges. */
@@ -35,13 +32,10 @@ function RowImpl({
   draftText,
   draftAttachmentCount,
   hasFailed,
-  company,
-  companyLogoUrl,
   compact,
 }: ConversationRowProps) {
   const ref = useRef<HTMLDivElement>(null);
   const searchQuery = useUIStore((s) => s.searchQuery);
-  const companyLogoSrc = useCachedImage(companyLogoUrl || undefined);
 
   useEffect(() => {
     if (selected) {
@@ -155,20 +149,13 @@ function RowImpl({
         ) : null}
       </div>
 
-      {/* Avatar with company logo */}
+      {/* Avatar */}
       <div className="relative shrink-0">
         <GroupAvatar
           names={conversation.participantNames}
           pictures={conversation.participantPictures}
           size={40}
         />
-        {companyLogoSrc && (
-          <img
-            src={companyLogoSrc}
-            alt=""
-            className="absolute -bottom-0.5 -right-0.5 h-5 w-5 rounded border border-surface bg-white object-contain"
-          />
-        )}
       </div>
 
       {/* Content */}
@@ -176,7 +163,6 @@ function RowImpl({
         <div className="flex items-center justify-between gap-2">
           <span className={`truncate text-sm ${conversation.read ? 'text-fg-secondary' : 'font-semibold text-fg-strong'}`}>
             {searchQuery ? highlightName(displayName, searchQuery) : displayName}
-            {company && <span className="font-normal text-fg-muted">, {company}</span>}
           </span>
           <span className="shrink-0 whitespace-nowrap text-xs text-fg-muted">
             {formatTimestamp(conversation.lastActivityAt)}
@@ -211,8 +197,6 @@ function rowPropsEqual(prev: ConversationRowProps, next: ConversationRowProps): 
     prev.draftText === next.draftText &&
     prev.draftAttachmentCount === next.draftAttachmentCount &&
     prev.hasFailed === next.hasFailed &&
-    prev.company === next.company &&
-    prev.companyLogoUrl === next.companyLogoUrl &&
     prev.timeTick === next.timeTick &&
     prev.compact === next.compact &&
     a.id === b.id &&

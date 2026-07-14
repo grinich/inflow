@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
@@ -81,25 +81,6 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
     },
     [dbGen],
     new Set<string>()
-  );
-
-  const firstUrnKey = useMemo(
-    () => [...new Set(conversations.map((c) => c.participantUrns[0]).filter(Boolean))].join(','),
-    [conversations]
-  );
-  const companyByUrn = useLiveQuery(
-    async () => {
-      const map = new Map<string, { company: string; logoUrl: string }>();
-      if (!db || !firstUrnKey) return map;
-      const urns = firstUrnKey.split(',');
-      const profiles = await db.profiles.bulkGet(urns);
-      for (const p of profiles) {
-        if (p) map.set(p.urn, { company: p.company || '', logoUrl: p.companyLogoUrl || '' });
-      }
-      return map;
-    },
-    [firstUrnKey, dbGen],
-    new Map<string, { company: string; logoUrl: string }>()
   );
 
   // Minute counter so memoized rows still refresh their relative timestamps.
@@ -330,7 +311,6 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
         {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
         {visibleRows.map((conv, i) => {
           const draft = draftsByConv.get(conv.id);
-          const info = companyByUrn.get(conv.participantUrns[0]);
           return (
             <ConversationRow
               key={conv.id}
@@ -341,8 +321,6 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
               draftText={draft?.text || ''}
               draftAttachmentCount={draft?.attachmentCount || 0}
               hasFailed={failedConvIds.has(conv.id)}
-              company={info?.company || ''}
-              companyLogoUrl={info?.logoUrl || ''}
               timeTick={timeTick}
               compact={compact}
             />

@@ -6,7 +6,7 @@ describe('stripFilterTokens', () => {
     expect(stripFilterTokens('is:unread hello')).toBe('hello');
     expect(stripFilterTokens('from:ada design review')).toBe('design review');
     expect(stripFilterTokens('has:attachment is:starred budget')).toBe('budget');
-    expect(stripFilterTokens('company:acme after:2026-01-01 q3')).toBe('q3');
+    expect(stripFilterTokens('from:alice after:2026-01-01 q3')).toBe('q3');
     expect(stripFilterTokens('newer:7d older:30d ping')).toBe('ping');
     expect(stripFilterTokens('has:draft is:read is:group notes')).toBe('notes');
   });

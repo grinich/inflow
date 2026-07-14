@@ -423,8 +423,8 @@ export async function migrateDraftsFromLocalStorage(): Promise<void> {
 }
 
 /**
- * Upsert profiles while preserving enriched fields (company, title, location)
- * that the messaging API doesn't provide but were fetched from profile pages.
+ * Upsert profiles without letting a sparse payload wipe previously-known
+ * fields — the Messenger API often omits publicId/occupation/picture.
  */
 export async function mergeProfiles(profiles: Profile[]): Promise<void> {
   if (profiles.length === 0) return;
@@ -440,19 +440,17 @@ export async function mergeProfiles(profiles: Profile[]): Promise<void> {
       const prev = existing[i];
       if (prev) {
         const p = profiles[i];
-        // Never overwrite a previously-known value with an empty one. The Messenger
-        // API returns sparse profiles (often missing publicId/occupation/picture),
-        // so a routine poll must not wipe fields enriched from full profile pages.
+        // Never overwrite a previously-known value with an empty one. The
+        // Messenger API returns sparse profiles (often missing
+        // publicId/occupation/picture), so a routine poll must not wipe
+        // fields a richer payload provided earlier.
         if (prev.publicId && !p.publicId) p.publicId = prev.publicId;
         if (prev.fullName && !p.fullName) p.fullName = prev.fullName;
         if (prev.firstName && !p.firstName) p.firstName = prev.firstName;
         if (prev.lastName && !p.lastName) p.lastName = prev.lastName;
         if (prev.occupation && !p.occupation) p.occupation = prev.occupation;
         if (prev.pictureUrl && !p.pictureUrl) p.pictureUrl = prev.pictureUrl;
-        if (prev.company && !p.company) p.company = prev.company;
-        if (prev.title && !p.title) p.title = prev.title;
         if (prev.location && !p.location) p.location = prev.location;
-        if (prev.companyLogoUrl && !p.companyLogoUrl) p.companyLogoUrl = prev.companyLogoUrl;
       }
     }
     await db.profiles.bulkPut(profiles);

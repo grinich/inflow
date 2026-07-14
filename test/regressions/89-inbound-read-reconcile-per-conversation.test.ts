@@ -24,9 +24,6 @@ vi.mock('@/db/database', async (importOriginal) => {
 vi.mock('../../entrypoints/background/auth/session', () => ({
   getMemberUrn: vi.fn().mockResolvedValue('urn:li:fsd_profile:SELF'),
 }));
-vi.mock('../../entrypoints/background/api/profiles', () => ({
-  fetchProfileByUrn: vi.fn().mockResolvedValue(undefined),
-}));
 const fetchMessages = vi.fn();
 vi.mock('../../entrypoints/background/api/messages', () => ({
   fetchMessages: (...args: any[]) => fetchMessages(...args),
@@ -35,8 +32,6 @@ vi.mock('../../entrypoints/background/sync/sync-engine', () => ({ syncConversati
 vi.mock('../../entrypoints/background/sync/reconcile-messages', () => ({ reconcileRecalledMessages: vi.fn() }));
 vi.mock('../../entrypoints/background/sync/repair-participants', () => ({ repairConversationParticipants: vi.fn() }));
 vi.mock('@/lib/debug-log', () => ({ debugLog: vi.fn() }));
-vi.mock('@/lib/feature-flags', () => ({ ENABLE_PROFILE_ENRICHMENT: false }));
-
 const suppressState = { pending: false, mutation: false, echo: false };
 vi.mock('../../entrypoints/background/realtime/mark-read-suppression', () => ({
   shouldSuppressConversationUpdate: () => suppressState.echo,

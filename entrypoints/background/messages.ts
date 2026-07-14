@@ -15,7 +15,6 @@ import {
 import { fetchMessages, fetchAllMessages, sendMessage, editMessage, createConversation, reactWithEmoji, recallMessage } from './api/messages';
 import { enqueueSend } from './send-queue';
 import { searchTypeahead } from './api/typeahead';
-import { fetchProfileByUrn } from './api/profiles';
 import { getSession, getMemberUrn } from './auth/session';
 import { syncConversations, syncCategory } from './sync/sync-engine';
 import { burstDiscover, toggleSyncPause, broadcastProgress } from './sync/sync-coordinator';
@@ -36,7 +35,6 @@ import { runDiagnosticSync } from './diagnostic';
 import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression';
 import { getSSEStatus } from './realtime/sse-client';
 import { checkForUpdate } from './update-check';
-import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 
 /**
@@ -314,11 +312,6 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     case 'CHECK_FOR_UPDATE': {
       const status = await checkForUpdate();
       return { success: true, data: status };
-    }
-    case 'FETCH_PROFILE_BY_URN': {
-      if (!ENABLE_PROFILE_ENRICHMENT) return { success: true, data: null };
-      const profile = await fetchProfileByUrn(msg.urn);
-      return { success: true, data: profile };
     }
     case 'GET_DEBUG_LOGS': {
       return { success: true, data: getDebugLogs() };

@@ -52,10 +52,9 @@ async function mergeProfilesOnTestDb(profiles: Profile[]): Promise<void> {
   for (let i = 0; i < profiles.length; i++) {
     const prev = existing[i];
     if (prev) {
-      if (prev.company && !profiles[i].company) profiles[i].company = prev.company;
-      if (prev.title && !profiles[i].title) profiles[i].title = prev.title;
+      if (prev.occupation && !profiles[i].occupation) profiles[i].occupation = prev.occupation;
+      if (prev.pictureUrl && !profiles[i].pictureUrl) profiles[i].pictureUrl = prev.pictureUrl;
       if (prev.location && !profiles[i].location) profiles[i].location = prev.location;
-      if (prev.companyLogoUrl && !profiles[i].companyLogoUrl) profiles[i].companyLogoUrl = prev.companyLogoUrl;
     }
   }
   await testDb.profiles.bulkPut(profiles);

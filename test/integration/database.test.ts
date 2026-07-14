@@ -343,14 +343,15 @@ describe('schema indexes', () => {
 // We test it by implementing the merge logic against the test database
 // directly, mirroring the exact algorithm from database.ts:
 //   1. bulkGet existing profiles by URN
-//   2. Preserve company/title/location/companyLogoUrl from existing when incoming lacks them
+//   2. Preserve known fields (occupation, location, pictureUrl, ...) when the
+//      sparse incoming profile lacks them
 //   3. bulkPut the merged profiles
 // ---------------------------------------------------------------------------
 
 describe('mergeProfiles', () => {
   /**
    * Re-implements mergeProfiles against `db` (our test database).
-   * This mirrors the exact algorithm from src/db/database.ts lines 325-339.
+   * This mirrors the exact algorithm from src/db/database.ts.
    */
   async function mergeProfilesOnTestDb(profiles: import('@/types/profile').Profile[]): Promise<void> {
     if (profiles.length === 0) return;
@@ -359,10 +360,10 @@ describe('mergeProfiles', () => {
     for (let i = 0; i < profiles.length; i++) {
       const prev = existing[i];
       if (prev) {
-        if (prev.company && !profiles[i].company) profiles[i].company = prev.company;
-        if (prev.title && !profiles[i].title) profiles[i].title = prev.title;
+        if (prev.publicId && !profiles[i].publicId) profiles[i].publicId = prev.publicId;
+        if (prev.occupation && !profiles[i].occupation) profiles[i].occupation = prev.occupation;
+        if (prev.pictureUrl && !profiles[i].pictureUrl) profiles[i].pictureUrl = prev.pictureUrl;
         if (prev.location && !profiles[i].location) profiles[i].location = prev.location;
-        if (prev.companyLogoUrl && !profiles[i].companyLogoUrl) profiles[i].companyLogoUrl = prev.companyLogoUrl;
       }
     }
     await db.profiles.bulkPut(profiles);
@@ -370,7 +371,7 @@ describe('mergeProfiles', () => {
 
   it('inserts new profiles when none exist', async () => {
     const profiles = [
-      makeProfile({ urn: 'urn:li:fsd_profile:new1', firstName: 'Alice', company: 'Acme' }),
+      makeProfile({ urn: 'urn:li:fsd_profile:new1', firstName: 'Alice', occupation: 'Founder' }),
       makeProfile({ urn: 'urn:li:fsd_profile:new2', firstName: 'Bob' }),
     ];
 
@@ -379,82 +380,68 @@ describe('mergeProfiles', () => {
     const stored1 = await db.profiles.get('urn:li:fsd_profile:new1');
     expect(stored1).toBeDefined();
     expect(stored1.firstName).toBe('Alice');
-    expect(stored1.company).toBe('Acme');
+    expect(stored1.occupation).toBe('Founder');
 
     const stored2 = await db.profiles.get('urn:li:fsd_profile:new2');
     expect(stored2).toBeDefined();
     expect(stored2.firstName).toBe('Bob');
   });
 
-  it('preserves existing company/title/location/companyLogoUrl when new profile lacks them', async () => {
-    // Pre-populate with enriched data
+  it('preserves existing occupation/location/pictureUrl when new profile lacks them', async () => {
     await db.profiles.put(
       makeProfile({
-        urn: 'urn:li:fsd_profile:enriched',
+        urn: 'urn:li:fsd_profile:full',
         firstName: 'Jane',
-        company: 'BigCorp',
-        title: 'VP Engineering',
+        occupation: 'VP Engineering',
         location: 'New York',
-        companyLogoUrl: 'https://example.com/logo.png',
+        pictureUrl: 'https://example.com/jane.png',
       })
     );
 
-    // Merge a profile from messaging API (lacks enriched fields)
+    // Merge a sparse profile from the messaging API
     const incoming = makeProfile({
-      urn: 'urn:li:fsd_profile:enriched',
+      urn: 'urn:li:fsd_profile:full',
       firstName: 'Jane',
       lastName: 'Updated',
-      company: undefined,
-      title: undefined,
-      location: undefined,
-      companyLogoUrl: undefined,
+      occupation: '',
+      location: '',
+      pictureUrl: '',
     });
-    // Explicitly remove the optional fields to simulate messaging API data
-    delete incoming.company;
-    delete incoming.title;
-    delete incoming.companyLogoUrl;
-    incoming.location = '';
 
     await mergeProfilesOnTestDb([incoming]);
 
-    const result = await db.profiles.get('urn:li:fsd_profile:enriched');
+    const result = await db.profiles.get('urn:li:fsd_profile:full');
     expect(result.firstName).toBe('Jane');
     expect(result.lastName).toBe('Updated');
-    // Enriched fields should be preserved
-    expect(result.company).toBe('BigCorp');
-    expect(result.title).toBe('VP Engineering');
+    // Known fields should be preserved
+    expect(result.occupation).toBe('VP Engineering');
     expect(result.location).toBe('New York');
-    expect(result.companyLogoUrl).toBe('https://example.com/logo.png');
+    expect(result.pictureUrl).toBe('https://example.com/jane.png');
   });
 
-  it('overwrites when new profile has company data', async () => {
-    // Pre-populate
+  it('overwrites when new profile has fresh data', async () => {
     await db.profiles.put(
       makeProfile({
         urn: 'urn:li:fsd_profile:overwrite',
-        company: 'OldCorp',
-        title: 'Old Title',
+        occupation: 'Old Title',
         location: 'Old City',
-        companyLogoUrl: 'https://old.com/logo.png',
+        pictureUrl: 'https://old.com/pic.png',
       })
     );
 
-    // Merge with new enriched data
     const incoming = makeProfile({
       urn: 'urn:li:fsd_profile:overwrite',
-      company: 'NewCorp',
-      title: 'New Title',
+      occupation: 'New Title',
       location: 'New City',
-      companyLogoUrl: 'https://new.com/logo.png',
+      pictureUrl: 'https://new.com/pic.png',
     });
 
     await mergeProfilesOnTestDb([incoming]);
 
     const result = await db.profiles.get('urn:li:fsd_profile:overwrite');
-    expect(result.company).toBe('NewCorp');
-    expect(result.title).toBe('New Title');
+    expect(result.occupation).toBe('New Title');
     expect(result.location).toBe('New City');
-    expect(result.companyLogoUrl).toBe('https://new.com/logo.png');
+    expect(result.pictureUrl).toBe('https://new.com/pic.png');
   });
 
   it('handles empty array without error', async () => {
@@ -466,22 +453,20 @@ describe('mergeProfiles', () => {
       makeProfile({
         urn: 'urn:li:fsd_profile:existing',
         firstName: 'Existing',
-        company: 'ExistingCo',
+        occupation: 'Founder',
       })
     );
 
     const profiles = [
-      makeProfile({ urn: 'urn:li:fsd_profile:existing', firstName: 'Updated' }),
+      makeProfile({ urn: 'urn:li:fsd_profile:existing', firstName: 'Updated', occupation: '' }),
       makeProfile({ urn: 'urn:li:fsd_profile:brand-new', firstName: 'New' }),
     ];
-    // Remove company from the incoming existing profile to test preservation
-    delete profiles[0].company;
 
     await mergeProfilesOnTestDb(profiles);
 
     const existing = await db.profiles.get('urn:li:fsd_profile:existing');
     expect(existing.firstName).toBe('Updated');
-    expect(existing.company).toBe('ExistingCo');
+    expect(existing.occupation).toBe('Founder');
 
     const brandNew = await db.profiles.get('urn:li:fsd_profile:brand-new');
     expect(brandNew).toBeDefined();

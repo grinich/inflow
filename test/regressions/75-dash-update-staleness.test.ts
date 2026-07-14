@@ -31,17 +31,11 @@ vi.mock('../../entrypoints/background/auth/session', () => ({
   getMemberUrn: vi.fn().mockResolvedValue('urn:li:fsd_profile:SELF'),
 }));
 
-vi.mock('../../entrypoints/background/api/profiles', () => ({
-  fetchProfileByUrn: vi.fn().mockResolvedValue(undefined),
-}));
-
 vi.mock('../../entrypoints/background/api/messages', () => ({
   fetchMessages: vi.fn().mockResolvedValue({ data: {}, included: [] }),
 }));
 
 vi.mock('@/lib/debug-log', () => ({ debugLog: vi.fn() }));
-
-vi.mock('@/lib/feature-flags', () => ({ ENABLE_PROFILE_ENRICHMENT: false }));
 
 vi.mock('../../entrypoints/background/realtime/mark-read-suppression', () => ({
   shouldSuppressConversationUpdate: vi.fn().mockReturnValue(false),

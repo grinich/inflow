@@ -165,11 +165,9 @@ export async function seedDemoData(): Promise<void> {
       firstName: person.firstName,
       lastName: person.lastName,
       fullName,
-      occupation: `${person.title} at ${person.company}`,
+      occupation: '',
       location: '',
       pictureUrl: person.picture,
-      company: person.company,
-      title: person.title,
     });
   }
 
@@ -235,13 +233,6 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
 
     case 'CREATE_CONVERSATION':
       return { success: true, data: { conversationId: `demo-conv-new-${Date.now()}` } };
-
-    case 'FETCH_PROFILE_BY_URN': {
-      const database = getDb();
-      if (!database) return { success: true, data: null };
-      const profile = await database.profiles.get(msg.urn);
-      return { success: true, data: profile ?? null };
-    }
 
     case 'FETCH_POST':
       return { success: true, data: null };
@@ -466,11 +457,9 @@ async function createIncomingConversation(scheduleNext: boolean): Promise<void> 
       firstName: person.firstName,
       lastName: person.lastName,
       fullName,
-      occupation: `${person.title} at ${person.company}`,
+      occupation: '',
       location: '',
       pictureUrl: person.picture,
-      company: person.company,
-      title: person.title,
     });
 
     window.dispatchEvent(

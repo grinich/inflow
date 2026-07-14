@@ -10,7 +10,6 @@ const FILTER_SUGGESTIONS = [
   { filter: 'has:attachment', description: 'Has attachments' },
   { filter: 'has:draft', description: 'Has unsent draft' },
   { filter: 'from:', description: 'Filter by sender name' },
-  { filter: 'company:', description: 'Filter by current company' },
   { filter: 'after:', description: 'Active after date (YYYY-MM-DD)' },
   { filter: 'before:', description: 'Active before date (YYYY-MM-DD)' },
   { filter: 'newer:', description: 'Active within N days (e.g. 7d)' },
@@ -18,7 +17,7 @@ const FILTER_SUGGESTIONS = [
 ] as const;
 
 /** Prefixes that accept a user-provided value after the colon */
-const VALUE_PREFIXES = ['from:', 'company:', 'after:', 'before:', 'newer:', 'older:'];
+const VALUE_PREFIXES = ['from:', 'after:', 'before:', 'newer:', 'older:'];
 
 const TABS: { id: InboxTab; label: string; key: string }[] = [
   { id: 'focused', label: 'Focused', key: '1' },

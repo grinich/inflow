@@ -7,7 +7,4 @@ export interface Profile {
   occupation: string;
   location: string;
   pictureUrl: string;
-  company?: string;
-  title?: string;
-  companyLogoUrl?: string;
 }

@@ -54,8 +54,6 @@ const rowProps = {
   draftText: '',
   draftAttachmentCount: 0,
   hasFailed: false,
-  company: 'Acme',
-  companyLogoUrl: '',
   timeTick: 0,
 };
 
@@ -83,10 +81,9 @@ describe('regression #94: avatar rail at narrow window widths', () => {
     const row = container.querySelector('[data-conversation-id]')!;
     expect(row).toBeTruthy();
     expect(row.getAttribute('title')).toBe('Quinton Wall — Good luck on the mcp night');
-    // Avatar initial renders; name/preview/company do NOT render as text
+    // Avatar initial renders; name/preview do NOT render as text
     expect(row.textContent).not.toContain('Quinton Wall');
     expect(row.textContent).not.toContain('Good luck');
-    expect(row.textContent).not.toContain('Acme');
   });
 
   it('compact row badges: unread dot and star', () => {

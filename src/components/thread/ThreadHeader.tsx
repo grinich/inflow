@@ -2,10 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
-import { ENABLE_PROFILE_ENRICHMENT } from '@/lib/feature-flags';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { useUIStore } from '@/store/ui-store';
-import { useCachedImage } from '@/hooks/useCachedImage';
 import { readLocal } from '@/lib/storage';
 import { GroupAvatar } from '../common/GroupAvatar';
 import type { Conversation } from '@/types/conversation';
@@ -13,18 +11,6 @@ import type { Conversation } from '@/types/conversation';
 /** Strip ", United States" (or ", US" / ", USA") from US locations to show just "City, State". */
 function shortenLocation(location: string): string {
   return location.replace(/,\s*(United States|US|USA)\s*$/i, '').trim();
-}
-
-function CompanyLogoBadge({ url }: { url?: string }) {
-  const src = useCachedImage(url || undefined);
-  if (!src) return null;
-  return (
-    <img
-      src={src}
-      alt=""
-      className="absolute -bottom-0.5 -right-0.5 h-5 w-5 rounded border border-surface bg-white object-contain"
-    />
-  );
 }
 
 interface ThreadHeaderProps {
@@ -69,28 +55,6 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
   const firstUrn = participantUrns[0];
   const profile = profilesByUrn.get(firstUrn) ?? null;
 
-  // Refresh profile data after staying on a thread for 2s (avoids spam during quick scrolling)
-  useEffect(() => {
-    if (!ENABLE_PROFILE_ENRICHMENT) return;
-    if (!firstUrn) return;
-    let stale = false;
-    const timer = setTimeout(() => {
-      sendBridgeMessage({ type: 'FETCH_PROFILE_BY_URN', urn: firstUrn }).then(async (res) => {
-        if (stale || !res?.success || !res.data) return;
-        const d = res.data;
-        const updates: Record<string, string> = {};
-        if (d.locationName) updates.location = d.locationName;
-        if (d.company) updates.company = d.company;
-        if (d.title) updates.title = d.title;
-        if (d.companyLogoUrl) updates.companyLogoUrl = d.companyLogoUrl;
-        if (Object.keys(updates).length > 0) {
-          await db.profiles.update(firstUrn, updates);
-        }
-      }).catch(() => {});
-    }, 2000);
-    return () => { stale = true; clearTimeout(timer); };
-  }, [firstUrn]);
-
   const profileUrl = profile?.publicId
     ? `https://www.linkedin.com/in/${profile.publicId}`
     : null;
@@ -106,7 +70,6 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
               pictures={conversation.participantPictures}
               size={36}
             />
-            <CompanyLogoBadge url={profile?.companyLogoUrl} />
           </a>
         ) : (
           <div className="relative shrink-0">
@@ -115,7 +78,6 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
               pictures={conversation.participantPictures}
               size={36}
             />
-            <CompanyLogoBadge url={profile?.companyLogoUrl} />
           </div>
         )}
         <div className="min-w-0 flex-1">
@@ -139,17 +101,10 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
               <span className="hidden min-w-0 truncate text-xs text-fg-faint @[36rem]:inline">({shortenLocation(profile.location)})</span>
             )}
           </div>
-          {profile?.company ? (
-            <p className="truncate text-xs text-fg-muted">
-              {profile.company}{profile.title ? `, ${profile.title}` : ''}
-            </p>
-          ) : conversation.participantNames.length > 1 ? (
+          {conversation.participantNames.length > 1 && (
             <p className="truncate text-xs text-fg-muted">
               {conversation.participantNames.length} participants
             </p>
-          ) : null}
-          {profile?.occupation && profile?.company && (
-            <p className="truncate text-xs text-fg-faint">{profile.occupation}</p>
           )}
         </div>
 

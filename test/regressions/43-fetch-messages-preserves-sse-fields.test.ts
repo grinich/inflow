@@ -51,7 +51,6 @@ vi.mock('../../entrypoints/background/api/conversations', () => ({
 }));
 
 vi.mock('../../entrypoints/background/api/typeahead', () => ({ searchTypeahead: vi.fn() }));
-vi.mock('../../entrypoints/background/api/profiles', () => ({ fetchProfileByUrn: vi.fn() }));
 vi.mock('../../entrypoints/background/api/posts', () => ({ fetchPost: vi.fn() }));
 vi.mock('../../entrypoints/background/auth/session', () => ({
   getSession: vi.fn().mockResolvedValue({ authenticated: true, memberUrn: 'urn:li:fsd_profile:SELF' }),

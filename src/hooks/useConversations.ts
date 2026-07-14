@@ -124,7 +124,6 @@ export function useConversations() {
       let requireGroup = false;
       let requireDraft = false;
       let fromName: string | null = null;
-      let companyFilter: string | null = null;
       let afterTs: number | null = null;
       let beforeTs: number | null = null;
 
@@ -171,12 +170,6 @@ export function useConversations() {
         q = q.replace(/from:\S+/gi, '').trim();
       }
 
-      // Parse company:name filter
-      const companyMatch = q.match(/company:(\S+)/i);
-      if (companyMatch) {
-        companyFilter = companyMatch[1].toLowerCase();
-        q = q.replace(/company:\S+/gi, '').trim();
-      }
 
       // Parse after:YYYY-MM-DD filter
       const afterMatch = q.match(/after:(\d{4}-\d{2}-\d{2})/i);
@@ -253,20 +246,6 @@ export function useConversations() {
         const name = fromName;
         results = results.filter((c) =>
           c.participantNames.some((n) => n.toLowerCase().includes(name))
-        );
-      }
-
-      if (companyFilter) {
-        const co = companyFilter;
-        // Look up profiles for each conversation's participants to check company
-        const allUrns = results.flatMap((c) => c.participantUrns);
-        const profiles = await db.profiles.where('urn').anyOf(allUrns).toArray();
-        const urnToCompany = new Map<string, string>();
-        for (const p of profiles) {
-          if (p.company) urnToCompany.set(p.urn, p.company.toLowerCase());
-        }
-        results = results.filter((c) =>
-          c.participantUrns.some((urn) => urnToCompany.get(urn)?.includes(co))
         );
       }
 
