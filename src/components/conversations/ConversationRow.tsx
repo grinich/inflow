@@ -11,6 +11,7 @@ interface ConversationRowProps {
   selected: boolean;
   index: number;
   onOpen: (conversation: Conversation, index: number) => void;
+  onContextMenu?: (conversation: Conversation, e: React.MouseEvent) => void;
   /** Persisted draft text/attachments for this conversation (batched at the
    *  list level — a per-row DB read here made folder switches O(rows) in
    *  IndexedDB queries). */
@@ -29,6 +30,7 @@ function RowImpl({
   selected,
   index,
   onOpen,
+  onContextMenu,
   draftText,
   draftAttachmentCount,
   hasFailed,
@@ -91,6 +93,7 @@ function RowImpl({
         ref={ref}
         data-conversation-id={conversation.id}
         onClick={() => onOpen(conversation, index)}
+        onContextMenu={(e) => onContextMenu?.(conversation, e)}
         title={conversation.lastMessage ? `${displayName} — ${conversation.lastMessage}` : displayName}
         className="flex cursor-pointer justify-center px-2 py-1"
       >
@@ -128,6 +131,7 @@ function RowImpl({
       ref={ref}
       data-conversation-id={conversation.id}
       onClick={() => onOpen(conversation, index)}
+      onContextMenu={(e) => onContextMenu?.(conversation, e)}
       className={`group relative flex cursor-pointer items-center gap-1.5 py-3 pl-1.5 pr-3 ${
         selected ? 'bg-surface-active' : 'hover:bg-surface-hover'
       }`}
@@ -194,6 +198,7 @@ function rowPropsEqual(prev: ConversationRowProps, next: ConversationRowProps): 
     prev.selected === next.selected &&
     prev.index === next.index &&
     prev.onOpen === next.onOpen &&
+    prev.onContextMenu === next.onContextMenu &&
     prev.draftText === next.draftText &&
     prev.draftAttachmentCount === next.draftAttachmentCount &&
     prev.hasFailed === next.hasFailed &&

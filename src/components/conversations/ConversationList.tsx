@@ -8,6 +8,7 @@ import { computeWindow } from '@/lib/list-window';
 import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { ConversationListHeader } from './ConversationListHeader';
 import { ConversationRow } from './ConversationRow';
+import { ConversationContextMenu } from './ConversationContextMenu';
 import { SyncStatusIndicator } from '../common/SyncStatusIndicator';
 import type { Conversation } from '@/types/conversation';
 
@@ -277,6 +278,13 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
     actionsRef.current.markRead(conv.id, conv.mergedIds);
   }, []);
 
+  // Right-click context menu: track which conversation + cursor position.
+  const [contextMenu, setContextMenu] = useState<{ conversation: Conversation; x: number; y: number } | null>(null);
+  const handleContextMenu = useCallback((conv: Conversation, e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ conversation: conv, x: e.clientX, y: e.clientY });
+  }, []);
+
   const [accountName, setAccountName] = useState<string | undefined>();
   useEffect(() => {
     try {
@@ -318,6 +326,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
               selected={conv.id === selectedConversationId}
               index={start + i}
               onOpen={handleOpen}
+              onContextMenu={handleContextMenu}
               draftText={draft?.text || ''}
               draftAttachmentCount={draft?.attachmentCount || 0}
               hasFailed={failedConvIds.has(conv.id)}
@@ -353,6 +362,14 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
         </button>
         <SyncStatusIndicator accountName={accountName} onOpenDebug={onOpenDebug} />
       </div>}
+      {contextMenu && (
+        <ConversationContextMenu
+          conversation={contextMenu.conversation}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }
