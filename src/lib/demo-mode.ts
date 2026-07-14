@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { DEMO_PEOPLE, DEMO_MESSAGES_INBOUND, DEMO_MESSAGES_OUTBOUND, DEMO_OPENERS } from './demo-data';
+import { buildNotificationIcon } from './notification-icon';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 import type { Conversation } from '@/types/conversation';
 import type { Message } from '@/types/message';
@@ -287,6 +288,38 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
   }
 }
 
+// ── Native notifications ───────────────────────────────────────────────────
+
+/**
+ * Native OS notification for a simulated inbound message, mirroring the real
+ * path in the background worker (same avatar+badge icon, same suppression:
+ * skipped while the user is actually looking at the app — the in-app toast
+ * covers that case). Demo mode never touches the service worker, so the
+ * notification is created directly from the app page, which has the same
+ * chrome.notifications access. Fire-and-forget.
+ */
+export function maybeShowDemoNotification(msg: {
+  conversationId: string;
+  senderName: string;
+  senderPicture: string;
+  body: string;
+}): void {
+  (async () => {
+    if (document.visibilityState === 'visible' && document.hasFocus()) return;
+    const iconUrl =
+      (msg.senderPicture ? await buildNotificationIcon(msg.senderPicture) : null) ||
+      chrome.runtime.getURL('icon-128.png');
+    chrome.notifications.create(msg.conversationId, {
+      type: 'basic',
+      iconUrl,
+      title: msg.senderName,
+      message: msg.body || 'New message',
+    });
+  })().catch(() => {
+    // Notifications are best-effort in demo mode
+  });
+}
+
 // ── Auto-reply ─────────────────────────────────────────────────────────────
 
 // Track pending auto-reply timers so they can be cancelled on teardown and don't
@@ -340,6 +373,7 @@ function scheduleAutoReply(conversationId: string): void {
           },
         }),
       );
+      maybeShowDemoNotification({ conversationId, senderName, senderPicture, body });
     } catch {
       // Silently ignore errors in demo auto-reply
     }
@@ -450,6 +484,12 @@ async function createIncomingConversation(scheduleNext: boolean): Promise<void> 
         },
       }),
     );
+    maybeShowDemoNotification({
+      conversationId: convId,
+      senderName: fullName,
+      senderPicture: person.picture,
+      body,
+    });
   } catch {
     // Silently ignore errors
   }

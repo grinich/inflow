@@ -196,7 +196,14 @@ function showNativeNotification(msg: {
   (async () => {
     const appUrl = chrome.runtime.getURL('app.html');
     const activeTabs = await chrome.tabs.query({ url: appUrl, active: true, lastFocusedWindow: true });
-    if (activeTabs.length > 0) return; // in-app toast will show instead
+    if (activeTabs.length > 0) {
+      // An active tab isn't enough — `lastFocusedWindow` matches even when
+      // Chrome itself is not the frontmost app (e.g. after Cmd-Tab away with
+      // inflow left as the active tab). Only suppress when that window truly
+      // has OS focus; otherwise the user isn't looking at the toast.
+      const win = await chrome.windows.getLastFocused().catch(() => null);
+      if (win?.focused) return; // in-app toast will show instead
+    }
 
     // Spam stays quiet: a new message in a SPAM thread doesn't mark it unread
     // or move it to Focused (see applyInboundMessageToConversation), so it
