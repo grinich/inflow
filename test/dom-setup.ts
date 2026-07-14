@@ -25,4 +25,17 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   })) as unknown as typeof window.matchMedia;
 }
 
+// jsdom doesn't implement IntersectionObserver; list rows use it to preload
+// avatars. A no-op stub keeps components mountable — tests that care about
+// intersection behavior can install their own mock.
+if (typeof window !== 'undefined' && typeof (window as any).IntersectionObserver !== 'function') {
+  (window as any).IntersectionObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return []; }
+  };
+  (globalThis as any).IntersectionObserver = (window as any).IntersectionObserver;
+}
+
 afterEach(() => cleanup());

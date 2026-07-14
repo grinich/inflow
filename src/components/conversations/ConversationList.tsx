@@ -20,6 +20,8 @@ interface ConversationListProps {
   hasMoreSearchResults?: boolean;
   onLoadMoreSearch?: () => void;
   onOpenDebug?: () => void;
+  /** Avatar-rail mode (very narrow window): avatars only, no search/tabs/footer. */
+  compact?: boolean;
 }
 
 /** Fallback row height until the first rendered row is measured. */
@@ -31,7 +33,7 @@ interface DraftMeta {
   attachmentCount: number;
 }
 
-export function ConversationList({ conversations, isLoading, isDiscovering, category, isSearching, hasMoreSearchResults, onLoadMoreSearch, onOpenDebug }: ConversationListProps) {
+export function ConversationList({ conversations, isLoading, isDiscovering, category, isSearching, hasMoreSearchResults, onLoadMoreSearch, onOpenDebug, compact }: ConversationListProps) {
   const selectedConversationId = useUIStore((s) => s.selectedConversationId);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -304,7 +306,22 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
 
   return (
     <div className="flex h-full flex-col">
-      <ConversationListHeader conversationCount={conversations.length} />
+      {compact ? (
+        <div className="flex justify-center border-b border-edge py-2">
+          <button
+            onClick={() => useUIStore.getState().setComposeNewActive(true)}
+            title="New message (C)"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+          </button>
+        </div>
+      ) : (
+        <ConversationListHeader conversationCount={conversations.length} />
+      )}
       <div
         ref={scrollContainerRef}
         onScroll={(e) => setScrollTop((e.target as HTMLElement).scrollTop)}
@@ -327,6 +344,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
               company={info?.company || ''}
               companyLogoUrl={info?.logoUrl || ''}
               timeTick={timeTick}
+              compact={compact}
             />
           );
         })}
@@ -346,7 +364,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
           </div>
         )}
       </div>
-      <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">
+      {!compact && <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">
         <button
           onClick={() => useUIStore.getState().toggleShortcutOverlay()}
           className="flex items-center gap-1.5 text-fg-faint transition-colors hover:text-fg-muted"
@@ -356,7 +374,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
           <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px]">?</kbd>
         </button>
         <SyncStatusIndicator accountName={accountName} onOpenDebug={onOpenDebug} />
-      </div>
+      </div>}
     </div>
   );
 }

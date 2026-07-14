@@ -23,6 +23,8 @@ interface ConversationRowProps {
   companyLogoUrl: string;
   /** Minute-level counter so relative timestamps refresh despite memoization. */
   timeTick: number;
+  /** Avatar-rail mode: render only the avatar with unread/star badges. */
+  compact?: boolean;
 }
 
 function RowImpl({
@@ -35,6 +37,7 @@ function RowImpl({
   hasFailed,
   company,
   companyLogoUrl,
+  compact,
 }: ConversationRowProps) {
   const ref = useRef<HTMLDivElement>(null);
   const searchQuery = useUIStore((s) => s.searchQuery);
@@ -84,6 +87,47 @@ function RowImpl({
         return parts[0];
       }).join(', ')
     : names[0] || 'Unknown';
+
+  // Avatar rail: just the avatar with unread/star badges, name + preview in
+  // the tooltip. Padding (not margin) provides spacing so offsetHeight — which
+  // the list's windowing measures — stays accurate.
+  if (compact) {
+    return (
+      <div
+        ref={ref}
+        data-conversation-id={conversation.id}
+        onClick={() => onOpen(conversation, index)}
+        title={conversation.lastMessage ? `${displayName} — ${conversation.lastMessage}` : displayName}
+        className="flex cursor-pointer justify-center px-2 py-1"
+      >
+        <div
+          className={`relative rounded-xl p-1.5 transition-colors ${
+            selected ? 'bg-surface-active' : 'hover:bg-surface-hover'
+          }`}
+        >
+          <GroupAvatar
+            names={conversation.participantNames}
+            pictures={conversation.participantPictures}
+            size={40}
+          />
+          {!conversation.read && (
+            <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500 ring-2 ring-surface" />
+          )}
+          {!!conversation.starred && (
+            <svg
+              className="absolute bottom-0.5 left-0.5 h-3.5 w-3.5 text-yellow-400 drop-shadow-sm"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              stroke="currentColor"
+              strokeWidth="1"
+            >
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -170,6 +214,7 @@ function rowPropsEqual(prev: ConversationRowProps, next: ConversationRowProps): 
     prev.company === next.company &&
     prev.companyLogoUrl === next.companyLogoUrl &&
     prev.timeTick === next.timeTick &&
+    prev.compact === next.compact &&
     a.id === b.id &&
     a.read === b.read &&
     a.starred === b.starred &&

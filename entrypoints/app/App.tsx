@@ -19,6 +19,7 @@ import { useRemoteSearch } from '@/hooks/useRemoteSearch';
 import { useKeyboard } from '@/hooks/useKeyboard';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { useResizableSidebar } from '@/hooks/useResizableSidebar';
+import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useUIStore } from '@/store/ui-store';
 
@@ -37,6 +38,7 @@ export function App() {
   const actions = useOptimisticAction();
   useSendObjectUrlReaper();
   const { width: sidebarWidth, isDragging: isDraggingSidebar, onDividerMouseDown, onDividerDoubleClick } = useResizableSidebar();
+  const railMode = useCollapsedSidebar();
   const [debugOpen, setDebugOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragCounter = useRef(0);
@@ -214,21 +216,24 @@ export function App() {
     <AuthGate>
       <UpdateBanner />
       <div className={`flex min-h-0 flex-1 overflow-hidden bg-surface text-fg transition-[padding-bottom] duration-200 ease-out ${shortcutPanelOpen ? SHORTCUT_PANEL_PADDING : 'pb-0'}`}>
-        {/* Conversation List */}
-        <div style={{ width: sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
-          <ConversationList conversations={conversations} isLoading={isLoading} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} />
+        {/* Conversation List — collapses to a fixed avatar rail on narrow windows */}
+        <div style={{ width: railMode ? RAIL_WIDTH : sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
+          <ConversationList conversations={conversations} isLoading={isLoading} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} compact={railMode} />
         </div>
 
         {/* Resize handle: thin visual divider with a wider invisible hit zone.
-            Drag to resize the sidebar, double-click to reset. */}
-        <div
-          onMouseDown={onDividerMouseDown}
-          onDoubleClick={onDividerDoubleClick}
-          title="Drag to resize · double-click to reset"
-          className={`group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize ${isDraggingSidebar ? 'bg-blue-500/40' : ''}`}
-        >
-          <div className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isDraggingSidebar ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-500/60'}`} />
-        </div>
+            Drag to resize the sidebar, double-click to reset. Hidden in rail
+            mode — the rail width is fixed. */}
+        {!railMode && (
+          <div
+            onMouseDown={onDividerMouseDown}
+            onDoubleClick={onDividerDoubleClick}
+            title="Drag to resize · double-click to reset"
+            className={`group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize ${isDraggingSidebar ? 'bg-blue-500/40' : ''}`}
+          >
+            <div className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isDraggingSidebar ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-500/60'}`} />
+          </div>
+        )}
 
         {/* Thread View or New Message Composer */}
         <div className="flex h-full min-w-0 flex-1 flex-col">
