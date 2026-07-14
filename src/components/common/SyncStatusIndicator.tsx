@@ -33,17 +33,7 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
   const online = useSyncExternalStore(subscribeOnline, getOnline);
   const [sync, setSync] = useState<SyncState>({ state: 'idle' });
   const [progress, setProgress] = useState<SyncProgress | null>(null);
-  const [lastSynced, setLastSynced] = useState<number | null>(null);
   const [sseConnected, setSseConnected] = useState(true);
-  const [, forceTick] = useState(0);
-
-  // Re-render periodically so the "Synced Xs ago" label stays current when idle
-  // (otherwise it freezes at its last value until some other state changes).
-  useEffect(() => {
-    if (!lastSynced) return;
-    const id = setInterval(() => forceTick((t) => t + 1), 15_000);
-    return () => clearInterval(id);
-  }, [lastSynced]);
 
   // Count queued actions for offline indicator
   const queuedCount = useLiveQuery(
@@ -56,15 +46,9 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
     useCallback((msg: any) => {
       if (msg.type === 'SYNC_STATUS') {
         setSync({ state: msg.state, message: msg.message });
-        if (msg.state === 'idle') {
-          setLastSynced(Date.now());
-        }
       }
       if (msg.type === 'SYNC_PROGRESS') {
         setProgress(msg.progress);
-      }
-      if (msg.type === 'SYNC_COMPLETE') {
-        setLastSynced(Date.now());
       }
       if (msg.type === 'SSE_STATUS') {
         setSseConnected(msg.connected);
@@ -104,14 +88,26 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
     statusText = 'Reconnecting...';
   } else if (active) {
     statusText = 'Syncing';
-  } else if (lastSynced) {
-    const ago = Math.round((Date.now() - lastSynced) / 1000);
-    if (ago < 5) statusText = 'Synced just now';
-    else if (ago < 60) statusText = `Synced ${ago}s ago`;
-    else statusText = `Synced ${Math.round(ago / 60)}m ago`;
+  } else {
+    statusText = 'Up to date';
   }
 
-  const icon = (
+  const upToDate = statusText === 'Up to date';
+
+  const icon = upToDate ? (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  ) : (
     <svg
       width="12"
       height="12"
@@ -144,7 +140,7 @@ export function SyncStatusIndicator({ accountName, onOpenDebug }: SyncStatusIndi
       }`}
     >
       {icon}
-      <span>{statusText || 'Up to date'}</span>
+      <span>{statusText}</span>
     </button>
   );
 }
