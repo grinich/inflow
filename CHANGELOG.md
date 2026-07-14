@@ -4,6 +4,41 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] - 2026-07-13
+
+### Added
+- **Sender avatars in notifications** — native Chrome notifications now show
+  the sender's profile picture (circle-cropped) instead of the generic app
+  icon, with the app icon as fallback when the avatar can't be loaded.
+  Requires a new `media.licdn.com` host permission.
+- **Avatar rail on narrow windows** — below 700px window width the
+  conversation list collapses to a compact avatar-only rail (unread dot and
+  star badges, name + preview on hover) so the thread keeps usable width.
+  Keyboard navigation works unchanged.
+- **Demo mode fires native notifications** — simulated incoming messages now
+  produce real OS notifications (when the app isn't focused), matching
+  production behavior.
+
+### Fixed
+- **Thread pane layout at narrow widths** — the contact name no longer
+  overflows into the header buttons, header buttons no longer wrap or clip,
+  and message bubbles are no longer squeezed by the invisible hover-actions
+  strip (which also no longer intercepts clicks while hidden).
+- **Missed notifications after switching apps** — notifications were wrongly
+  suppressed when inflow was the active tab but Chrome wasn't the frontmost
+  app. Suppression now requires the window to actually have OS focus.
+- **Composer stays focused after sending a message.**
+- **Rate limits and network blips no longer pile up as errors** in
+  chrome://extensions — transient failures (timeouts, dropped connections,
+  HTTP 429/5xx) log as warnings and recover on their own.
+
+### Changed
+- **Removed profile scraping** — the extension no longer calls LinkedIn's
+  identity API. Everything shown (names, avatars, headline, location) comes
+  from messaging data. Company/title display, the company logo badges, and
+  the `company:` search filter are gone; demo mode people no longer have
+  fabricated companies or roles.
+
 ## [0.3.6] - 2026-07-10
 
 ### Fixed
