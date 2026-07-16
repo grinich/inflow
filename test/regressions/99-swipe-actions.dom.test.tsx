@@ -3,7 +3,10 @@
 // wheel deltaX < 0 / touch drag right) stars, swipe left archives (or moves
 // to Focused when viewing the Archive tab). The gesture only captures
 // clearly-horizontal wheel input so vertical list scrolling is untouched,
-// and releasing below the travel threshold fires nothing.
+// and releasing below the travel threshold fires nothing. Pausing mid-swipe
+// with fingers resting on the trackpad (wheel silence after a loud tail) must
+// NOT commit — the row holds armed until the tail shows a real finger lift
+// (decaying momentum deltas) or a longer quiet period passes.
 import '../dom-setup';
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
@@ -82,7 +85,9 @@ describe('regression #99: swipe actions on conversation rows', () => {
       async () => expect((await testDb.conversations.get(conv.id)).starred).toBe(1),
       { timeout: 2000 }
     );
-    expect(sendBridgeMessage).toHaveBeenCalledWith({ type: 'STAR', conversationId: conv.id });
+    await waitFor(() => {
+      expect(sendBridgeMessage).toHaveBeenCalledWith({ type: 'STAR', conversationId: conv.id });
+    });
   });
 
   it('swipe left past the threshold archives after the slide-out', async () => {
@@ -162,6 +167,24 @@ describe('regression #99: swipe actions on conversation rows', () => {
     const conv = makeConversation();
     const row = await renderRow(conv, 'focused', true);
     expect(row.closest('[data-swipe-root]')).toBeNull();
+  });
+
+  it('pausing mid-swipe with fingers resting does not commit; a momentum tail does', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+
+    // Loud stop: full-magnitude deltas past the threshold, then silence —
+    // fingers came to rest on the trackpad without lifting.
+    wheelSwipe(row, -(SWIPE_THRESHOLD + 40));
+    await sleep(250); // well past END_DEBOUNCE — the old behavior committed here
+    expect((await testDb.conversations.get(conv.id)).archived).toBe(0);
+
+    // Decaying deltas are the momentum tail that follows an actual lift.
+    for (const d of [8, 5, 3, 1]) fireEvent.wheel(row, { deltaX: d, deltaY: 0 });
+    await waitFor(
+      async () => expect((await testDb.conversations.get(conv.id)).archived).toBe(1),
+      { timeout: 2000 }
+    );
   });
 
   it('touch drag right stars the conversation', async () => {

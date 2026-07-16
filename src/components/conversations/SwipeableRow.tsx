@@ -5,9 +5,15 @@ import type { ReactNode } from 'react';
 export const SWIPE_THRESHOLD = 88;
 /** Extra travel available past the threshold (asymptotic rubber band). */
 const MAX_OVERDRAG = 56;
-/** Wheel silence (ms) that ends a trackpad gesture — trackpads emit
- *  continuously while fingers move, so a gap means the gesture is over. */
+/** Wheel silence (ms) after which the gesture is evaluated — trackpads emit
+ *  continuously while fingers move, so a gap means motion has stopped. */
 const END_DEBOUNCE = 120;
+/** Extra wait before committing when the wheel tail was still loud — the
+ *  fingers most likely stopped moving but are resting on the trackpad. */
+const HOLD_CONFIRM_MS = 500;
+/** Mean |deltaX| of the final wheel events at or below which the tail reads
+ *  as decayed momentum, i.e. the fingers already left the trackpad. */
+const QUIET_DELTA = 4;
 /** Slide-out duration for a committed leftward swipe. */
 const EXIT_MS = 220;
 /** Spring-back duration when a swipe is released or completed in place. */
@@ -42,6 +48,11 @@ interface SwipeableRowProps {
  * exponential rubber band takes over. Crossing the threshold pops the icon
  * with a back-out curve; release below the threshold springs back with a
  * slight overshoot; a committed left swipe accelerates off-screen.
+ *
+ * Commit timing: nothing fires while fingers are still on the trackpad.
+ * Pausing mid-swipe holds the row where it is (see onSilence); the action
+ * commits once the wheel tail shows the fingers lifted, or after a longer
+ * quiet hold.
  */
 export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children }: SwipeableRowProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -70,6 +81,7 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       touchX: 0,
       touchY: 0,
       touchAxis: 0 as 0 | 1 | 2, // 0 undecided, 1 horizontal, 2 vertical
+      recent: [] as number[],    // |deltaX| of the last few wheel events
     };
 
     const pane = (dir: number) => (dir > 0 ? paneRightRef.current : paneLeftRef.current);
@@ -189,6 +201,27 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       schedulePaint();
     };
 
+    /**
+     * The wheel stream went silent. A finger lift is invisible to the DOM, so
+     * infer it from the tail: momentum (which follows any real lift while
+     * moving) decays to ~1px deltas before stopping, whereas fingers coming
+     * to rest ON the trackpad cut off at full magnitude. A quiet tail means
+     * the fingers are already off — act now. A loud tail means they're
+     * probably still resting mid-swipe — hold the row in place (any further
+     * movement resumes the gesture) and only force a decision after a longer
+     * quiet period.
+     */
+    const onSilence = () => {
+      const tail = st.recent.slice(-3);
+      const quiet =
+        tail.length > 0 && tail.reduce((a, b) => a + b, 0) / tail.length <= QUIET_DELTA;
+      if (quiet) {
+        finish();
+        return;
+      }
+      st.endTimer = setTimeout(finish, HOLD_CONFIRM_MS);
+    };
+
     const onWheel = (e: WheelEvent) => {
       if (st.settling) return;
       const ax = Math.abs(e.deltaX);
@@ -198,13 +231,16 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
         if (ax <= ay || ax < 4) return;
         st.active = true;
         st.raw = 0;
+        st.recent = [];
         content.style.transition = '';
       }
       e.preventDefault();
+      st.recent.push(ax);
+      if (st.recent.length > 4) st.recent.shift();
       // Natural scrolling: fingers moving right emit negative deltaX.
       applyDelta(st.raw - e.deltaX);
       if (st.endTimer) clearTimeout(st.endTimer);
-      st.endTimer = setTimeout(finish, END_DEBOUNCE);
+      st.endTimer = setTimeout(onSilence, END_DEBOUNCE);
     };
 
     const onTouchStart = (e: TouchEvent) => {
