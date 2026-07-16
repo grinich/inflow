@@ -9,6 +9,7 @@ import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { ConversationListHeader } from './ConversationListHeader';
 import { ConversationRow } from './ConversationRow';
 import { ConversationContextMenu } from './ConversationContextMenu';
+import { SwipeableRow } from './SwipeableRow';
 import { SyncStatusIndicator } from '../common/SyncStatusIndicator';
 import type { Conversation } from '@/types/conversation';
 
@@ -319,9 +320,9 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
         {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
         {visibleRows.map((conv, i) => {
           const draft = draftsByConv.get(conv.id);
-          return (
+          const row = (
             <ConversationRow
-              key={conv.id}
+              key={compact ? conv.id : undefined}
               conversation={conv}
               selected={conv.id === selectedConversationId}
               index={start + i}
@@ -333,6 +334,26 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
               timeTick={timeTick}
               compact={compact}
             />
+          );
+          if (compact) return row;
+          return (
+            <SwipeableRow
+              key={conv.id}
+              right={{ className: 'bg-green-600', label: conv.starred ? 'Unstar' : 'Star', icon: STAR_ICON }}
+              left={
+                inboxTab === 'archived'
+                  ? { className: 'bg-blue-600', label: 'Focused', icon: UNARCHIVE_ICON }
+                  : { className: 'bg-red-600', label: 'Archive', icon: ARCHIVE_ICON }
+              }
+              onSwipeRight={() => actionsRef.current.starConversation(conv)}
+              onSwipeLeft={() =>
+                inboxTab === 'archived'
+                  ? actionsRef.current.moveToFocused(conv)
+                  : actionsRef.current.archiveConversation(conv)
+              }
+            >
+              {row}
+            </SwipeableRow>
           );
         })}
         {bottomPad > 0 && <div style={{ height: bottomPad }} aria-hidden />}
@@ -373,3 +394,27 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
     </div>
   );
 }
+
+const STAR_ICON = (
+  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  </svg>
+);
+
+const ARCHIVE_ICON = (
+  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="3" width="20" height="5" rx="1" />
+    <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+    <path d="M10 12h4" />
+  </svg>
+);
+
+const UNARCHIVE_ICON = (
+  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="3" width="20" height="5" rx="1" />
+    <path d="M4 8v11a2 2 0 0 0 2 2h2" />
+    <path d="M20 8v11a2 2 0 0 1-2 2h-2" />
+    <path d="m9 15 3-3 3 3" />
+    <path d="M12 12v9" />
+  </svg>
+);
