@@ -212,6 +212,19 @@ describe('regression #99: swipe actions on conversation rows', () => {
     expect(content.style.transform).toBe(''); // sprang back and reset
   });
 
+  it('a slow fingers-down drag past the threshold never commits', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+
+    // Small deltas throughout — no velocity peak, so no momentum is possible.
+    // Ending quiet is NOT enough to prove a lift; this must hold, then cancel.
+    for (let i = 0; i < 30; i++) fireEvent.wheel(row, { deltaX: 4, deltaY: 0 }); // 120px leftward
+    await sleep(1900); // END_DEBOUNCE + HOLD_CANCEL_MS + settle-back
+    const stored = await testDb.conversations.get(conv.id);
+    expect(stored.archived).toBe(0);
+    expect(stored.category).toBe('PRIMARY_INBOX');
+  });
+
   it('touch drag right stars the conversation', async () => {
     const conv = makeConversation();
     const row = await renderRow(conv);

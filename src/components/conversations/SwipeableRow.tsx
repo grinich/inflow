@@ -11,9 +11,16 @@ const END_DEBOUNCE = 120;
 /** Silence (ms) after a loud tail before a held swipe is cancelled — no lift
  *  signal ever arrived, so spring back rather than commit on ambiguity. */
 const HOLD_CANCEL_MS = 1200;
-/** Mean |deltaX| of the final wheel events at or below which the tail reads
- *  as decayed momentum, i.e. the fingers already left the trackpad. */
-const QUIET_DELTA = 4;
+/** A momentum tail must end with deltas at/below this (px) — macOS momentum
+ *  always decays to ~1px before stopping. */
+const QUIET_DELTA = 3;
+/** Minimum peak |deltaX| for a tail to qualify as momentum. Slower movement
+ *  produces no meaningful momentum on lift, so silence after an all-small
+ *  stream means fingers resting (a slow drag), not a lift. */
+const MOMENTUM_MIN_PEAK = 10;
+/** Minimum decaying events after the peak. Momentum emits a long smooth
+ *  decay run; a human stopping their fingers cuts off in one or two. */
+const MIN_DECAY_EVENTS = 3;
 /** Slide-out duration for a committed leftward swipe. */
 const EXIT_MS = 220;
 /** Spring-back duration when a swipe is released or completed in place. */
@@ -211,20 +218,37 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
     };
 
     /**
-     * The wheel stream went silent. A finger lift is invisible to the DOM, so
-     * infer it from the tail: momentum (which follows any real lift while
-     * moving) decays to ~1px deltas before stopping, whereas fingers coming
-     * to rest ON the trackpad cut off at full magnitude. A quiet tail means
-     * the fingers are already off — act now. A loud tail means they're
-     * still resting mid-swipe — hold the row in place (any further movement
-     * resumes the gesture) and NEVER auto-commit: if the silence persists,
-     * spring back without acting.
+     * Does the recent wheel stream end in a genuine momentum tail — the only
+     * observable proof the fingers left the trackpad? Momentum has a
+     * distinctive shape: a meaningful velocity peak, then a sustained run of
+     * (weakly) decaying deltas down to ~1px. Fingers stopping ON the trackpad
+     * cut off abruptly at full magnitude, and a slow fingers-down drag stays
+     * small throughout with no peak-then-decay — neither may commit.
+     */
+    const isLiftTail = () => {
+      const r = st.recent;
+      if (r.length < MIN_DECAY_EVENTS + 1) return false;
+      const [prev, last] = r.slice(-2);
+      if (prev > QUIET_DELTA || last > QUIET_DELTA) return false;
+      const peak = Math.max(...r);
+      if (peak < MOMENTUM_MIN_PEAK) return false;
+      const peakIdx = r.lastIndexOf(peak);
+      if (r.length - 1 - peakIdx < MIN_DECAY_EVENTS) return false;
+      for (let i = peakIdx; i < r.length - 1; i++) {
+        if (r[i + 1] > r[i] + 1) return false; // decay must not rebound (1px jitter allowed)
+      }
+      return true;
+    };
+
+    /**
+     * The wheel stream went silent. Commit ONLY if the tail proves a finger
+     * lift (see isLiftTail). Anything else — abrupt stop, slow drag pause —
+     * means the fingers may still be down: hold the row in place (further
+     * movement resumes the gesture) and spring back without acting if the
+     * silence persists. No timer ever commits the action.
      */
     const onSilence = () => {
-      const tail = st.recent.slice(-3);
-      const quiet =
-        tail.length > 0 && tail.reduce((a, b) => a + b, 0) / tail.length <= QUIET_DELTA;
-      if (quiet) {
+      if (isLiftTail()) {
         finish();
         return;
       }
@@ -245,7 +269,7 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       }
       e.preventDefault();
       st.recent.push(ax);
-      if (st.recent.length > 4) st.recent.shift();
+      if (st.recent.length > 12) st.recent.shift();
       // Natural scrolling: fingers moving right emit negative deltaX.
       applyDelta(st.raw - e.deltaX);
       if (st.endTimer) clearTimeout(st.endTimer);
