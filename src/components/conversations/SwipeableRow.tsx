@@ -8,9 +8,14 @@ const MAX_OVERDRAG = 56;
 /** Wheel silence (ms) after which the gesture is evaluated — trackpads emit
  *  continuously while fingers move, so a gap means motion has stopped. */
 const END_DEBOUNCE = 120;
-/** Silence (ms) after a loud tail before a held swipe is cancelled — no lift
- *  signal ever arrived, so spring back rather than commit on ambiguity. */
+/** Silence (ms) after a loud tail before an ARMED swipe is cancelled — no
+ *  lift signal ever arrived, so spring back rather than commit on ambiguity.
+ *  Long, because a commit decision is pending and fingers may be resting. */
 const HOLD_CANCEL_MS = 1200;
+/** Silence (ms) before an unarmed swipe springs back. Short — nothing can
+ *  commit below the threshold; this only bridges the micro-pauses of a slow
+ *  deliberate drag, and a lifted small scroll must visibly bounce back. */
+const UNARMED_CANCEL_MS = 400;
 /** A momentum tail must end this small (px) — macOS momentum decays to 1–2px
  *  before stopping; fingers halting on the pad usually cut off larger. */
 const QUIET_DELTA = 2;
@@ -263,12 +268,13 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
      */
     const onSilence = () => {
       const lift = isLiftTail();
-      console.debug('[swipe] silence', { raw: st.raw, lift, recent: [...st.recent] });
+      const armed = Math.abs(st.raw) >= SWIPE_THRESHOLD;
+      console.debug('[swipe] silence', { raw: st.raw, lift, armed, recent: [...st.recent] });
       if (lift) {
         finish();
         return;
       }
-      st.endTimer = setTimeout(cancelHold, HOLD_CANCEL_MS);
+      st.endTimer = setTimeout(cancelHold, armed ? HOLD_CANCEL_MS : UNARMED_CANCEL_MS);
     };
 
     const onWheel = (e: WheelEvent) => {

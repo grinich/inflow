@@ -267,6 +267,21 @@ describe('regression #99: swipe actions on conversation rows', () => {
     expect(stored.category).toBe('PRIMARY_INBOX');
   });
 
+  it('a small lifted swipe bounces back promptly, not after the armed hold', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+    const content = row.parentElement! as HTMLElement;
+
+    // Small drag, gentle lift with no momentum tail — below the threshold
+    // nothing can commit, so the row must spring back on the short unarmed
+    // delay (~520ms + settle), not hang for the 1.2s armed hold.
+    for (const d of [12, 8]) fireEvent.wheel(row, { deltaX: -d, deltaY: 0 });
+    await sleep(1000);
+    expect(content.style.transform).toBe(''); // already reset — old code was still holding
+    const stored = await testDb.conversations.get(conv.id);
+    expect(stored.starred ?? 0).toBe(0);
+  });
+
   it('the list scroll container blocks horizontal scrolling', async () => {
     const conv = makeConversation();
     const row = await renderRow(conv);
