@@ -3,10 +3,11 @@
 // wheel deltaX < 0 / touch drag right) stars, swipe left archives (or moves
 // to Focused when viewing the Archive tab). The gesture only captures
 // clearly-horizontal wheel input so vertical list scrolling is untouched,
-// and releasing below the travel threshold fires nothing. Pausing mid-swipe
-// with fingers resting on the trackpad (wheel silence after a loud tail) must
-// NOT commit — the row holds armed until the tail shows a real finger lift
-// (decaying momentum deltas) or a longer quiet period passes.
+// and releasing below the travel threshold fires nothing. The action only
+// commits on a lift signal (decaying momentum deltas on trackpads, touchend
+// on touch): pausing mid-swipe with fingers resting (wheel silence after a
+// loud tail) holds the row, and if no lift signal ever arrives the swipe
+// springs back WITHOUT acting — ambiguity must never commit.
 import '../dom-setup';
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
@@ -66,12 +67,20 @@ async function renderRow(conv: Conversation, tab: InboxTab = 'focused', compact 
   return container.querySelector(`[data-conversation-id="${conv.id}"]`)! as HTMLElement;
 }
 
-/** Emit wheel events adding up to `travel` px of swipe (positive = rightward). */
-function wheelSwipe(el: HTMLElement, travel: number) {
+/**
+ * Emit wheel events adding up to `travel` px of swipe (positive = rightward).
+ * Ends with a decaying momentum tail by default — the lift signal that lets
+ * the gesture commit. Pass `lift: false` to simulate fingers stopping and
+ * resting on the trackpad instead (loud tail, then silence).
+ */
+function wheelSwipe(el: HTMLElement, travel: number, { lift = true } = {}) {
   // Natural scrolling: rightward finger travel emits negative deltaX.
-  const step = -Math.sign(travel) * 40;
+  const dir = Math.sign(travel);
   for (let sent = 0; sent < Math.abs(travel); sent += 40) {
-    fireEvent.wheel(el, { deltaX: step, deltaY: 0 });
+    fireEvent.wheel(el, { deltaX: -dir * 40, deltaY: 0 });
+  }
+  if (lift) {
+    for (const d of [12, 6, 3, 1]) fireEvent.wheel(el, { deltaX: -dir * d, deltaY: 0 });
   }
 }
 
@@ -124,7 +133,8 @@ describe('regression #99: swipe actions on conversation rows', () => {
     const conv = makeConversation();
     const row = await renderRow(conv);
 
-    wheelSwipe(row, SWIPE_THRESHOLD / 2);
+    // One 40px step + the 22px lift tail = 62px, well below the 88px threshold
+    wheelSwipe(row, 40);
     await sleep(600); // past END_DEBOUNCE + settle
     const stored = await testDb.conversations.get(conv.id);
     expect(stored.starred ?? 0).toBe(0);
@@ -175,7 +185,7 @@ describe('regression #99: swipe actions on conversation rows', () => {
 
     // Loud stop: full-magnitude deltas past the threshold, then silence —
     // fingers came to rest on the trackpad without lifting.
-    wheelSwipe(row, -(SWIPE_THRESHOLD + 40));
+    wheelSwipe(row, -(SWIPE_THRESHOLD + 40), { lift: false });
     await sleep(250); // well past END_DEBOUNCE — the old behavior committed here
     expect((await testDb.conversations.get(conv.id)).archived).toBe(0);
 
@@ -185,6 +195,21 @@ describe('regression #99: swipe actions on conversation rows', () => {
       async () => expect((await testDb.conversations.get(conv.id)).archived).toBe(1),
       { timeout: 2000 }
     );
+  });
+
+  it('a held swipe that never shows a lift signal springs back without acting', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+    const content = row.parentElement! as HTMLElement;
+
+    // Loud tail, then permanent silence — fingers rested and were lifted
+    // invisibly (or never lifted). No lift signal means no action, ever.
+    wheelSwipe(row, -(SWIPE_THRESHOLD + 40), { lift: false });
+    await sleep(1900); // END_DEBOUNCE + HOLD_CANCEL_MS + settle-back
+    const stored = await testDb.conversations.get(conv.id);
+    expect(stored.archived).toBe(0);
+    expect(stored.category).toBe('PRIMARY_INBOX');
+    expect(content.style.transform).toBe(''); // sprang back and reset
   });
 
   it('touch drag right stars the conversation', async () => {

@@ -8,9 +8,9 @@ const MAX_OVERDRAG = 56;
 /** Wheel silence (ms) after which the gesture is evaluated — trackpads emit
  *  continuously while fingers move, so a gap means motion has stopped. */
 const END_DEBOUNCE = 120;
-/** Extra wait before committing when the wheel tail was still loud — the
- *  fingers most likely stopped moving but are resting on the trackpad. */
-const HOLD_CONFIRM_MS = 500;
+/** Silence (ms) after a loud tail before a held swipe is cancelled — no lift
+ *  signal ever arrived, so spring back rather than commit on ambiguity. */
+const HOLD_CANCEL_MS = 1200;
 /** Mean |deltaX| of the final wheel events at or below which the tail reads
  *  as decayed momentum, i.e. the fingers already left the trackpad. */
 const QUIET_DELTA = 4;
@@ -49,10 +49,10 @@ interface SwipeableRowProps {
  * with a back-out curve; release below the threshold springs back with a
  * slight overshoot; a committed left swipe accelerates off-screen.
  *
- * Commit timing: nothing fires while fingers are still on the trackpad.
- * Pausing mid-swipe holds the row where it is (see onSilence); the action
- * commits once the wheel tail shows the fingers lifted, or after a longer
- * quiet hold.
+ * Commit timing: the action only ever fires on a lift signal — a decayed
+ * momentum tail on trackpads, touchend on touch. Pausing mid-swipe holds the
+ * row where it is (see onSilence); if the hold goes quiet with no lift signal
+ * the swipe springs back WITHOUT acting. Ambiguity never commits.
  */
 export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children }: SwipeableRowProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -201,15 +201,24 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       schedulePaint();
     };
 
+    /** End the gesture without committing — a held swipe went quiet with no
+     *  lift signal. Destructive actions must never fire on ambiguity. */
+    const cancelHold = () => {
+      if (!st.active) return;
+      st.active = false;
+      if (st.endTimer) clearTimeout(st.endTimer);
+      settleBack();
+    };
+
     /**
      * The wheel stream went silent. A finger lift is invisible to the DOM, so
      * infer it from the tail: momentum (which follows any real lift while
      * moving) decays to ~1px deltas before stopping, whereas fingers coming
      * to rest ON the trackpad cut off at full magnitude. A quiet tail means
      * the fingers are already off — act now. A loud tail means they're
-     * probably still resting mid-swipe — hold the row in place (any further
-     * movement resumes the gesture) and only force a decision after a longer
-     * quiet period.
+     * still resting mid-swipe — hold the row in place (any further movement
+     * resumes the gesture) and NEVER auto-commit: if the silence persists,
+     * spring back without acting.
      */
     const onSilence = () => {
       const tail = st.recent.slice(-3);
@@ -219,7 +228,7 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
         finish();
         return;
       }
-      st.endTimer = setTimeout(finish, HOLD_CONFIRM_MS);
+      st.endTimer = setTimeout(cancelHold, HOLD_CANCEL_MS);
     };
 
     const onWheel = (e: WheelEvent) => {
