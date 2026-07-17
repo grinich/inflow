@@ -29,7 +29,7 @@ vi.mock('@/lib/debug-log', () => ({ debugLog: vi.fn() }));
 
 import { render, fireEvent, waitFor } from '@testing-library/react';
 import { ConversationList } from '@/components/conversations/ConversationList';
-import { SWIPE_THRESHOLD } from '@/components/conversations/SwipeableRow';
+import { SWIPE_THRESHOLD, _wheelStream } from '@/components/conversations/SwipeableRow';
 import { useUIStore } from '@/store/ui-store';
 import { makeConversation } from '../fixtures/factories';
 import type { Conversation } from '@/types/conversation';
@@ -41,6 +41,10 @@ beforeEach(async () => {
   await testDb.open();
   sendBridgeMessage.mockClear();
   useUIStore.setState({ inboxTab: 'focused', selectedConversationId: null });
+  // Reset the shared wheel-stream axis so one test's scrolling can't
+  // suppress or trigger gesture starts in the next.
+  _wheelStream.ts = 0;
+  _wheelStream.horizontal = false;
 });
 
 afterEach(async () => {
@@ -247,6 +251,34 @@ describe('regression #99: swipe actions on conversation rows', () => {
     // (fireEvent returns false when the event was cancelled), not left for
     // the browser to horizontally scroll an ancestor with.
     const passedThrough = fireEvent.wheel(row, { deltaX: -20, deltaY: 0, cancelable: true });
+    expect(passedThrough).toBe(false);
+  });
+
+  it('a diagonal event mid-vertical-scroll does not start a swipe', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+    const content = row.parentElement! as HTMLElement;
+
+    // Live vertical stream, then one horizontal-dominant (diagonal) event —
+    // the stream keeps its axis and the event scrolls instead of swiping.
+    fireEvent.wheel(row, { deltaX: 2, deltaY: 40 });
+    fireEvent.wheel(row, { deltaX: 3, deltaY: 40 });
+    fireEvent.wheel(row, { deltaX: 40, deltaY: 10 });
+    expect(content.style.transform).toBe('');
+
+    // A second consecutive horizontal-dominant event converts the stream.
+    fireEvent.wheel(row, { deltaX: 40, deltaY: 5 });
+    await waitFor(() => expect(content.style.transform).not.toBe(''));
+  });
+
+  it('vertical deltas are captured, not scrolled, while a swipe is active', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+
+    fireEvent.wheel(row, { deltaX: -40, deltaY: 0 }); // gesture starts
+    // Mid-gesture the fingers drift vertically — the event must belong to
+    // the swipe (preventDefault) so the list can't scroll under it.
+    const passedThrough = fireEvent.wheel(row, { deltaX: -5, deltaY: 30, cancelable: true });
     expect(passedThrough).toBe(false);
   });
 

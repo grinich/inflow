@@ -26,6 +26,16 @@ const EXIT_MS = 220;
 /** Spring-back duration when a swipe is released or completed in place. */
 const SETTLE_MS = 350;
 
+/**
+ * Axis of the most recent wheel stream, shared across all rows (a vertical
+ * scroll passes over many rows). A continuous stream — no STREAM_GAP_MS
+ * silence — keeps its axis: a slightly-diagonal event mid-vertical-scroll
+ * must keep scrolling, not start a swipe, and vice versa. Exported only so
+ * tests can reset it between cases.
+ */
+export const _wheelStream = { ts: 0, horizontal: false };
+const STREAM_GAP_MS = 150;
+
 interface SwipeSide {
   icon: ReactNode;
   label: string;
@@ -258,20 +268,34 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
     const onWheel = (e: WheelEvent) => {
       const ax = Math.abs(e.deltaX);
       const ay = Math.abs(e.deltaY);
+      const now = Date.now();
+      const wasVertical = now - _wheelStream.ts < STREAM_GAP_MS && !_wheelStream.horizontal;
+      _wheelStream.ts = now;
+
       if (st.settling) {
-        // Swallow leftover horizontal momentum while the row animates so the
-        // browser doesn't scroll an ancestor sideways with it.
-        if (ax > ay) e.preventDefault();
+        // Swallow ALL stragglers while the row animates — leftover momentum
+        // from a diagonal swipe must not scroll the list in either axis.
+        _wheelStream.horizontal = ax > ay;
+        e.preventDefault();
         return;
       }
       if (!st.active) {
-        // Only capture clearly-horizontal intent; vertical scrolling passes through.
-        if (ax <= ay || ax < 4) return;
+        // Only capture clearly-horizontal intent, and never mid-stream of a
+        // vertical scroll — a slightly-diagonal event while scrolling must
+        // keep scrolling. (It takes two consecutive horizontal-dominant
+        // events to convert a live vertical stream into a swipe.)
+        if (ax <= ay || ax < 4 || wasVertical) {
+          _wheelStream.horizontal = ax > ay;
+          return;
+        }
         st.active = true;
         st.raw = 0;
         st.recent = [];
         content.style.transition = '';
       }
+      // While the swipe is active every wheel event belongs to it — vertical
+      // components included — so the list cannot scroll under the gesture.
+      _wheelStream.horizontal = true;
       e.preventDefault();
       st.recent.push(ax);
       if (st.recent.length > 12) st.recent.shift();
