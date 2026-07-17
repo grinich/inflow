@@ -195,6 +195,7 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       st.active = false;
       if (st.endTimer) clearTimeout(st.endTimer);
       const committed = Math.abs(st.raw) >= SWIPE_THRESHOLD ? Math.sign(st.raw) : 0;
+      console.debug('[swipe] end', { raw: st.raw, committed });
 
       if (committed < 0) {
         // Commit left: accelerate off-screen, then fire (the action removes the row).
@@ -226,6 +227,7 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       if (!st.active) return;
       st.active = false;
       if (st.endTimer) clearTimeout(st.endTimer);
+      console.debug('[swipe] hold-cancel (no lift signal)', { raw: st.raw, recent: [...st.recent] });
       settleBack();
     };
 
@@ -260,7 +262,9 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
      * silence persists. No timer ever commits the action.
      */
     const onSilence = () => {
-      if (isLiftTail()) {
+      const lift = isLiftTail();
+      console.debug('[swipe] silence', { raw: st.raw, lift, recent: [...st.recent] });
+      if (lift) {
         finish();
         return;
       }
@@ -275,10 +279,10 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       _wheelStream.ts = now;
 
       if (st.settling) {
-        // Swallow ALL stragglers while the row animates — leftover momentum
-        // from a diagonal swipe must not scroll the list in either axis.
+        // Swallow leftover horizontal momentum while the row animates; let
+        // vertical events through so normal scrolling resumes instantly.
         _wheelStream.horizontal = ax > ay;
-        e.preventDefault();
+        if (ax > ay) e.preventDefault();
         return;
       }
       if (!st.active) {
@@ -299,8 +303,13 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       // components included — so the list cannot scroll under the gesture.
       _wheelStream.horizontal = true;
       e.preventDefault();
-      st.recent.push(ax);
-      if (st.recent.length > 20) st.recent.shift();
+      // Only horizontally-dominant events feed the lift classifier — vertical
+      // finger drift (1px deltaX beside a large deltaY) would otherwise
+      // fabricate a decaying "momentum tail" while fingers are still down.
+      if (ax > ay) {
+        st.recent.push(ax);
+        if (st.recent.length > 20) st.recent.shift();
+      }
       // Natural scrolling: fingers moving right emit negative deltaX.
       applyDelta(st.raw - e.deltaX);
       if (st.endTimer) clearTimeout(st.endTimer);

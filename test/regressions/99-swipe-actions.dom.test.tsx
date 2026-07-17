@@ -239,6 +239,21 @@ describe('regression #99: swipe actions on conversation rows', () => {
     expect(stored.category).toBe('PRIMARY_INBOX');
   });
 
+  it('vertical finger drift after a swipe cannot fabricate a lift signal', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+
+    // Fast leftward drag, then the fingers drift vertically while still
+    // down: tiny deltaX values beside large deltaY. Those must not feed the
+    // lift classifier as a decaying "momentum tail".
+    for (const d of [40, 40, 40]) fireEvent.wheel(row, { deltaX: d, deltaY: 0 });
+    for (let i = 0; i < 10; i++) fireEvent.wheel(row, { deltaX: 1, deltaY: 25 });
+    await sleep(1900); // END_DEBOUNCE + HOLD_CANCEL_MS + settle-back
+    const stored = await testDb.conversations.get(conv.id);
+    expect(stored.archived).toBe(0);
+    expect(stored.category).toBe('PRIMARY_INBOX');
+  });
+
   it('a slow fingers-down drag past the threshold never commits', async () => {
     const conv = makeConversation();
     const row = await renderRow(conv);
