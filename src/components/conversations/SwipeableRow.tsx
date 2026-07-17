@@ -11,16 +11,18 @@ const END_DEBOUNCE = 120;
 /** Silence (ms) after a loud tail before a held swipe is cancelled — no lift
  *  signal ever arrived, so spring back rather than commit on ambiguity. */
 const HOLD_CANCEL_MS = 1200;
-/** A momentum tail must end with deltas at/below this (px) — macOS momentum
- *  always decays to ~1px before stopping. */
-const QUIET_DELTA = 3;
-/** Minimum peak |deltaX| for a tail to qualify as momentum. Slower movement
- *  produces no meaningful momentum on lift, so silence after an all-small
- *  stream means fingers resting (a slow drag), not a lift. */
-const MOMENTUM_MIN_PEAK = 10;
-/** Minimum decaying events after the peak. Momentum emits a long smooth
- *  decay run; a human stopping their fingers cuts off in one or two. */
-const MIN_DECAY_EVENTS = 3;
+/** A momentum tail must end this small (px) — macOS momentum decays to 1–2px
+ *  before stopping; fingers halting on the pad usually cut off larger. */
+const QUIET_DELTA = 2;
+/** Peak |deltaX| that must precede the decay — momentum after a real flick
+ *  starts near the finger's speed at lift. */
+const MOMENTUM_MIN_PEAK = 15;
+/** Length of the decay run after the peak. This is the main discriminator
+ *  between "lifted while moving" and "stopped with fingers still down":
+ *  macOS momentum emits dozens of smoothly decaying events over hundreds of
+ *  milliseconds, while a human finger decelerating to a pause — whose deltas
+ *  also decay! — halts within a handful of events. */
+const MIN_DECAY_EVENTS = 8;
 /** Slide-out duration for a committed leftward swipe. */
 const EXIT_MS = 220;
 /** Spring-back duration when a swipe is released or completed in place. */
@@ -239,7 +241,7 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       const r = st.recent;
       if (r.length < MIN_DECAY_EVENTS + 1) return false;
       const [prev, last] = r.slice(-2);
-      if (prev > QUIET_DELTA || last > QUIET_DELTA) return false;
+      if (last > QUIET_DELTA || prev > QUIET_DELTA + 2) return false;
       const peak = Math.max(...r);
       if (peak < MOMENTUM_MIN_PEAK) return false;
       const peakIdx = r.lastIndexOf(peak);
@@ -298,7 +300,7 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
       _wheelStream.horizontal = true;
       e.preventDefault();
       st.recent.push(ax);
-      if (st.recent.length > 12) st.recent.shift();
+      if (st.recent.length > 20) st.recent.shift();
       // Natural scrolling: fingers moving right emit negative deltaX.
       applyDelta(st.raw - e.deltaX);
       if (st.endTimer) clearTimeout(st.endTimer);

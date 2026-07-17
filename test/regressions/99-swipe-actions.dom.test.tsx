@@ -77,6 +77,10 @@ async function renderRow(conv: Conversation, tab: InboxTab = 'focused', compact 
  * the gesture commit. Pass `lift: false` to simulate fingers stopping and
  * resting on the trackpad instead (loud tail, then silence).
  */
+/** Long smooth decay run ending near zero — only macOS momentum (which
+ *  follows a real finger lift) produces this many decaying events. */
+const MOMENTUM_TAIL = [30, 22, 16, 11, 8, 5, 3, 2, 1];
+
 function wheelSwipe(el: HTMLElement, travel: number, { lift = true } = {}) {
   // Natural scrolling: rightward finger travel emits negative deltaX.
   const dir = Math.sign(travel);
@@ -84,7 +88,7 @@ function wheelSwipe(el: HTMLElement, travel: number, { lift = true } = {}) {
     fireEvent.wheel(el, { deltaX: -dir * 40, deltaY: 0 });
   }
   if (lift) {
-    for (const d of [12, 6, 3, 1]) fireEvent.wheel(el, { deltaX: -dir * d, deltaY: 0 });
+    for (const d of MOMENTUM_TAIL) fireEvent.wheel(el, { deltaX: -dir * d, deltaY: 0 });
   }
 }
 
@@ -137,8 +141,11 @@ describe('regression #99: swipe actions on conversation rows', () => {
     const conv = makeConversation();
     const row = await renderRow(conv);
 
-    // One 40px step + the 22px lift tail = 62px, well below the 88px threshold
-    wheelSwipe(row, 40);
+    // Light flick with a genuine momentum tail: 15px of drag + 39px of decay
+    // = 54px total, below the 88px threshold. A real lift, but no commit.
+    for (const d of [15, 10, 8, 6, 5, 4, 3, 2, 1]) {
+      fireEvent.wheel(row, { deltaX: -d, deltaY: 0 });
+    }
     await sleep(600); // past END_DEBOUNCE + settle
     const stored = await testDb.conversations.get(conv.id);
     expect(stored.starred ?? 0).toBe(0);
@@ -193,8 +200,8 @@ describe('regression #99: swipe actions on conversation rows', () => {
     await sleep(250); // well past END_DEBOUNCE — the old behavior committed here
     expect((await testDb.conversations.get(conv.id)).archived).toBe(0);
 
-    // Decaying deltas are the momentum tail that follows an actual lift.
-    for (const d of [8, 5, 3, 1]) fireEvent.wheel(row, { deltaX: d, deltaY: 0 });
+    // A full momentum tail follows an actual lift.
+    for (const d of MOMENTUM_TAIL) fireEvent.wheel(row, { deltaX: d, deltaY: 0 });
     await waitFor(
       async () => expect((await testDb.conversations.get(conv.id)).archived).toBe(1),
       { timeout: 2000 }
@@ -214,6 +221,22 @@ describe('regression #99: swipe actions on conversation rows', () => {
     expect(stored.archived).toBe(0);
     expect(stored.category).toBe('PRIMARY_INBOX');
     expect(content.style.transform).toBe(''); // sprang back and reset
+  });
+
+  it('swiping far then decelerating to a pause (fingers down) never commits', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+
+    // A human finger easing to a stop also produces decaying deltas — but
+    // only a handful, not the dozens a real momentum tail emits. This exact
+    // gesture (swipe far left, pause) used to slide out and archive.
+    for (const d of [40, 40, 40, 25, 15, 8, 3]) {
+      fireEvent.wheel(row, { deltaX: d, deltaY: 0 });
+    }
+    await sleep(1900); // END_DEBOUNCE + HOLD_CANCEL_MS + settle-back
+    const stored = await testDb.conversations.get(conv.id);
+    expect(stored.archived).toBe(0);
+    expect(stored.category).toBe('PRIMARY_INBOX');
   });
 
   it('a slow fingers-down drag past the threshold never commits', async () => {
