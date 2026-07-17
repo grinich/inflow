@@ -315,7 +315,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
       <div
         ref={scrollContainerRef}
         onScroll={(e) => setScrollTop((e.target as HTMLElement).scrollTop)}
-        className="flex-1 select-none overflow-y-auto overscroll-contain"
+        className="flex-1 select-none overflow-x-hidden overflow-y-auto overscroll-contain"
       >
         {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
         {visibleRows.map((conv, i) => {

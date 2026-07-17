@@ -256,9 +256,14 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
     };
 
     const onWheel = (e: WheelEvent) => {
-      if (st.settling) return;
       const ax = Math.abs(e.deltaX);
       const ay = Math.abs(e.deltaY);
+      if (st.settling) {
+        // Swallow leftover horizontal momentum while the row animates so the
+        // browser doesn't scroll an ancestor sideways with it.
+        if (ax > ay) e.preventDefault();
+        return;
+      }
       if (!st.active) {
         // Only capture clearly-horizontal intent; vertical scrolling passes through.
         if (ax <= ay || ax < 4) return;

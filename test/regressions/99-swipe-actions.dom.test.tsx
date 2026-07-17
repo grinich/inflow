@@ -225,6 +225,31 @@ describe('regression #99: swipe actions on conversation rows', () => {
     expect(stored.category).toBe('PRIMARY_INBOX');
   });
 
+  it('the list scroll container blocks horizontal scrolling', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+    // overflow-y-auto makes overflow-x compute to auto unless explicitly
+    // hidden — uncaptured deltaX would then scroll the whole list sideways.
+    const scroller = row.closest('.overflow-y-auto')! as HTMLElement;
+    expect(scroller.className).toContain('overflow-x-hidden');
+  });
+
+  it('leftover momentum during the settle animation is swallowed', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+
+    wheelSwipe(row, SWIPE_THRESHOLD + 40); // commits star, row starts settling
+    await waitFor(
+      async () => expect((await testDb.conversations.get(conv.id)).starred).toBe(1),
+      { timeout: 2000 }
+    );
+    // Momentum stragglers arriving mid-settle must be preventDefault'ed
+    // (fireEvent returns false when the event was cancelled), not left for
+    // the browser to horizontally scroll an ancestor with.
+    const passedThrough = fireEvent.wheel(row, { deltaX: -20, deltaY: 0, cancelable: true });
+    expect(passedThrough).toBe(false);
+  });
+
   it('touch drag right stars the conversation', async () => {
     const conv = makeConversation();
     const row = await renderRow(conv);
