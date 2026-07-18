@@ -297,6 +297,10 @@ export function SwipeableRow({ right, left, onSwipeRight, onSwipeLeft, children 
         // keep scrolling. (It takes two consecutive horizontal-dominant
         // events to convert a live vertical stream into a swipe.)
         if (ax <= ay || ax < 4 || wasVertical) {
+          // Still swallow horizontal-dominant events: unprevented ones let
+          // Chrome engage its Back/Forward overscroll gesture, which then
+          // eats the rest of the wheel stream mid-swipe.
+          if (ax > ay) e.preventDefault();
           _wheelStream.horizontal = ax > ay;
           return;
         }

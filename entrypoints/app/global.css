@@ -57,6 +57,14 @@
   --color-fg-faint: var(--fg-faint);
 }
 
+/* Disable Chrome's two-finger-swipe history navigation: a rightward swipe
+   gesture on a row (star) would otherwise engage Back-overscroll and eat the
+   wheel stream mid-gesture. */
+html,
+body {
+  overscroll-behavior-x: none;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 10px;

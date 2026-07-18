@@ -168,6 +168,28 @@ describe('regression #99: swipe actions on conversation rows', () => {
     expect((panes[1] as HTMLElement).style.opacity).toBe('0');
     expect(panes[0].textContent).toContain('Star');
     expect(panes[1].textContent).toContain('Archive');
+    // Star pane is yellow-gold, archive pane is green
+    expect((panes[0] as HTMLElement).className).toContain('bg-amber-500');
+    expect((panes[1] as HTMLElement).className).toContain('bg-green-600');
+  });
+
+  it('horizontal events are swallowed even before a gesture qualifies', async () => {
+    const conv = makeConversation();
+    const row = await renderRow(conv);
+    const content = row.parentElement! as HTMLElement;
+
+    // A 2px horizontal-dominant event is too small to start a swipe, but if
+    // it reaches Chrome it can engage Back/Forward overscroll navigation,
+    // which then eats the rest of the stream (star swipes stall mid-gesture).
+    const passedThrough = fireEvent.wheel(row, { deltaX: -2, deltaY: 0, cancelable: true });
+    expect(passedThrough).toBe(false); // preventDefault'ed
+    expect(content.style.transform).toBe(''); // and no gesture started
+  });
+
+  it('the app disables Chrome horizontal history-swipe navigation', async () => {
+    const fs = await import('node:fs');
+    const css = fs.readFileSync('entrypoints/app/global.css', 'utf8');
+    expect(css).toMatch(/overscroll-behavior-x:\s*none/);
   });
 
   it('vertical wheel scrolling never starts a swipe', async () => {

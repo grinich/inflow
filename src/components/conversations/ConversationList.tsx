@@ -339,11 +339,11 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
           return (
             <SwipeableRow
               key={conv.id}
-              right={{ className: 'bg-green-600', label: conv.starred ? 'Unstar' : 'Star', icon: STAR_ICON }}
+              right={{ className: 'bg-amber-500', label: conv.starred ? 'Unstar' : 'Star', icon: STAR_ICON }}
               left={
                 inboxTab === 'archived'
                   ? { className: 'bg-blue-600', label: 'Focused', icon: UNARCHIVE_ICON }
-                  : { className: 'bg-red-600', label: 'Archive', icon: ARCHIVE_ICON }
+                  : { className: 'bg-green-600', label: 'Archive', icon: ARCHIVE_ICON }
               }
               onSwipeRight={() => actionsRef.current.starConversation(conv)}
               onSwipeLeft={() =>
