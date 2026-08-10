@@ -20,12 +20,15 @@ export function buildCommands(actions: {
   setThemeLight: () => void;
   setThemeDark: () => void;
   setThemeSystem: () => void;
-  currentTheme: 'light' | 'dark' | 'system';
+  setThemePurple: () => void;
+  currentTheme: 'light' | 'dark' | 'system' | 'purple';
   goToFocused: () => void;
   goToOther: () => void;
   goToArchived: () => void;
   goToSpam: () => void;
   undo: () => void;
+  openSettings: () => void;
+  openWhatsNew: () => void;
   openAISetup: () => void;
   toggleDemoMode: () => void;
   isDemoActive: boolean;
@@ -34,6 +37,9 @@ export function buildCommands(actions: {
   reportBug: () => void;
   joinWhatsApp: () => void;
   checkForUpdate: () => void;
+  openConnections: () => void;
+  openInsights: () => void;
+  goToInbox: () => void;
 }): Command[] {
   return [
     { id: 'archive', label: 'Archive conversation', shortcut: 'E', action: actions.archiveSelected },
@@ -50,12 +56,18 @@ export function buildCommands(actions: {
     { id: 'go-other', label: 'Go to Other inbox', shortcut: '2', action: actions.goToOther },
     { id: 'go-archived', label: 'Go to Archived', shortcut: '3', action: actions.goToArchived },
     { id: 'go-spam', label: 'Go to Spam', shortcut: '4', action: actions.goToSpam },
+    { id: 'go-inbox', label: 'Go to Inbox', shortcut: 'G I', action: actions.goToInbox },
+    { id: 'connections', label: 'Go to Connections', shortcut: 'G C', action: actions.openConnections },
+    { id: 'insights', label: 'Go to Insights', shortcut: '', action: actions.openInsights },
     { id: 'shortcuts', label: 'Show keyboard shortcuts', shortcut: '?', action: actions.showShortcuts },
+    { id: 'settings', label: 'Open settings', shortcut: '⌘,', action: actions.openSettings },
     { id: 'sync', label: 'Sync now', shortcut: '', action: actions.triggerSync },
     { id: 'check-update', label: 'Check for updates', shortcut: '', action: actions.checkForUpdate },
+    { id: 'whats-new', label: "What's new", shortcut: '', action: actions.openWhatsNew },
     ...(actions.currentTheme !== 'light' ? [{ id: 'theme-light', label: 'Switch to Light theme', shortcut: '', action: actions.setThemeLight }] : []),
     ...(actions.currentTheme !== 'dark' ? [{ id: 'theme-dark', label: 'Switch to Dark theme', shortcut: '', action: actions.setThemeDark }] : []),
     ...(actions.currentTheme !== 'system' ? [{ id: 'theme-system', label: 'Switch to System theme', shortcut: '', action: actions.setThemeSystem }] : []),
+    ...(actions.currentTheme !== 'purple' ? [{ id: 'theme-purple', label: 'Switch to Purple theme', shortcut: '', action: actions.setThemePurple }] : []),
     { id: 'ai-setup', label: 'Set up AI features', shortcut: '', action: actions.openAISetup },
     {
       id: 'ai-suggestions',

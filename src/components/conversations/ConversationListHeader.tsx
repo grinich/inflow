@@ -153,10 +153,6 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
     <div className="@container flex flex-col gap-2 border-b border-edge px-4 py-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-        <h1 className="shrink-0 text-base font-semibold text-fg-strong">
-          <span className="text-blue-400">in</span>ƒlow
-        </h1>
-
         {/* Folder selector — segmented control when the (resizable) sidebar is
             wide enough, a compact dropdown when it's narrow. */}
         <div className="hidden rounded-md bg-surface-input p-0.5 @min-[352px]:flex">
@@ -218,13 +214,13 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
         <button
           onClick={() => useUIStore.getState().setComposeNewActive(true)}
           title="New message (C)"
-          className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"
+          aria-label="New message"
+          className="flex shrink-0 cursor-pointer items-center rounded-md p-1.5 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 20h9" />
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
           </svg>
-          <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px] text-fg-faint">C</kbd>
         </button>
       </div>
 

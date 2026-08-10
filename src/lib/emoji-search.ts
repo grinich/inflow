@@ -39,6 +39,30 @@ const popularResults: EmojiResult[] = POPULAR
   .filter((e): e is EmojiEntry => !!e)
   .map((e) => ({ emoji: e.emoji, name: e.name }));
 
+/**
+ * A curated grid of common emoji for the picker's default (no-search) view.
+ * Names that don't resolve in the gemoji dataset are silently dropped.
+ */
+const COMMON_NAMES = [
+  'smile', 'joy', 'sweat_smile', 'rofl', 'wink', 'blush', 'heart_eyes', 'kissing_heart',
+  'yum', 'sunglasses', 'star_struck', 'thinking', 'neutral_face', 'unamused', 'pensive',
+  'sob', 'cry', 'rage', 'sleepy', 'mask',
+  'thumbsup', 'thumbsdown', 'ok_hand', 'clap', 'raised_hands', 'pray', 'muscle', 'wave',
+  'point_up', 'handshake', 'writing_hand', 'crossed_fingers',
+  'heart', 'orange_heart', 'yellow_heart', 'green_heart', 'blue_heart', 'purple_heart',
+  'broken_heart', 'sparkling_heart',
+  'fire', 'tada', 'sparkles', 'star', 'zap', 'boom', '100', 'eyes',
+  'rocket', 'white_check_mark', 'x', 'warning', 'question', 'bulb', 'gift', 'trophy',
+  'dart', 'chart_with_upwards_trend', 'moneybag', 'briefcase', 'calendar', 'email',
+  'coffee', 'beers', 'clinking_glasses', 'pizza', 'birthday', 'balloon', 'crown', 'bell',
+];
+
+/** Common emoji shown in the picker before the user searches. */
+export const COMMON_EMOJI: EmojiResult[] = COMMON_NAMES
+  .map((n) => entries.find((e) => e.name === n))
+  .filter((e): e is EmojiEntry => !!e)
+  .map((e) => ({ emoji: e.emoji, name: e.name }));
+
 export function searchEmoji(query: string, limit = 8): EmojiResult[] {
   if (!query) return popularResults.slice(0, limit);
 

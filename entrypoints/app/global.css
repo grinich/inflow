@@ -39,6 +39,58 @@
   --scrollbar-hover: #52525b;
 }
 
+/*
+ * Purple theme — a dark base tinted purple, with translucent surfaces layered
+ * over a fixed gradient backdrop for a glassy "transparent purple" look.
+ * Applied together with .dark (see applyTheme), so it only overrides the tokens
+ * that differ and inherits dark behavior for everything else.
+ */
+.theme-purple {
+  --surface: rgba(23, 15, 43, 0.72);
+  --surface-raised: rgba(38, 25, 66, 0.7);
+  --surface-hover: rgba(124, 92, 214, 0.18);
+  --surface-active: rgba(139, 92, 246, 0.32);
+  --surface-input: rgba(45, 30, 78, 0.6);
+  --surface-muted: rgba(76, 52, 128, 0.55);
+  --edge: rgba(167, 139, 250, 0.20);
+  --ring: rgba(167, 139, 250, 0.35);
+  --ring-muted: rgba(139, 92, 246, 0.22);
+  --fg: #ece7fb;
+  --fg-strong: #ffffff;
+  --fg-secondary: #c7b8f5;
+  --fg-muted: #9d89cf;
+  --fg-faint: #6f5f9c;
+  --scrollbar: rgba(167, 139, 250, 0.35);
+  --scrollbar-hover: rgba(167, 139, 250, 0.6);
+}
+
+/* Fixed gradient backdrop; the translucent surfaces above let it show through. */
+html.theme-purple {
+  background:
+    radial-gradient(1100px 760px at 12% -12%, rgba(139, 92, 246, 0.38), transparent 60%),
+    radial-gradient(980px 700px at 105% 4%, rgba(217, 70, 239, 0.22), transparent 55%),
+    linear-gradient(158deg, #0e0720 0%, #180d30 46%, #0a0417 100%);
+  background-attachment: fixed;
+}
+
+/*
+ * Primary buttons — a soft, glassy translucent accent instead of a loud solid
+ * fill. One class so the whole app's CTAs stay consistent; keep sizing/layout
+ * utilities inline on each button.
+ */
+.btn-primary {
+  background-color: rgb(59 130 246 / 0.15);
+  color: rgb(147 197 253);
+  box-shadow: inset 0 0 0 1px rgb(59 130 246 / 0.30);
+  transition: background-color 150ms ease;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: rgb(59 130 246 / 0.28);
+}
+.btn-primary:disabled {
+  opacity: 0.4;
+}
+
 /* Register theme colors for Tailwind v4 */
 @theme inline {
   --color-surface: var(--surface);

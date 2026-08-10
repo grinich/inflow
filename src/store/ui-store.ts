@@ -1,10 +1,19 @@
 import { create } from 'zustand';
 import type { Message } from '@/types/message';
+import type { ConnectionRole } from '@/types/connection';
 import { isDemoMode as checkDemoMode } from '@/lib/demo-mode';
 
 export type ViewMode = 'list' | 'thread';
-export type Theme = 'light' | 'dark' | 'system';
+export type Theme = 'light' | 'dark' | 'system' | 'purple';
 export type InboxTab = 'focused' | 'other' | 'archived' | 'spam';
+export type AppSection = 'inbox' | 'connections' | 'insights' | 'chat';
+export type SettingsSection = 'ai' | 'appearance' | 'backup' | 'advanced' | 'about';
+
+/** Active filter over the connections list (shared so Insights can drive it). */
+export type ConnectionFilter =
+  | { kind: 'all' }
+  | { kind: 'role'; value: ConnectionRole }
+  | { kind: 'interest'; value: string };
 
 export interface Toast {
   id: string;
@@ -37,7 +46,17 @@ interface UIState {
   spamConfirmId: string | null;
   demoMode: boolean;
   replyingTo: Message | null;
-  aiSetupOpen: boolean;
+  settingsOpen: boolean;
+  settingsSection: SettingsSection;
+  whatsNewOpen: boolean;
+  activeSection: AppSection;
+  /** Back/forward stacks for section navigation (browser-style arrows). */
+  sectionHistory: AppSection[];
+  sectionForward: AppSection[];
+  navRailCollapsed: boolean;
+  selectedConnectionUrn: string | null;
+  connectionsFilter: ConnectionFilter;
+  connectionsSearch: string;
   tabMemory: Partial<Record<InboxTab, TabMemory>>;
   _pendingRestore: TabMemory | null;
 
@@ -61,7 +80,21 @@ interface UIState {
   setDeleteConfirmId: (id: string | null) => void;
   setSpamConfirmId: (id: string | null) => void;
   setReplyingTo: (msg: Message | null) => void;
-  setAISetupOpen: (open: boolean) => void;
+  openSettings: (section?: SettingsSection) => void;
+  closeSettings: () => void;
+  setWhatsNewOpen: (open: boolean) => void;
+  setActiveSection: (section: AppSection) => void;
+  /** Go to the previously visited section (browser back). */
+  goBackSection: () => void;
+  /** Redo a section navigation undone by goBackSection (browser forward). */
+  goForwardSection: () => void;
+  setNavRailCollapsed: (collapsed: boolean) => void;
+  toggleNavRail: () => void;
+  setSelectedConnectionUrn: (urn: string | null) => void;
+  setConnectionsFilter: (filter: ConnectionFilter) => void;
+  setConnectionsSearch: (query: string) => void;
+  /** Jump to Connections applying a filter and/or search (from Insights). */
+  showConnections: (opts?: { filter?: ConnectionFilter; search?: string }) => void;
   openThread: (conversationId: string, index: number) => void;
   closeThread: () => void;
   setTheme: (theme: Theme) => void;
@@ -73,7 +106,7 @@ let toastTimeout: ReturnType<typeof setTimeout> | null = null;
 function getStoredTheme(): Theme {
   try {
     const stored = localStorage.getItem('inflow-theme');
-    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
+    if (stored === 'light' || stored === 'dark' || stored === 'system' || stored === 'purple') return stored;
   } catch {}
   return 'system';
 }
@@ -100,7 +133,22 @@ function saveView(state: { inboxTab: InboxTab; selectedConversationId: string | 
   } catch {}
 }
 
-function resolveTheme(theme: Theme): 'light' | 'dark' {
+function getStoredSection(): AppSection {
+  try {
+    const stored = localStorage.getItem('inflow-section');
+    if (stored === 'inbox' || stored === 'connections' || stored === 'insights' || stored === 'chat') return stored;
+  } catch {}
+  return 'inbox';
+}
+
+function getStoredNavCollapsed(): boolean {
+  try {
+    return localStorage.getItem('inflow-nav-collapsed') === '1';
+  } catch {}
+  return false;
+}
+
+function resolveTheme(theme: Theme): 'light' | 'dark' | 'purple' {
   if (theme === 'system') {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -111,7 +159,12 @@ function resolveTheme(theme: Theme): 'light' | 'dark' {
 function applyTheme(theme: Theme) {
   if (typeof document === 'undefined') return; // no DOM (e.g. node test/service worker)
   const resolved = resolveTheme(theme);
-  document.documentElement.classList.toggle('dark', resolved === 'dark');
+  const root = document.documentElement;
+  // Purple builds on the dark base: apply both so it inherits dark tokens and
+  // only overrides the purple-tinted ones. Light applies neither class.
+  root.classList.remove('dark', 'theme-purple');
+  if (resolved === 'dark') root.classList.add('dark');
+  else if (resolved === 'purple') root.classList.add('dark', 'theme-purple');
   try {
     localStorage.setItem('inflow-theme', theme);
   } catch {}
@@ -151,7 +204,16 @@ export const useUIStore = create<UIState>((set, get) => ({
   spamConfirmId: null,
   demoMode: checkDemoMode(),
   replyingTo: null,
-  aiSetupOpen: false,
+  settingsOpen: false,
+  settingsSection: 'ai',
+  whatsNewOpen: false,
+  activeSection: getStoredSection(),
+  sectionHistory: [],
+  sectionForward: [],
+  navRailCollapsed: getStoredNavCollapsed(),
+  selectedConnectionUrn: null,
+  connectionsFilter: { kind: 'all' },
+  connectionsSearch: '',
   tabMemory: {},
   _pendingRestore: null,
 
@@ -191,7 +253,89 @@ export const useUIStore = create<UIState>((set, get) => ({
   setDeleteConfirmId: (id) => set({ deleteConfirmId: id }),
   setSpamConfirmId: (id) => set({ spamConfirmId: id }),
   setReplyingTo: (msg) => set({ replyingTo: msg }),
-  setAISetupOpen: (open) => set({ aiSetupOpen: open }),
+  openSettings: (section) => set(section ? { settingsOpen: true, settingsSection: section } : { settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
+  setWhatsNewOpen: (open) => set({ whatsNewOpen: open }),
+  setActiveSection: (section) => {
+    const cur = get().activeSection;
+    try {
+      localStorage.setItem('inflow-section', section);
+    } catch {}
+    // Leaving a section closes the composer so it can't linger over the new view.
+    // Record the prior section for the back/forward arrows (fresh nav clears forward).
+    if (cur === section) {
+      set({ activeSection: section, composeNewActive: false });
+    } else {
+      set({
+        activeSection: section,
+        composeNewActive: false,
+        sectionHistory: [...get().sectionHistory, cur].slice(-50),
+        sectionForward: [],
+      });
+    }
+  },
+  goBackSection: () => {
+    const { sectionHistory, activeSection } = get();
+    if (sectionHistory.length === 0) return;
+    const prev = sectionHistory[sectionHistory.length - 1];
+    try {
+      localStorage.setItem('inflow-section', prev);
+    } catch {}
+    set({
+      activeSection: prev,
+      sectionHistory: sectionHistory.slice(0, -1),
+      sectionForward: [activeSection, ...get().sectionForward].slice(0, 50),
+      composeNewActive: false,
+    });
+  },
+  goForwardSection: () => {
+    const { sectionForward, activeSection } = get();
+    if (sectionForward.length === 0) return;
+    const next = sectionForward[0];
+    try {
+      localStorage.setItem('inflow-section', next);
+    } catch {}
+    set({
+      activeSection: next,
+      sectionForward: sectionForward.slice(1),
+      sectionHistory: [...get().sectionHistory, activeSection].slice(-50),
+      composeNewActive: false,
+    });
+  },
+  setNavRailCollapsed: (collapsed) => {
+    try {
+      localStorage.setItem('inflow-nav-collapsed', collapsed ? '1' : '0');
+    } catch {}
+    set({ navRailCollapsed: collapsed });
+  },
+  toggleNavRail: () => {
+    const next = !get().navRailCollapsed;
+    try {
+      localStorage.setItem('inflow-nav-collapsed', next ? '1' : '0');
+    } catch {}
+    set({ navRailCollapsed: next });
+  },
+  setSelectedConnectionUrn: (urn) => set({ selectedConnectionUrn: urn }),
+  setConnectionsFilter: (filter) => set({ connectionsFilter: filter }),
+  setConnectionsSearch: (query) => set({ connectionsSearch: query }),
+  showConnections: (opts) => {
+    const cur = get().activeSection;
+    try {
+      localStorage.setItem('inflow-section', 'connections');
+    } catch {}
+    set({
+      activeSection: 'connections',
+      composeNewActive: false,
+      connectionsFilter: opts?.filter ?? { kind: 'all' },
+      connectionsSearch: opts?.search ?? '',
+      // A fresh drill-in shouldn't keep a previously selected person highlighted.
+      selectedConnectionUrn: null,
+      // Record history so Back returns to where the drill-in came from.
+      ...(cur !== 'connections'
+        ? { sectionHistory: [...get().sectionHistory, cur].slice(-50), sectionForward: [] }
+        : {}),
+    });
+  },
 
   showToast: (toast) => {
     if (toastTimeout) clearTimeout(toastTimeout);
@@ -242,7 +386,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
 
   cycleTheme: () => {
-    const order: Theme[] = ['dark', 'light', 'system'];
+    const order: Theme[] = ['dark', 'light', 'system', 'purple'];
     const current = get().theme;
     const next = order[(order.indexOf(current) + 1) % order.length];
     applyTheme(next);

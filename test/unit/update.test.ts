@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseVersion, compareVersions, isNewerVersion } from '@/lib/update';
+import { parseVersion, compareVersions, isNewerVersion, coreVersion } from '@/lib/update';
 
 describe('update version helpers', () => {
   it('parses v-prefixed and plain versions', () => {
@@ -28,5 +28,20 @@ describe('update version helpers', () => {
     expect(isNewerVersion('v0.2.0', '0.1.0')).toBe(true);
     expect(isNewerVersion('0.1.0', '0.1.0')).toBe(false);
     expect(isNewerVersion('0.1.0', '0.2.0')).toBe(false);
+  });
+
+  it('coreVersion drops the 4th build segment', () => {
+    // Production manifest versions carry a build segment; the core is 3-part.
+    expect(coreVersion('0.5.1.457')).toBe('0.5.1');
+    expect(coreVersion('0.5.1')).toBe('0.5.1');
+    expect(coreVersion('v0.5.1.9999')).toBe('0.5.1');
+  });
+
+  it('a build-segment version compares equal to its core', () => {
+    // Two builds of the same release must not read as an update.
+    expect(compareVersions('0.5.1.457', '0.5.1')).toBe(0);
+    expect(isNewerVersion('0.5.1', '0.5.1.457')).toBe(false);
+    // A real patch bump still wins over an older build.
+    expect(compareVersions('0.5.2', '0.5.1.999')).toBeGreaterThan(0);
   });
 });

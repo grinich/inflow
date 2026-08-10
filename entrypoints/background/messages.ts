@@ -15,6 +15,8 @@ import {
 import { fetchMessages, fetchAllMessages, sendMessage, editMessage, createConversation, reactWithEmoji, recallMessage } from './api/messages';
 import { enqueueSend } from './send-queue';
 import { searchTypeahead } from './api/typeahead';
+import { fetchAllConnections, MAX_CONNECTIONS } from './api/connections';
+import { normalizeConnections } from '@/lib/connections-normalizer';
 import { getSession, getMemberUrn } from './auth/session';
 import { syncConversations, syncCategory } from './sync/sync-engine';
 import { burstDiscover, toggleSyncPause, broadcastProgress } from './sync/sync-coordinator';
@@ -28,7 +30,7 @@ import { repairConversationParticipants } from './sync/repair-participants';
 import { reconcileRecalledMessages } from './sync/reconcile-messages';
 import { debugLog, getDebugLogs, clearDebugLogs } from '@/lib/debug-log';
 import { getBackfillCutoff } from '@/lib/sync-settings';
-import { db, mergeProfiles } from '@/db/database';
+import { db, mergeProfiles, mergeConnections } from '@/db/database';
 import { mergeConversation } from './sync/merge-conversation';
 import { dbReady } from './db-ready';
 import { runDiagnosticSync } from './diagnostic';
@@ -309,6 +311,24 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       await db.tombstones.delete(result.conversationId).catch(() => {});
       return { success: true, data: result };
     }
+    case 'FETCH_CONNECTIONS': {
+      // Page through the whole list (LinkedIn caps each page at 40), persisting
+      // each page as it arrives. `count`, when given, caps the total pulled.
+      const cap = msg.count ?? MAX_CONNECTIONS;
+      let stored = 0;
+      await fetchAllConnections(async (raw) => {
+        const { connections, profiles } = normalizeConnections(raw);
+        if (connections.length === 0) return;
+        await db.transaction('rw', [db.connections, db.profiles], async () => {
+          // mergeConnections preserves AI categorization across re-syncs.
+          await mergeConnections(connections);
+          await mergeProfiles(profiles);
+        });
+        stored += connections.length;
+      }, cap);
+      debugLog('info', `[CONNECTIONS] Synced ${stored} connection(s)`);
+      return { success: true, data: { count: stored } };
+    }
     case 'CHECK_FOR_UPDATE': {
       const status = await checkForUpdate();
       return { success: true, data: status };
@@ -322,7 +342,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     }
     case 'RESET_DB': {
       // Clear all tables (safer than db.delete() which can break the Dexie instance)
-      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones], async () => {
+      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones, db.connections], async () => {
         await db.conversations.clear();
         await db.messages.clear();
         await db.profiles.clear();
@@ -333,6 +353,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         await db.syncQueue.clear();
         await db.draftAttachments.clear();
         await db.tombstones.clear();
+        await db.connections.clear();
       });
       clearDebugLogs();
       await syncConversations();

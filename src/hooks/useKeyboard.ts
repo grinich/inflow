@@ -45,7 +45,50 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
 
       // Don't handle any shortcuts when the debug panel or confirm modal is open
       if (document.querySelector('[data-debug-panel]')) return;
-      if (store.deleteConfirmId || store.spamConfirmId || store.aiSetupOpen || store.lightboxImageUrl) return;
+      if (store.deleteConfirmId || store.spamConfirmId || store.settingsOpen || store.whatsNewOpen || store.lightboxImageUrl) return;
+
+      // Cmd/Ctrl+, — Settings (works in any context, mirrors the OS convention).
+      if (e.key === ',' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        store.openSettings();
+        return;
+      }
+
+      // Outside the inbox (Connections / Insights) those sections own their own
+      // navigation. Keep only global affordances here and don't let
+      // inbox/conversation shortcuts fire.
+      if (store.activeSection !== 'inbox') {
+        if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          store.togglePalette();
+          return;
+        }
+        if (!isInput && e.key === '?' && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          store.toggleShortcutOverlay();
+          return;
+        }
+        // "g" chord to switch sections (g i → Inbox, g c → stay)
+        if (gPendingRef.current) {
+          gPendingRef.current = false;
+          if (gTimerRef.current) { clearTimeout(gTimerRef.current); gTimerRef.current = null; }
+          if (e.key === 'i') { e.preventDefault(); store.setActiveSection('inbox'); }
+          return;
+        }
+        if (!isInput && e.key === 'g' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          gPendingRef.current = true;
+          if (gTimerRef.current) clearTimeout(gTimerRef.current);
+          gTimerRef.current = setTimeout(() => { gPendingRef.current = false; }, 500);
+          return;
+        }
+        if (!isInput && e.key === 'Escape') {
+          e.preventDefault();
+          store.setActiveSection('inbox');
+          return;
+        }
+        return;
+      }
 
       // Cmd+K — Command palette (works in any context)
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -159,6 +202,16 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
           store.setSearchQuery('is:unread ');
           const input = document.querySelector<HTMLInputElement>('[data-search-input]');
           input?.focus();
+          return;
+        }
+        if (e.key === 'c') {
+          e.preventDefault();
+          store.setActiveSection('connections');
+          return;
+        }
+        if (e.key === 'i') {
+          e.preventDefault();
+          store.setActiveSection('inbox');
           return;
         }
         // Unknown second key — fall through to normal handling

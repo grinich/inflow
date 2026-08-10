@@ -7,14 +7,21 @@ import { ShortcutOverlay, SHORTCUT_PANEL_PADDING } from '@/components/common/Sho
 import { ImageLightbox } from '@/components/common/ImageLightbox';
 import { ConfirmDeleteModal } from '@/components/common/ConfirmDeleteModal';
 import { ConfirmSpamModal } from '@/components/common/ConfirmSpamModal';
-import { AISetupModal } from '@/components/common/AISetupModal';
+import { SettingsModal } from '@/components/settings/SettingsModal';
+import { WhatsNewModal } from '@/components/common/WhatsNewModal';
 import { Toast } from '@/components/common/Toast';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
 import { PendingNavigation } from '@/components/common/PendingNavigation';
 import { DebugPanel } from '@/components/common/DebugPanel';
 import { NewMessageComposer } from '@/components/composer/NewMessageComposer';
+import { NavRail } from '@/components/nav/NavRail';
+import { ConnectionsList } from '@/components/connections/ConnectionsList';
+import { ConnectionDetail } from '@/components/connections/ConnectionDetail';
+import { InsightsView } from '@/components/insights/InsightsView';
+import { ChatView } from '@/components/chat/ChatView';
 import { useConversations } from '@/hooks/useConversations';
+import { useConnections } from '@/hooks/useConnections';
 import { useRemoteSearch } from '@/hooks/useRemoteSearch';
 import { useKeyboard } from '@/hooks/useKeyboard';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
@@ -30,6 +37,8 @@ export function App() {
   const { remoteResults, isSearching, hasMore, loadMore } = useRemoteSearch();
   const selectedConversationId = useUIStore((s) => s.selectedConversationId);
   const composeNewActive = useUIStore((s) => s.composeNewActive);
+  const activeSection = useUIStore((s) => s.activeSection);
+  const { connections } = useConnections();
   const shortcutPanelOpen = useUIStore((s) => s.shortcutOverlayOpen);
   const deleteConfirmId = useUIStore((s) => s.deleteConfirmId);
   const setDeleteConfirmId = useUIStore((s) => s.setDeleteConfirmId);
@@ -110,6 +119,7 @@ export function App() {
   // - Selection not in current list → pick first conversation
   // - Selection exists in list → sync selectedIndex to its position
   useEffect(() => {
+    if (activeSection !== 'inbox') return; // connections section manages its own selection
     if (conversations.length === 0) return;
     const store = useUIStore.getState();
 
@@ -169,7 +179,7 @@ export function App() {
         }
       }
     }
-  }, [conversations, selectedConversationId]);
+  }, [conversations, selectedConversationId, activeSection]);
 
   // Debug panel toggle
   const toggleDebug = useCallback(() => setDebugOpen(prev => !prev), []);
@@ -212,41 +222,70 @@ export function App() {
     setSpamConfirmId(null);
   }, [spamConversation, actions, setSpamConfirmId]);
 
+  // Shared resize handle between the list column and the detail/thread pane —
+  // used by both the Inbox and Connections sections.
+  const resizeDivider = (
+    <div
+      onMouseDown={onDividerMouseDown}
+      onDoubleClick={onDividerDoubleClick}
+      title="Drag to resize · double-click to reset"
+      className={`group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize ${isDraggingSidebar ? 'bg-blue-500/40' : ''}`}
+    >
+      <div className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isDraggingSidebar ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-500/60'}`} />
+    </div>
+  );
+
   return (
     <AuthGate>
       <UpdateBanner />
       <div className={`flex min-h-0 flex-1 overflow-hidden bg-surface text-fg transition-[padding-bottom] duration-200 ease-out ${shortcutPanelOpen ? SHORTCUT_PANEL_PADDING : 'pb-0'}`}>
-        {/* Conversation List — collapses to a fixed avatar rail on narrow windows */}
-        <div style={{ width: railMode ? RAIL_WIDTH : sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
-          <ConversationList conversations={conversations} isLoading={isLoading} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} compact={railMode} />
-        </div>
+        {/* Section nav rail — Inbox / Connections, collapsible */}
+        <NavRail connectionsCount={connections.length} />
 
-        {/* Resize handle: thin visual divider with a wider invisible hit zone.
-            Drag to resize the sidebar, double-click to reset. Hidden in rail
-            mode — the rail width is fixed. */}
-        {!railMode && (
-          <div
-            onMouseDown={onDividerMouseDown}
-            onDoubleClick={onDividerDoubleClick}
-            title="Drag to resize · double-click to reset"
-            className={`group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize ${isDraggingSidebar ? 'bg-blue-500/40' : ''}`}
-          >
-            <div className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isDraggingSidebar ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-500/60'}`} />
+        {activeSection === 'chat' ? (
+          <ChatView />
+        ) : activeSection === 'insights' ? (
+          <div className="flex h-full min-w-0 flex-1 flex-col">
+            <InsightsView />
           </div>
-        )}
+        ) : activeSection === 'connections' ? (
+          <>
+            {/* Connections list */}
+            <div style={{ width: sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
+              <ConnectionsList />
+            </div>
+            {!railMode && resizeDivider}
+            {/* Selected connection detail */}
+            <div className="flex h-full min-w-0 flex-1 flex-col">
+              <ConnectionDetail />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Conversation List — collapses to a fixed avatar rail on narrow windows */}
+            <div style={{ width: railMode ? RAIL_WIDTH : sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
+              <ConversationList conversations={conversations} isLoading={isLoading} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} compact={railMode} />
+            </div>
 
-        {/* Thread View or New Message Composer */}
-        <div className="flex h-full min-w-0 flex-1 flex-col">
-          {composeNewActive ? (
-            <NewMessageComposer
-              key={selectedConversation?.draft === 1 ? selectedConversation.id : 'new'}
-              draftConversation={selectedConversation?.draft === 1 ? selectedConversation : undefined}
-              composeRef={composeRef}
-            />
-          ) : selectedConversation ? (
-            <ThreadView conversation={selectedConversation} composeRef={composeRef} />
-          ) : null}
-        </div>
+            {/* Resize handle: thin visual divider with a wider invisible hit zone.
+                Drag to resize the sidebar, double-click to reset. Hidden in rail
+                mode — the rail width is fixed. */}
+            {!railMode && resizeDivider}
+
+            {/* Thread View or New Message Composer */}
+            <div className="flex h-full min-w-0 flex-1 flex-col">
+              {composeNewActive ? (
+                <NewMessageComposer
+                  key={selectedConversation?.draft === 1 ? selectedConversation.id : 'new'}
+                  draftConversation={selectedConversation?.draft === 1 ? selectedConversation : undefined}
+                  composeRef={composeRef}
+                />
+              ) : selectedConversation ? (
+                <ThreadView conversation={selectedConversation} composeRef={composeRef} />
+              ) : null}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Drag-and-drop overlay */}
@@ -279,7 +318,8 @@ export function App() {
           onCancel={() => setSpamConfirmId(null)}
         />
       )}
-      <AISetupModal />
+      <SettingsModal />
+      <WhatsNewModal />
       <Toast />
       <IncomingMessageToast />
       <PendingNavigation />

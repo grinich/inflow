@@ -5,6 +5,7 @@ import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
 import { searchEmoji, EMOJI_SHORTCODE_RE, type EmojiResult } from '@/lib/emoji-search';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
+import { EmojiPicker } from './EmojiPicker';
 import { useAutocomplete } from '@/hooks/useAutocomplete';
 import { useReplySuggestions } from '@/hooks/useReplySuggestions';
 import type { Message } from '@/types/message';
@@ -24,6 +25,9 @@ function fileIcon(file: File): string {
 }
 
 const SAVE_INTERVAL = 1000;
+
+/** LinkedIn rejects oversized message attachments; guard before we upload. */
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20 MB
 
 /** Save draft text and/or attachments to IndexedDB in a single row. */
 function saveDraft(conversationId: string, text: string, files: File[]) {
@@ -81,6 +85,9 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     const attachmentsRef = useReactRef(attachments);
     attachmentsRef.current = attachments;
     const textareaRef = useReactRef<HTMLTextAreaElement | null>(null);
+    const fileInputRef = useReactRef<HTMLInputElement | null>(null);
+    const photoInputRef = useReactRef<HTMLInputElement | null>(null);
+    const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
 
     const [cursorAtEnd, setCursorAtEnd] = useState(true);
     const emojiOpen = emojiQuery !== null && emojiResults.length > 0;
@@ -189,9 +196,20 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       function onAttach(e: Event) {
         const detail = (e as CustomEvent).detail;
         // Accept both old format (File[]) and new format ({file, ...}[])
-        const newFiles: File[] = Array.isArray(detail)
+        const incoming: File[] = Array.isArray(detail)
           ? detail[0] instanceof File ? detail : detail.map((d: any) => d.file)
           : [];
+        if (!incoming.length) return;
+
+        // Guard file size here so every entry point (drop, paste, attach button)
+        // is validated in one place before we persist/upload.
+        const newFiles = incoming.filter((f) => f.size <= MAX_ATTACHMENT_BYTES);
+        const rejected = incoming.length - newFiles.length;
+        if (rejected > 0) {
+          useUIStore.getState().showToast({
+            message: `${rejected} file${rejected === 1 ? '' : 's'} skipped — over the 20 MB limit`,
+          });
+        }
         if (!newFiles.length) return;
 
         setAttachments((prev) => {
@@ -224,6 +242,22 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         saveDraft(conversationId, bodyRef.current, next);
         document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
         return next;
+      });
+    }
+
+    /** Insert an emoji character at the caret (used by the click-to-pick popover). */
+    function insertEmojiChar(emoji: string) {
+      const ta = textareaRef.current;
+      const start = ta?.selectionStart ?? body.length;
+      const end = ta?.selectionEnd ?? start;
+      const newBody = body.slice(0, start) + emoji + body.slice(end);
+      setBody(newBody);
+      const pos = start + emoji.length;
+      requestAnimationFrame(() => {
+        if (ta) {
+          ta.focus();
+          ta.setSelectionRange(pos, pos);
+        }
       });
     }
 
@@ -535,6 +569,89 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         )}
 
         <div className="flex items-end gap-2">
+          {/* Attach file */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            aria-hidden="true"
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              if (files.length) {
+                document.dispatchEvent(new CustomEvent('inflow:attach-files', { detail: files }));
+              }
+              // Reset so picking the same file again re-fires change.
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach a file"
+            aria-label="Attach a file"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-secondary"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
+
+          {/* Attach photo (images only) */}
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            aria-hidden="true"
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              if (files.length) {
+                document.dispatchEvent(new CustomEvent('inflow:attach-files', { detail: files }));
+              }
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            title="Attach a photo"
+            aria-label="Attach a photo"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-secondary"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <path d="M21 15l-5-5L5 21" />
+            </svg>
+          </button>
+
+          {/* Emoji picker */}
+          <div className="relative shrink-0">
+            {emojiPickerOpen && (
+              <EmojiPicker
+                onSelect={insertEmojiChar}
+                onClose={() => setEmojiPickerOpen(false)}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => setEmojiPickerOpen((v) => !v)}
+              title="Emoji"
+              aria-label="Emoji"
+              aria-expanded={emojiPickerOpen}
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-surface-hover ${emojiPickerOpen ? 'text-fg-secondary' : 'text-fg-muted hover:text-fg-secondary'}`}
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                <line x1="9" y1="9" x2="9.01" y2="9" />
+                <line x1="15" y1="9" x2="15.01" y2="9" />
+              </svg>
+            </button>
+          </div>
+
           <div className={`relative flex flex-1 items-end ${autocomplete.isOpen ? 'rounded-lg bg-surface-input ring-1 ring-ring-muted' : ''}`}>
           {autocomplete.suggestion && (
             <div
@@ -670,7 +787,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
               }
             }}
             disabled={!hasContent}
-            className="flex shrink-0 flex-col items-center justify-center rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium leading-tight text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex shrink-0 flex-col items-center justify-center rounded-lg btn-primary px-3 py-1.5 text-sm font-medium leading-tight transition-colors hover:btn-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
             {cmdHeld && hasContent ? (
               <>

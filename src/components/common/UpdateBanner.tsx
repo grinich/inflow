@@ -78,7 +78,7 @@ export function UpdateBanner() {
           href={status.releaseUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-md bg-blue-600 px-2.5 py-0.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
+          className="rounded-md btn-primary px-2.5 py-0.5 text-xs font-medium transition-colors"
         >
           What&apos;s changed
         </a>

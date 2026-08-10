@@ -122,12 +122,47 @@ describe('misc actions', () => {
     expect(s().replyingTo).toBeNull();
   });
 
-  it('cycleTheme cycles dark -> light -> system -> dark', () => {
+  it('tracks section back/forward history', () => {
+    useUIStore.setState({ activeSection: 'inbox', sectionHistory: [], sectionForward: [] });
+    s().setActiveSection('connections');
+    s().setActiveSection('insights');
+    expect(s().activeSection).toBe('insights');
+
+    s().goBackSection();
+    expect(s().activeSection).toBe('connections');
+    s().goBackSection();
+    expect(s().activeSection).toBe('inbox');
+
+    s().goForwardSection();
+    expect(s().activeSection).toBe('connections');
+
+    // A fresh navigation clears the forward stack.
+    s().setActiveSection('chat');
+    expect(s().activeSection).toBe('chat');
+    expect(s().sectionForward).toEqual([]);
+  });
+
+  it('purple theme applies both dark and theme-purple classes; light clears them', () => {
+    const root = document.documentElement;
+    s().setTheme('purple');
+    expect(root.classList.contains('dark')).toBe(true);
+    expect(root.classList.contains('theme-purple')).toBe(true);
+    s().setTheme('dark');
+    expect(root.classList.contains('dark')).toBe(true);
+    expect(root.classList.contains('theme-purple')).toBe(false);
+    s().setTheme('light');
+    expect(root.classList.contains('dark')).toBe(false);
+    expect(root.classList.contains('theme-purple')).toBe(false);
+  });
+
+  it('cycleTheme cycles dark -> light -> system -> purple -> dark', () => {
     s().setTheme('dark');
     s().cycleTheme();
     expect(s().theme).toBe('light');
     s().cycleTheme();
     expect(s().theme).toBe('system');
+    s().cycleTheme();
+    expect(s().theme).toBe('purple');
     s().cycleTheme();
     expect(s().theme).toBe('dark');
   });

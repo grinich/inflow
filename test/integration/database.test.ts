@@ -36,9 +36,11 @@ describe('applySchema', () => {
   it('creates all expected tables', () => {
     const tableNames = db.tables.map((t: any) => t.name).sort();
     expect(tableNames).toEqual([
+      'connections',
       'conversations',
       'draftAttachments',
       'imageCache',
+      'insightChats',
       'messages',
       'pendingActions',
       'postCache',
@@ -47,6 +49,27 @@ describe('applySchema', () => {
       'syncState',
       'tombstones',
     ]);
+  });
+
+  it('connections table keys by profileUrn and orders by connectedAt', async () => {
+    await db.connections.bulkPut([
+      { profileUrn: 'urn:li:fsd_profile:P1', connectionUrn: 'c1', connectedAt: 1000, publicId: 'p1', firstName: 'A', lastName: 'One', fullName: 'A One', headline: '', pictureUrl: '', syncedAt: 0 },
+      { profileUrn: 'urn:li:fsd_profile:P2', connectionUrn: 'c2', connectedAt: 3000, publicId: 'p2', firstName: 'B', lastName: 'Two', fullName: 'B Two', headline: '', pictureUrl: '', syncedAt: 0 },
+      { profileUrn: 'urn:li:fsd_profile:P3', connectionUrn: 'c3', connectedAt: 2000, publicId: 'p3', firstName: 'C', lastName: 'Three', fullName: 'C Three', headline: '', pictureUrl: '', syncedAt: 0 },
+    ]);
+
+    // Most-recently-connected first (matches useConnections ordering).
+    const ordered = await db.connections.orderBy('connectedAt').reverse().toArray();
+    expect(ordered.map((c: any) => c.profileUrn)).toEqual([
+      'urn:li:fsd_profile:P2',
+      'urn:li:fsd_profile:P3',
+      'urn:li:fsd_profile:P1',
+    ]);
+
+    // profileUrn is the primary key — re-putting the same person upserts.
+    await db.connections.put({ profileUrn: 'urn:li:fsd_profile:P1', connectionUrn: 'c1', connectedAt: 1000, publicId: 'p1', firstName: 'A', lastName: 'One', fullName: 'A One', headline: 'Updated', pictureUrl: '', syncedAt: 5 });
+    expect(await db.connections.count()).toBe(3);
+    expect((await db.connections.get('urn:li:fsd_profile:P1'))?.headline).toBe('Updated');
   });
 
   it('conversations table has correct primary key', async () => {
@@ -471,6 +494,85 @@ describe('mergeProfiles', () => {
     const brandNew = await db.profiles.get('urn:li:fsd_profile:brand-new');
     expect(brandNew).toBeDefined();
     expect(brandNew.firstName).toBe('New');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeConnections
+//
+// Mirrors the module-scoped mergeConnections from database.ts: a re-sync writes
+// freshly-normalized rows that carry NO AI categorization, so the merge must
+// preserve roleCategory/interestTags/categorizedAt from the stored row.
+// ---------------------------------------------------------------------------
+
+describe('mergeConnections (categorization preservation)', () => {
+  function makeConn(over: Partial<import('@/types/connection').Connection> = {}): import('@/types/connection').Connection {
+    return {
+      profileUrn: 'urn:li:fsd_profile:P1',
+      connectionUrn: 'urn:li:fsd_connection:C1',
+      connectedAt: 1000,
+      publicId: 'p1',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      fullName: 'Ada Lovelace',
+      headline: 'Partner at Foo Ventures',
+      pictureUrl: '',
+      syncedAt: 0,
+      ...over,
+    };
+  }
+
+  async function mergeConnectionsOnTestDb(connections: import('@/types/connection').Connection[]): Promise<void> {
+    if (connections.length === 0) return;
+    connections = connections.map((c) => ({ ...c }));
+    const urns = connections.map((c) => c.profileUrn);
+    const existing = await db.connections.bulkGet(urns);
+    for (let i = 0; i < connections.length; i++) {
+      const prev = existing[i];
+      if (!prev) continue;
+      const c = connections[i];
+      if (prev.roleCategory && !c.roleCategory) c.roleCategory = prev.roleCategory;
+      if (prev.interestTags && !c.interestTags) c.interestTags = prev.interestTags;
+      if (prev.categorizedAt && !c.categorizedAt) c.categorizedAt = prev.categorizedAt;
+    }
+    await db.connections.bulkPut(connections);
+  }
+
+  it('keeps AI categorization when a re-sync brings an uncategorized row', async () => {
+    await db.connections.put(
+      makeConn({ roleCategory: 'Investor', interestTags: ['Investors'], categorizedAt: 5000 }),
+    );
+
+    // Fresh sync payload: same person, updated headline, no categorization.
+    await mergeConnectionsOnTestDb([makeConn({ headline: 'General Partner at Foo Ventures' })]);
+
+    const stored = await db.connections.get('urn:li:fsd_profile:P1');
+    expect(stored.headline).toBe('General Partner at Foo Ventures');
+    expect(stored.roleCategory).toBe('Investor');
+    expect(stored.interestTags).toEqual(['Investors']);
+    expect(stored.categorizedAt).toBe(5000);
+  });
+
+  it('inserts brand-new connections as uncategorized', async () => {
+    await mergeConnectionsOnTestDb([makeConn({ profileUrn: 'urn:li:fsd_profile:NEW' })]);
+    const stored = await db.connections.get('urn:li:fsd_profile:NEW');
+    expect(stored).toBeDefined();
+    expect(stored.categorizedAt).toBeUndefined();
+    expect(stored.roleCategory).toBeUndefined();
+  });
+
+  it('supports filtering by role and by the multi-entry interest index', async () => {
+    await db.connections.bulkPut([
+      makeConn({ profileUrn: 'a', roleCategory: 'Investor', interestTags: ['Investors'] }),
+      makeConn({ profileUrn: 'b', roleCategory: 'Engineering', interestTags: [] }),
+      makeConn({ profileUrn: 'c', roleCategory: 'Investor', interestTags: ['Investors', 'Advisors'] }),
+    ]);
+
+    const investors = await db.connections.where('roleCategory').equals('Investor').toArray();
+    expect(investors.map((c: any) => c.profileUrn).sort()).toEqual(['a', 'c']);
+
+    const advisorTagged = await db.connections.where('interestTags').equals('Advisors').toArray();
+    expect(advisorTagged.map((c: any) => c.profileUrn)).toEqual(['c']);
   });
 });
 
