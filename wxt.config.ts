@@ -13,8 +13,10 @@ export default defineConfig({
     disabled: true,
   },
   manifest: {
-    name: 'inƒlow — Messaging client for LinkedIn',
-    description: 'A keyboard-driven LinkedIn messaging client',
+    // Chrome Web Store review rejects names that imply an official affiliation,
+    // so this reads as a third-party inbox rather than a LinkedIn product.
+    name: 'inflow — a better inbox for LinkedIn',
+    description: 'A keyboard-driven inbox for your LinkedIn messages. Local-first, not affiliated with LinkedIn.',
     // Pin a stable extension ID (fngobhjkhkdnnijgegkcjoadmddkehgh) regardless of
     // install path, so updates preserve IndexedDB + chrome.storage.local data.
     // The matching private key (inflow-signing-key.pem) is gitignored and only
