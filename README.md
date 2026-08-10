@@ -192,6 +192,20 @@ pick up the new release via the in-app update banner.
 > private key (`inflow-signing-key.pem`) is gitignored and only needed for `.crx`
 > signing — keep a copy somewhere safe if you ever want it.
 
+### Chrome Web Store builds
+
+The Chrome Web Store signs packages itself and rejects any upload whose manifest
+carries a `key` field, so store packages are built separately:
+
+```sh
+npm run zip:store   # → dist/inflow-<version>-chrome-store.zip, no `key`
+```
+
+Because the store assigns its own extension ID, a store install is a different
+origin than a sideloaded one: it starts with an empty database and cannot inherit
+conversations from an unpacked install. Upload only the `-store.zip`; the plain
+`inflow-<version>-chrome.zip` is the GitHub release artifact for `Load unpacked`.
+
 ## Architecture
 
 Chrome extension (Manifest V3) built with:

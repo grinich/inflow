@@ -5,6 +5,22 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
+// The Chrome Web Store signs packages itself and rejects any upload carrying a
+// `key` field ("key field is not allowed in manifest"), so store builds must omit
+// it. Set INFLOW_STORE_BUILD=1 (see `npm run zip:store`) to produce that package.
+//
+// Consequence: the store-installed extension gets an ID Google assigns, not the
+// pinned fngobhjkhkdnnijgegkcjoadmddkehgh. A store install is therefore a
+// separate origin from a sideloaded one and starts with an empty database — it
+// cannot inherit a sideloaded user's conversations.
+const isStoreBuild = process.env.INFLOW_STORE_BUILD === '1';
+
+// Pins the extension ID for unpacked installs so updates preserve IndexedDB +
+// chrome.storage.local data regardless of install path. The matching private key
+// (inflow-signing-key.pem) is gitignored and only needed for .crx signing.
+const UNPACKED_KEY =
+  'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn7myScuTpNTjXLfNUhfybBtFgcOglAzdabOT1SOrqs97CksZUVdRWvbZK6MNRupVkqScEVbA+MgvP//G+F7MkUwIMOBI27q8nkxfufMOm/LSiPz86sJTh/2hzysYauZex+ylQbKTJFvB4gWodCXvjLzBDzrQWWxbuArMIzZ1vJZ3XmFGFJ1/w3RIYLasNOOPltnPyd/QHC8T7O3HTwlbTZkvoDIRJIzUKZH0YEEtUbbHiE3Tc6oA51nVJMQdhEtEOdfJNQdL2QBYq9gWOWbA1Iq/jpCxtCxjixkYuv9XVO4YUF+d3CNMB584q3HjXdbQyQgibcOoRmKNFWcRMRSA+wIDAQAB';
+
 export default defineConfig({
   outDir: 'dist',
   srcDir: '.',
@@ -12,16 +28,17 @@ export default defineConfig({
   webExt: {
     disabled: true,
   },
+  // Keeps the store package distinguishable from the GitHub release artifact,
+  // whose filename the release workflow depends on.
+  zip: {
+    artifactTemplate: `{{name}}-{{version}}-{{browser}}${isStoreBuild ? '-store' : ''}.zip`,
+  },
   manifest: {
     // Chrome Web Store review rejects names that imply an official affiliation,
     // so this reads as a third-party inbox rather than a LinkedIn product.
     name: 'inflow — a better inbox for LinkedIn',
     description: 'A keyboard-driven inbox for your LinkedIn messages. Local-first, not affiliated with LinkedIn.',
-    // Pin a stable extension ID (fngobhjkhkdnnijgegkcjoadmddkehgh) regardless of
-    // install path, so updates preserve IndexedDB + chrome.storage.local data.
-    // The matching private key (inflow-signing-key.pem) is gitignored and only
-    // needed for .crx signing, which we don't do.
-    key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAn7myScuTpNTjXLfNUhfybBtFgcOglAzdabOT1SOrqs97CksZUVdRWvbZK6MNRupVkqScEVbA+MgvP//G+F7MkUwIMOBI27q8nkxfufMOm/LSiPz86sJTh/2hzysYauZex+ylQbKTJFvB4gWodCXvjLzBDzrQWWxbuArMIzZ1vJZ3XmFGFJ1/w3RIYLasNOOPltnPyd/QHC8T7O3HTwlbTZkvoDIRJIzUKZH0YEEtUbbHiE3Tc6oA51nVJMQdhEtEOdfJNQdL2QBYq9gWOWbA1Iq/jpCxtCxjixkYuv9XVO4YUF+d3CNMB584q3HjXdbQyQgibcOoRmKNFWcRMRSA+wIDAQAB',
+    ...(isStoreBuild ? {} : { key: UNPACKED_KEY }),
     // version is read from package.json by WXT — bump there (npm version) only.
     permissions: ['cookies', 'storage', 'alarms', 'tabs', 'declarativeNetRequest', 'notifications'],
     // media.licdn.com: lets the background worker fetch avatar images for
