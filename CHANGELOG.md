@@ -4,6 +4,46 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.0] - 2026-08-09
+
+### Added
+- **Connections section** — browse your full first-degree connection list
+  (no longer capped at 40), with search by name/headline and sorting by date
+  added, first name, or last name.
+- **AI categorization** — connections are sorted into role categories
+  (Investor, Founder, Engineering, …) and matched against your own interest
+  tags (e.g. "Investors"), so you can filter your network. Choose **Auto**
+  (categorize after each sync) or **Manual** in Settings → AI.
+- **AI summaries** — a one-line summary of each connection in the detail pane,
+  plus a per-connection **Refresh** to re-analyze someone.
+- **Insights** — a new section showing your network's composition by role,
+  interest breakdown, and the firms your connections cluster around.
+- **Ask your network** — a chat in Insights (the "Ask" tab) to ask
+  natural-language questions about your connections, grounded in your data.
+- **Settings panel** — a proper Settings window (gear in the nav rail or ⌘,)
+  with AI, Appearance, Backup, Advanced, and About sections.
+- **Backup & restore** — save your connections and everything the AI derived
+  to a versioned JSON file in a folder you choose, with optional auto-backup
+  after categorizing. Restores correctly across future updates.
+- **What's new** — this window: release notes shown once after each update
+  (also available anytime from Settings → About or the command palette).
+
+### Fixed
+- **Categorization failures are now visible** — a failed batch (e.g. a rate
+  limit) surfaces a notice with a Retry action instead of silently stopping.
+- **Toggle switches** — the switch knob no longer overflows the pill.
+- **Nameless connections hidden** — connections that come back without a
+  resolvable name (private/restricted profiles) no longer show as "Unknown"
+  rows; they stay stored and reappear if a later sync resolves them.
+
+### Changed
+- **AI setup moved into Settings** — the API key, get-a-key instructions, and
+  reply-suggestion toggle now live in Settings → AI (previously a
+  command-palette-only modal).
+- **Build-numbered versions** — production builds now carry a 4th version
+  segment (e.g. `0.5.0.461`) so every published build is uniquely identifiable;
+  the human version stays 3-part (`0.5.0`).
+
 ## [0.4.0] - 2026-07-13
 
 ### Added

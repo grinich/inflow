@@ -35,6 +35,9 @@ function createChromeMock() {
         set: vi.fn(async (obj: Record<string, any>) => {
           Object.assign(localStore, obj);
         }),
+        remove: vi.fn(async (keys: string | string[]) => {
+          for (const k of Array.isArray(keys) ? keys : [keys]) delete localStore[k];
+        }),
         onChanged: {
           addListener: vi.fn(),
           removeListener: vi.fn(),

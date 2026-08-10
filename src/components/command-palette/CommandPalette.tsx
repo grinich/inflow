@@ -6,7 +6,7 @@ import { sendBridgeMessage } from '@/lib/bridge';
 import { isDemoMode, enableDemoMode, disableDemoMode } from '@/lib/demo-mode';
 import { getAISuggestionsEnabled, setAISuggestionsEnabled } from '@/lib/ai-settings';
 import { buildCommands } from './commands';
-import { isNewerVersion, type UpdateStatus } from '@/lib/update';
+import { checkForUpdateAndToast } from '@/lib/check-update';
 import type { Conversation } from '@/types/conversation';
 
 interface CommandPaletteProps {
@@ -78,6 +78,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
     setThemeLight: () => setTheme('light'),
     setThemeDark: () => setTheme('dark'),
     setThemeSystem: () => setTheme('system'),
+    setThemePurple: () => setTheme('purple'),
     currentTheme,
     goToFocused: () => setInboxTab('focused'),
     goToOther: () => {
@@ -102,7 +103,13 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       }
     },
     openAISetup: () => {
-      useUIStore.getState().setAISetupOpen(true);
+      useUIStore.getState().openSettings('ai');
+    },
+    openSettings: () => {
+      useUIStore.getState().openSettings();
+    },
+    openWhatsNew: () => {
+      useUIStore.getState().setWhatsNewOpen(true);
     },
     toggleDemoMode: () => {
       if (isDemoMode()) {
@@ -166,29 +173,16 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
     joinWhatsApp: () => {
       window.open('https://chat.whatsapp.com/Cgj71APZz0uBkW5Y4WOhQO', '_blank');
     },
-    checkForUpdate: async () => {
-      const store = useUIStore.getState();
-      store.showToast({ message: 'Checking for updates…' });
-      let status: UpdateStatus | null = null;
-      try {
-        const res = await sendBridgeMessage({ type: 'CHECK_FOR_UPDATE' });
-        status = (res.success ? res.data : null) as UpdateStatus | null;
-      } catch {
-        status = null;
-      }
-      const current = chrome.runtime.getManifest().version;
-      if (!status) {
-        store.showToast({ message: "Couldn't check for updates — try again later" });
-        return;
-      }
-      if (isNewerVersion(status.latestVersion, current)) {
-        store.showToast({ message: `Update available: v${status.latestVersion}` });
-        // Open the release so they can see what changed.
-        if (status.releaseUrl) window.open(status.releaseUrl, '_blank');
-      } else {
-        store.showToast({ message: `inflow is up to date (v${current})` });
-      }
+    openConnections: () => {
+      useUIStore.getState().setActiveSection('connections');
     },
+    openInsights: () => {
+      useUIStore.getState().setActiveSection('insights');
+    },
+    goToInbox: () => {
+      useUIStore.getState().setActiveSection('inbox');
+    },
+    checkForUpdate: () => checkForUpdateAndToast(useUIStore.getState().showToast),
   });
 
   if (!paletteOpen) return null;

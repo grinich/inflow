@@ -23,6 +23,8 @@ export const shortcutDefinitions: ShortcutDef[] = [
   { key: '4', display: '4', context: 'Global', group: 'Navigation', description: 'Spam' },
   { key: 'g', display: 'G S', context: 'Global', group: 'Navigation', description: 'Go to starred' },
   { key: 'g', display: 'G U', context: 'Global', group: 'Navigation', description: 'Go to unread' },
+  { key: 'g', display: 'G I', context: 'Global', group: 'Navigation', description: 'Go to Inbox' },
+  { key: 'g', display: 'G C', context: 'Global', group: 'Navigation', description: 'Go to Connections' },
 
   // Actions
   { key: 'e', display: 'E', context: 'List / Thread', group: 'Actions', description: 'Archive / Move to Focused' },
@@ -44,6 +46,7 @@ export const shortcutDefinitions: ShortcutDef[] = [
   { key: 'c', display: 'C', context: 'Global', group: 'Global', description: 'Compose new message' },
   { key: '/', display: '/', context: 'Global', group: 'Global', description: 'Search' },
   { key: 'k', display: '⌘K', context: 'Global', group: 'Global', description: 'Command palette', meta: true },
+  { key: ',', display: '⌘,', context: 'Global', group: 'Global', description: 'Settings', meta: true },
   { key: 'z', display: 'Z', context: 'Global', group: 'Global', description: 'Undo last action' },
   { key: '?', display: '?', context: 'Global', group: 'Global', description: 'Show all shortcuts', shift: true },
 ];

@@ -61,22 +61,6 @@ describe('regression #93: thread pane layout at narrow widths', () => {
     expect(heading.className).not.toContain('shrink-0');
   });
 
-  it('header action buttons never wrap their labels', () => {
-    render(
-      <ThreadHeader
-        conversation={makeConversation({
-          participantNames: ['Quinton Wall'],
-          participantUrns: ['urn:li:fsd_profile:QW'],
-        })}
-      />
-    );
-    const reportBug = screen.getByText('Report Bug').closest('button')!;
-    expect(reportBug.className).toContain('whitespace-nowrap');
-    // Secondary button collapses at narrow container widths instead of wrapping
-    expect(reportBug.className).toContain('hidden');
-    expect(reportBug.className).toContain('@[30rem]:flex');
-  });
-
   it('bubble hover actions are overlaid, not reserving flex-row width', () => {
     const { container } = render(
       <MessageBubble

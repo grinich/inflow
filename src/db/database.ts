@@ -2,6 +2,8 @@ import Dexie, { type EntityTable } from 'dexie';
 import type { Conversation } from '@/types/conversation';
 import type { Message } from '@/types/message';
 import type { Profile } from '@/types/profile';
+import type { Connection } from '@/types/connection';
+import type { InsightChat } from '@/types/insight-chat';
 
 export interface PendingAction {
   id: string;
@@ -87,6 +89,8 @@ type InflowDatabase = Dexie & {
   syncQueue: EntityTable<SyncQueueItem, 'conversationId'>;
   draftAttachments: EntityTable<DraftAttachment, 'conversationId'>;
   tombstones: EntityTable<Tombstone, 'conversationId'>;
+  connections: EntityTable<Connection, 'profileUrn'>;
+  insightChats: EntityTable<InsightChat, 'id'>;
 };
 
 export function applySchema(database: Dexie): void {
@@ -250,6 +254,34 @@ export function applySchema(database: Dexie): void {
     syncQueue: 'conversationId, status, priority, [status+priority]',
     draftAttachments: 'conversationId',
     tombstones: 'conversationId',
+  });
+
+  // v13: add connections table for the "Recent connections" list.
+  database.version(13).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, starred, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+    draftAttachments: 'conversationId',
+    tombstones: 'conversationId',
+    connections: 'profileUrn, connectedAt',
+  });
+
+  // v14: index AI categorization fields so the connections list can filter by
+  // role / interest and cheaply find rows still awaiting categorization.
+  // `*interestTags` is a multi-entry index (one entry per tag per row).
+  database.version(14).stores({
+    connections: 'profileUrn, connectedAt, roleCategory, categorizedAt, *interestTags',
+  });
+
+  // v15: persist "Ask your network" chat conversations so they show in a
+  // history sidebar and can be resumed (like the Claude chat list).
+  database.version(15).stores({
+    insightChats: 'id, updatedAt',
   });
 }
 
@@ -454,5 +486,43 @@ export async function mergeProfiles(profiles: Profile[]): Promise<void> {
       }
     }
     await db.profiles.bulkPut(profiles);
+  });
+}
+
+/**
+ * Upsert connection rows while preserving AI categorization across re-syncs.
+ * A freshly normalized connection carries no roleCategory/interestTags/
+ * categorizedAt, so a plain bulkPut would wipe categories every refresh and
+ * force the classifier to re-run. Carry those fields over from the stored row.
+ */
+export async function mergeConnections(connections: Connection[]): Promise<void> {
+  if (connections.length === 0) return;
+  // Work on copies so we never mutate the caller's Connection objects.
+  connections = connections.map((c) => ({ ...c }));
+  const urns = connections.map((c) => c.profileUrn);
+  await db.transaction('rw', db.connections, async () => {
+    const existing = await db.connections.bulkGet(urns);
+    for (let i = 0; i < connections.length; i++) {
+      const prev = existing[i];
+      if (!prev) continue;
+      const c = connections[i];
+      if (prev.roleCategory && !c.roleCategory) c.roleCategory = prev.roleCategory;
+      if (prev.interestTags && !c.interestTags) c.interestTags = prev.interestTags;
+      if (prev.categorizedAt && !c.categorizedAt) c.categorizedAt = prev.categorizedAt;
+      // Preserve the AI summary too, unless the headline changed (then it's
+      // stale and should be regenerated, so we drop it).
+      if (prev.aiSummary && !c.aiSummary && prev.headline === c.headline) {
+        c.aiSummary = prev.aiSummary;
+        c.summarizedAt = prev.summarizedAt;
+      }
+      // The conversation summary depends on messages, not the profile, so carry
+      // it over unconditionally (staleness is tracked separately per-message).
+      if (prev.conversationSummary && !c.conversationSummary) {
+        c.conversationSummary = prev.conversationSummary;
+        c.conversationSummaryAt = prev.conversationSummaryAt;
+        c.conversationSummaryLastMsgAt = prev.conversationSummaryLastMsgAt;
+      }
+    }
+    await db.connections.bulkPut(connections);
   });
 }

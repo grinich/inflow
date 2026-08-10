@@ -35,7 +35,13 @@ inflow is a Chrome extension (MV3) that provides a keyboard-driven messaging cli
 
 ## Release process
 
-1. Update `CHANGELOG.md` with the new version section
-2. `npm version <patch|minor|major>` — bumps `package.json` + creates `vX.Y.Z` tag
+Ship small and often — normally bump the **patch** each release (`0.5.1`, `0.5.2`, …); reserve minor/major for larger milestones.
+
+1. Update `CHANGELOG.md` with the new `## [x.y.z] - DATE` section (the What's-new modal reads these — see `src/lib/changelog.ts`)
+2. `npm version <patch|minor|major>` — bumps `package.json` + creates `vX.Y.Z` tag (keep this 3-part semver)
 3. `git push --follow-tags` — triggers the GitHub Actions release workflow
 4. CI runs tests, builds the zip, and creates a GitHub Release with release notes from the changelog
+
+### Versioning note
+
+`package.json`, git tags, and the changelog stay clean 3-part semver (`0.5.1`). The **manifest** `version` gets a 4th auto build segment on **every** build (dev and prod) so the chrome://extensions card always shows a changing number — `0.5.1.<build>` (e.g. `0.5.1.461`). The build number is `GITHUB_RUN_NUMBER` in CI, otherwise the local **git commit count** (`APP_VERSION`/`commitCount()` in `wxt.config.ts`). Dev also appends `-dev+<sha>` in `version_name`. App code that reasons about versions (What's-new, update check) normalizes with `coreVersion()` from `src/lib/update.ts`. Chrome segment rules: 1–4 integers, each `0–65535`, no leading zeros.

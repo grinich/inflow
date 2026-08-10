@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { switchDatabase, memberIdFromUrn, getActiveAccountId, migrateDraftsFromLocalStorage } from '@/db/database';
 import { isDemoMode, seedDemoData, startDemoIncoming, stopDemoIncoming } from '@/lib/demo-mode';
+import { Wordmark } from '@/components/common/Wordmark';
 
 interface AuthGateProps {
   children: ReactNode;
@@ -128,14 +129,14 @@ export function AuthGate({ children }: AuthGateProps) {
         <div className="max-w-sm text-center">
           <h1 className="mb-2 text-xl font-semibold text-fg-strong">Sign in to LinkedIn</h1>
           <p className="mb-6 text-sm text-fg-secondary">
-            inƒlow reads your LinkedIn messages using your existing session.
+            <Wordmark className="text-sm" /> reads your LinkedIn messages using your existing session.
             Please sign in to LinkedIn in another tab first.
           </p>
           <a
             href="https://www.linkedin.com/login"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+            className="inline-block rounded-lg btn-primary px-6 py-2.5 text-sm font-medium transition-colors hover:btn-primary"
           >
             Open LinkedIn Login
           </a>

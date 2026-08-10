@@ -42,3 +42,14 @@ export function compareVersions(a: string, b: string): number {
 export function isNewerVersion(latest: string, current: string): boolean {
   return compareVersions(latest, current) > 0;
 }
+
+/**
+ * The human 3-part core of a version, dropping any 4th "build" segment.
+ * The manifest version is `major.minor.patch.build` in production (the build
+ * segment is auto-incremented per CI build), but release notes, changelog
+ * matching, and update checks all work on the 3-part core — e.g.
+ * coreVersion("0.5.1.457") === "0.5.1".
+ */
+export function coreVersion(v: string): string {
+  return parseVersion(v).join('.');
+}

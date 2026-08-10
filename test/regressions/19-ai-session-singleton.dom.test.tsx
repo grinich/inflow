@@ -8,6 +8,10 @@ import '../dom-setup';
 const getGeminiApiKey = vi.fn();
 vi.mock('@/lib/ai-settings', () => ({
   getGeminiApiKey: () => getGeminiApiKey(),
+  getAIProvider: async () => 'gemini',
+  getAnthropicApiKey: async () => null,
+  getAnthropicModel: async (tier: string) =>
+    tier === 'quality' ? 'claude-sonnet-5' : 'claude-haiku-4-5',
 }));
 
 import { renderHook, waitFor } from '@testing-library/react';
