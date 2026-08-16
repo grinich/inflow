@@ -19,10 +19,17 @@ either side of that click is:
 ./scripts/setup-cws-secrets.sh
 ```
 
-It prompts for the client ID and secret, opens the consent screen, exchanges the
-code, **verifies the token can actually reach the listing**, and writes all three
-GitHub Actions secrets. Nothing touches disk or a command line, so the values
-stay out of `ps`, your shell history, and any log.
+It prompts for the client ID and secret, opens the consent screen, catches the
+callback itself, **verifies the token can actually reach the listing**, and
+writes all three GitHub Actions secrets. Nothing touches disk or a command line,
+so the values stay out of `ps`, your shell history, and any log.
+
+There is no code to copy: Google blocked the out-of-band flow that older guides
+describe (`redirect_uri=urn:ietf:wg:oauth:2.0:oob` now returns
+`Error 400: invalid_request`), so `scripts/cws-oauth.py` serves the loopback
+redirect that replaced it — a one-shot listener on `127.0.0.1` with a random
+port, guarded by a `state` check. Desktop clients accept any loopback port
+without registering it, so there is nothing to configure.
 
 The ownership check is the part worth having: authorizing the wrong Google
 account produces a token that looks perfectly valid and then fails deep inside a
