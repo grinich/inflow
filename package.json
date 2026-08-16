@@ -1,7 +1,7 @@
 {
   "name": "inflow",
   "version": "0.4.0",
-  "description": "A better inbox for LinkedIn messaging — a Chrome extension.",
+  "description": "A better inbox for LinkedIn messaging \u2014 a Chrome extension.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -10,6 +10,7 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "zip:store": "INFLOW_STORE_BUILD=1 wxt zip",
+    "changelog:site": "node scripts/build-changelog.mjs",
     "postinstall": "wxt prepare",
     "test": "vitest run",
     "test:watch": "vitest",

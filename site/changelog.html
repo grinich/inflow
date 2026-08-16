@@ -128,7 +128,7 @@
   </div>
 
   <div class="wrap doc">
-
+    <!-- CHANGELOG:START -->
     <article class="rel">
       <div class="rel-meta">
         <h2 class="rel-ver">0.4.0</h2>
@@ -150,7 +150,7 @@
             <li><strong>Thread pane layout at narrow widths</strong> — the contact name no longer overflows into the header buttons, header buttons no longer wrap or clip, and message bubbles are no longer squeezed by the invisible hover-actions strip (which also no longer intercepts clicks while hidden).</li>
             <li><strong>Missed notifications after switching apps</strong> — notifications were wrongly suppressed when inflow was the active tab but Chrome wasn't the frontmost app. Suppression now requires the window to actually have OS focus.</li>
             <li><strong>Composer stays focused after sending a message.</strong></li>
-            <li><strong>Rate limits and network blips no longer pile up as errors</strong> in <code>chrome://extensions</code> — transient failures (timeouts, dropped connections, HTTP 429/5xx) log as warnings and recover on their own.</li>
+            <li><strong>Rate limits and network blips no longer pile up as errors</strong> in chrome://extensions — transient failures (timeouts, dropped connections, HTTP 429/5xx) log as warnings and recover on their own.</li>
           </ul>
         </section>
         <section class="rel-group">
@@ -249,11 +249,7 @@
         <time class="rel-date" datetime="2026-07-05">5 July 2026</time>
       </div>
       <div class="rel-body">
-        <p class="rel-intro">
-          A deep sync-consistency release: a systematic audit of everything flowing between
-          LinkedIn and inflow, with 31 fixes — each locked in by a regression test (the suite
-          grew to 656 tests).
-        </p>
+        <p class="rel-intro">A deep sync-consistency release: a systematic audit of everything flowing between LinkedIn and inflow, with 31 fixes — each locked in by a regression test (the suite grew to 656 tests).</p>
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>
@@ -344,13 +340,7 @@
       </div>
       <div class="rel-body">
         <p class="rel-intro">First public GitHub release, with in-app update notifications.</p>
-        <p class="rel-callout">
-          <strong>Existing users: this is a one-time fresh start.</strong> This build pins a stable
-          extension ID so all future updates preserve your data. Moving from an older build changes
-          the extension's identity once, so inflow will open empty — re-enter your Gemini key (if you
-          use AI features) and let it re-sync. This only happens this once; every release after this
-          keeps your data.
-        </p>
+        <p class="rel-callout"><strong>Existing users: this is a one-time fresh start.</strong> This build pins a stable extension ID so all future updates preserve your data. Moving from an older build changes the extension's identity once, so inflow will open empty — re-enter your Gemini key (if you use AI features) and let it re-sync. This only happens this once; every release after this keeps your data.</p>
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>
@@ -375,10 +365,10 @@
         <h2 class="rel-ver">0.1.0</h2>
       </div>
       <div class="rel-body">
-        <p class="rel-intro">Initial pre-release builds, shared informally before GitHub Releases.</p>
+        <p class="rel-intro">Initial pre-release builds (shared informally before GitHub Releases).</p>
       </div>
     </article>
-
+<!-- CHANGELOG:END -->
   </div>
 </main>
 
