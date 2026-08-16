@@ -2,7 +2,14 @@
   "extends": "./.wxt/tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "types": ["chrome", "react", "react-dom"],
+    // "node" covers the build/test config files below; @types/node used to arrive
+    // transitively through WXT 0.20 and is now an explicit devDependency.
+    "types": ["chrome", "node", "react", "react-dom"],
+    // WXT 0.21 turned these on in its generated .wxt/tsconfig.json. Enabling them
+    // surfaces ~120 pre-existing errors, so they stay off here to keep the upgrade
+    // to a dependency bump; adopting them is its own piece of work.
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
     "paths": {
       "@/*": ["./src/*"],
       "@": ["./src"]
