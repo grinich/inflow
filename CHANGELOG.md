@@ -4,7 +4,7 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.5.0] - 2026-08-16
 
 ### Added
 - **inflow is on the Chrome Web Store** — installs from the store update
@@ -219,6 +219,9 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.5.0]: https://github.com/grinich/inflow/releases/tag/v0.5.0
+[0.4.0]: https://github.com/grinich/inflow/releases/tag/v0.4.0
+[0.3.6]: https://github.com/grinich/inflow/releases/tag/v0.3.6
 [0.3.5]: https://github.com/grinich/inflow/releases/tag/v0.3.5
 [0.3.4]: https://github.com/grinich/inflow/releases/tag/v0.3.4
 [0.3.3]: https://github.com/grinich/inflow/releases/tag/v0.3.3
