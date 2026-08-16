@@ -4,6 +4,22 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **inflow is on the Chrome Web Store** — installs from the store update
+  themselves; releases are submitted automatically when a version tag is pushed.
+  See [docs/chrome-web-store-release.md](docs/chrome-web-store-release.md).
+- **inflow.im** — the changelog and privacy policy now have proper pages on the
+  site instead of linking into GitHub.
+
+### Changed
+- **The update banner now moves manual installs to the store** — a sideloaded
+  copy is told where to get automatic updates, with a note that the store build
+  starts with an empty local database and re-syncs from LinkedIn. Store installs
+  show no banner at all: they already update themselves, so the old "download
+  the zip and reload the folder" advice was wrong there.
+
 ## [0.4.0] - 2026-07-13
 
 ### Added

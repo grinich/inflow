@@ -9,9 +9,18 @@ An experimental Chrome extension that reimagines LinkedIn messaging with a keybo
 ## Install
 
 You need Google Chrome or any Chromium-based browser (Edge, Arc, Brave, etc.).
-There are two ways to install — a prebuilt download, or building from source.
 
-### Option A — Download a release (no build tools needed)
+### Option A — Chrome Web Store (recommended)
+
+**[Add inflow to Chrome](https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge)** —
+one click, and Chrome keeps it up to date on its own.
+
+The two manual paths below still work, and are what you want if you're hacking
+on inflow. Note that Chrome gives a manually loaded build a different extension
+ID than the store one, so the two are separate installs with separate local
+databases; running both means syncing twice.
+
+### Option B — Download a release (no build tools needed)
 
 1. Go to the [latest release](https://github.com/grinich/inflow/releases/latest)
    and download `inflow-<version>-chrome.zip`.
@@ -19,7 +28,7 @@ There are two ways to install — a prebuilt download, or building from source.
 3. Open `chrome://extensions`, enable **Developer mode** (top right).
 4. Click **Load unpacked** and select the unzipped folder.
 
-### Option B — Build from source
+### Option C — Build from source
 
 Requires [Node.js](https://nodejs.org/) 18+ and npm.
 
@@ -84,7 +93,6 @@ inflow notifies you in-app when a new release is out — see [Updating](#updatin
 | `has:attachment` | Has attachments |
 | `has:draft` | Has an unsent draft |
 | `from:name` | Filter by sender |
-| `company:name` | Filter by company |
 | `after:YYYY-MM-DD` | Active after date |
 | `before:YYYY-MM-DD` | Active before date |
 | `newer:Nd` | Active within the last N days |
@@ -146,8 +154,16 @@ This software is provided as-is for **personal and educational use only**. The a
 
 ## Updating
 
-inflow checks GitHub for new releases and shows a banner in the app when one is
-available — click **What's changed** to see the release notes. To update, either:
+**Installed from the Chrome Web Store?** Chrome updates inflow on its own —
+there is nothing to do.
+
+A manually loaded copy never updates itself. inflow shows a banner pointing at
+the store listing; moving there is the one-time fix. Because Chrome treats the
+store build as a separate extension, it starts with an empty local database and
+re-syncs your conversations from LinkedIn — unsent drafts and your Gemini API
+key do not carry over.
+
+To stay on a manual install:
 
 **A. Download the latest build** — grab `inflow-<version>-chrome.zip` from the
 [latest release](https://github.com/grinich/inflow/releases/latest), unzip it,
@@ -184,9 +200,12 @@ git push --follow-tags
 ```
 
 Pushing the tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which runs the tests, builds the extension, and publishes a GitHub Release with
-auto-generated notes and the `inflow-<version>-chrome.zip` attached. Users' apps
-pick up the new release via the in-app update banner.
+which runs the tests, builds the extension, publishes a GitHub Release with
+auto-generated notes and the `inflow-<version>-chrome.zip` attached, and then
+uploads and publishes the store build to the Chrome Web Store. Store users get
+it automatically once review clears. See
+[docs/chrome-web-store-release.md](docs/chrome-web-store-release.md) for the
+one-time OAuth setup.
 
 > The extension ID is pinned by a public `key` in the manifest. The matching
 > private key (`inflow-signing-key.pem`) is gitignored and only needed for `.crx`

@@ -35,7 +35,18 @@ inflow is a Chrome extension (MV3) that provides a keyboard-driven messaging cli
 
 ## Release process
 
-1. Update `CHANGELOG.md` with the new version section
+1. Update `CHANGELOG.md` with the new version section, and mirror it into
+   `site/changelog.html` (the site does not read the markdown)
 2. `npm version <patch|minor|major>` — bumps `package.json` + creates `vX.Y.Z` tag
 3. `git push --follow-tags` — triggers the GitHub Actions release workflow
-4. CI runs tests, builds the zip, and creates a GitHub Release with release notes from the changelog
+4. CI runs tests, builds both zips, creates a GitHub Release, and uploads +
+   publishes the store build to the Chrome Web Store automatically
+   (see `docs/chrome-web-store-release.md` for the required secrets)
+
+## Marketing site
+
+`site/` is a static site deployed to https://inflow.im on Vercel (personal
+scope, project `inflow`, **root directory `site`** — the repo root would build
+the extension instead). Run `npx vercel dev --listen 8765` from `site/` to serve
+it locally with production's clean-URL routing; a plain static server 404s on
+`/changelog` and `/privacy`.

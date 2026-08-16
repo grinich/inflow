@@ -13,6 +13,7 @@ function createChromeMock() {
         removeListener: vi.fn(),
       },
       getURL: vi.fn((path: string) => `chrome-extension://test-extension-id/${path}`),
+      getManifest: vi.fn(() => ({ version: '0.4.0' })),
       onInstalled: {
         addListener: vi.fn(),
       },

@@ -44,12 +44,11 @@ jobs:
 
           ## How to update
 
-          1. Download the `.zip` asset from this release and unzip it (replace your existing inflow folder, or unzip a fresh copy).
-          2. Open `chrome://extensions`, find **inflow**, and click the reload icon (↻). If you unzipped to a new folder, use **Load unpacked** and select it.
+          Installed from the [Chrome Web Store](https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge)? Chrome updates inflow on its own — there is nothing to do. This release is submitted to the store automatically; it goes live once review clears.
 
-          Prefer building from source? Run `git pull && npm install && npm run build`, then reload at `chrome://extensions`. Your conversations and settings are preserved across updates.
+          Still running a manually loaded copy? Move to the store listing above to get automatic updates from here on. The store build is a separate extension to Chrome, so it starts with an empty local database and re-syncs your conversations from LinkedIn.
 
-          Not sure where inflow is installed? Open `chrome://extensions` (turn on Developer mode) — the inflow card shows the folder it's loaded from.
+          To stay on a manual install: download the `.zip` asset below, unzip it, then reload the inflow card at `chrome://extensions` (or `git pull && npm install && npm run build` from a clone).
           HOWTO
           echo "Built release notes for v$VERSION"
 
@@ -61,3 +60,93 @@ jobs:
           files: |
             dist/*.zip
             .output/*.zip
+
+  # Publishes the same tag to the Chrome Web Store. Separate job so a store-side
+  # failure (expired token, review rejection) leaves the GitHub Release intact
+  # rather than failing the whole run after the release already exists.
+  #
+  # Requires four repository secrets. The first three come from a Google Cloud
+  # OAuth client with the Chrome Web Store API enabled; minting the refresh token
+  # is a one-time interactive consent flow — see docs/chrome-web-store-release.md.
+  #   CWS_CLIENT_ID · CWS_CLIENT_SECRET · CWS_REFRESH_TOKEN
+  chrome-web-store:
+    name: Publish to Chrome Web Store
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      # Public — it is the ID in the store listing URL.
+      EXTENSION_ID: ndehgbgifkapdigmefglpgacpagoclge
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The store rejects any manifest carrying a `key`, so this build omits it.
+      # Produces dist/inflow-<version>-chrome-store.zip
+      - run: npm run zip:store
+
+      - name: Upload and publish
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CWS_CLIENT_ID:-}" ] || [ -z "${CWS_CLIENT_SECRET:-}" ] || [ -z "${CWS_REFRESH_TOKEN:-}" ]; then
+            echo "::error::CWS_CLIENT_ID / CWS_CLIENT_SECRET / CWS_REFRESH_TOKEN are not all set."
+            exit 1
+          fi
+
+          ZIP=$(ls dist/inflow-*-chrome-store.zip)
+          echo "Publishing $ZIP to $EXTENSION_ID"
+
+          # Refresh tokens do not expire on their own, but they are revoked if the
+          # OAuth client is deleted or consent is withdrawn — so fail loudly here.
+          TOKEN=$(curl -sS -X POST https://oauth2.googleapis.com/token \
+            -d client_id="$CWS_CLIENT_ID" \
+            -d client_secret="$CWS_CLIENT_SECRET" \
+            -d refresh_token="$CWS_REFRESH_TOKEN" \
+            -d grant_type=refresh_token | jq -r '.access_token // empty')
+
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Could not mint an access token. Re-run the consent flow to get a fresh CWS_REFRESH_TOKEN."
+            exit 1
+          fi
+
+          UPLOAD=$(curl -sS -X PUT \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "x-goog-api-version: 2" \
+            -T "$ZIP" \
+            "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$EXTENSION_ID")
+          echo "Upload response: $UPLOAD"
+
+          # A failed upload still returns HTTP 200 — the verdict is in the body.
+          if [ "$(echo "$UPLOAD" | jq -r '.uploadState // empty')" != "SUCCESS" ]; then
+            echo "::error::Upload rejected: $(echo "$UPLOAD" | jq -r '[.itemError[]?.error_detail] | join("; ")')"
+            exit 1
+          fi
+
+          PUBLISH=$(curl -sS -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "x-goog-api-version: 2" \
+            -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/$EXTENSION_ID/publish")
+          echo "Publish response: $PUBLISH"
+
+          STATUS=$(echo "$PUBLISH" | jq -r '(.status // []) | join(",")')
+          case "$STATUS" in
+            *OK*|*ITEM_PENDING_REVIEW*|*PUBLISHED_WITH_FRICTION_WARNING*)
+              echo "Submitted for publication: $STATUS"
+              echo "### Chrome Web Store: \`$STATUS\`" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "::error::Publish failed: $(echo "$PUBLISH" | jq -r '(.statusDetail // []) | join("; ")')"
+              exit 1
+              ;;
+          esac

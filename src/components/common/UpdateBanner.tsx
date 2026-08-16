@@ -1,40 +1,36 @@
 import { useState, useEffect } from 'react';
 import { readLocal } from '@/lib/storage';
-import { isNewerVersion, UPDATE_STORAGE_KEY, type UpdateStatus } from '@/lib/update';
+import { isStoreInstall, STORE_URL } from '@/lib/store-install';
 
-const DISMISS_KEY = 'updateBannerDismissedVersion';
+/** Dismissals are keyed by the running version, so a rebuild re-surfaces the nudge. */
+const DISMISS_KEY = 'storeMigrationDismissedVersion';
 
 /**
- * Persistent banner shown when a newer GitHub release exists than the running
- * build. Reads the status the background update checker writes to storage, and
- * re-renders live when it changes. Dismissal is per-version, so the banner
- * reappears only when a newer release ships.
+ * Banner asking sideloaded users to reinstall from the Chrome Web Store, where
+ * Chrome keeps the extension up to date on its own.
+ *
+ * Store installs render nothing: they already auto-update, so the old
+ * "download the zip and reload the folder" advice was not just unnecessary
+ * there but wrong. Only an unpacked copy can be stranded on an old build.
  */
 export function UpdateBanner() {
-  const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
-  const [showHow, setShowHow] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      readLocal<UpdateStatus>(UPDATE_STORAGE_KEY),
-      readLocal<string>(DISMISS_KEY),
-    ]).then(([s, d]) => {
+    readLocal<string>(DISMISS_KEY).then((d) => {
       if (!active) return;
-      setStatus(s ?? null);
       setDismissedVersion(d ?? null);
+      setLoaded(true);
     });
 
-    // Reflect background writes (a fresh check) without a reload.
     const listener = (
       changes: Record<string, chrome.storage.StorageChange>,
       area: string,
     ) => {
       if (area !== 'local') return;
-      if (changes[UPDATE_STORAGE_KEY]) {
-        setStatus((changes[UPDATE_STORAGE_KEY].newValue as UpdateStatus | undefined) ?? null);
-      }
       if (changes[DISMISS_KEY]) {
         setDismissedVersion((changes[DISMISS_KEY].newValue as string | undefined) ?? null);
       }
@@ -48,45 +44,42 @@ export function UpdateBanner() {
 
   const current = chrome.runtime.getManifest().version;
 
-  if (!status || !status.releaseUrl) return null;
-  if (!isNewerVersion(status.latestVersion, current)) return null;
-  if (dismissedVersion === status.latestVersion) return null;
+  if (isStoreInstall()) return null;
+  if (!loaded) return null;
+  if (dismissedVersion === current) return null;
 
   const dismiss = () => {
-    setDismissedVersion(status.latestVersion);
-    chrome.storage.local.set({ [DISMISS_KEY]: status.latestVersion });
-  };
-
-  // A plain <a href="chrome://…"> is blocked by the browser; the tabs API isn't.
-  const openExtensions = () => {
-    void chrome.tabs?.create?.({ url: 'chrome://extensions' })?.catch?.(() => {});
+    setDismissedVersion(current);
+    chrome.storage.local.set({ [DISMISS_KEY]: current });
   };
 
   return (
     <div className="border-b border-edge bg-surface-raised text-sm">
       <div className="flex items-center justify-center gap-3 px-4 py-2">
-        {/* Arrow-up / update icon */}
+        {/* Storefront / download icon */}
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-blue-500">
-          <path d="M12 19V5" />
-          <path d="M5 12l7-7 7 7" />
+          <path d="M12 3v12" />
+          <path d="M7 10l5 5 5-5" />
+          <path d="M4 19h16" />
         </svg>
         <span className="text-fg-secondary">
-          inflow <span className="font-medium text-fg-strong">v{status.latestVersion}</span> is available
-          <span className="text-fg-muted"> · you have v{current}</span>
+          inflow is now on the{' '}
+          <span className="font-medium text-fg-strong">Chrome Web Store</span>
+          <span className="text-fg-muted"> · this copy was loaded manually and won&apos;t update itself</span>
         </span>
         <a
-          href={status.releaseUrl}
+          href={STORE_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-md bg-blue-600 px-2.5 py-0.5 text-xs font-medium text-white transition-colors hover:bg-blue-700"
         >
-          What&apos;s changed
+          Install from the store
         </a>
         <button
-          onClick={() => setShowHow((v) => !v)}
+          onClick={() => setShowDetail((v) => !v)}
           className="cursor-pointer text-xs text-fg-muted underline-offset-2 transition-colors hover:text-fg-strong hover:underline"
         >
-          How to update
+          What happens to my messages?
         </button>
         <button
           onClick={dismiss}
@@ -99,25 +92,24 @@ export function UpdateBanner() {
           </svg>
         </button>
       </div>
-      {showHow && (
+      {showDetail && (
         <div className="border-t border-edge px-4 py-2 text-xs leading-relaxed text-fg-muted">
-          <ol className="ml-4 list-decimal space-y-1">
-            <li>
-              Download the <code className="rounded bg-surface px-1 py-0.5 font-mono">.zip</code> from the{' '}
-              <a href={status.releaseUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">release page</a>
-              {' '}and unzip it (or, from a clone, <code className="rounded bg-surface px-1 py-0.5 font-mono">git pull &amp;&amp; npm run build</code>).
-            </li>
-            <li>
-              Open{' '}
-              <button onClick={openExtensions} className="cursor-pointer rounded bg-surface px-1 py-0.5 font-mono text-blue-500 hover:underline">chrome://extensions</button>
-              {' '}and click the reload icon (↻) on the inflow card.
-            </li>
-          </ol>
-          <p className="mt-1.5">
-            Your conversations and settings are preserved. Not sure where inflow lives? Open{' '}
-            <button onClick={openExtensions} className="cursor-pointer rounded bg-surface px-1 py-0.5 font-mono text-blue-500 hover:underline">chrome://extensions</button>
-            {' '}(turn on Developer mode) — the inflow card shows the folder it&apos;s loaded from.
+          <p>
+            The store version is a separate extension as far as Chrome is concerned, so it starts
+            with an <span className="font-medium text-fg-secondary">empty local database</span>. Your
+            conversations re-sync from LinkedIn the first time you open it — nothing on LinkedIn is
+            touched — but unsent drafts and your Gemini API key stay with this copy and will need to
+            be re-entered.
           </p>
+          <ol className="mt-1.5 ml-4 list-decimal space-y-1">
+            <li>
+              <a href={STORE_URL} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                Install inflow from the Chrome Web Store
+              </a>
+              {' '}and let it sync.
+            </li>
+            <li>Once your inbox looks right, remove this manually loaded copy.</li>
+          </ol>
         </div>
       )}
     </div>
