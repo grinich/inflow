@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Changelog — inflow</title>
+<meta name="description" content="Every release of inflow, newest first.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8C%A8%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/base.css">
+<style>
+/* Changelog-only rules. Shared foundation lives in base.css. */
+:root{
+  --tag-added:#15803d;
+  --tag-fixed:#1d4ed8;
+  --tag-changed:#b45309;
+  --tag-removed:#b91c1c;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --tag-added:#4ade80;
+    --tag-fixed:#60a5fa;
+    --tag-changed:#fbbf24;
+    --tag-removed:#f87171;
+  }
+}
+:root[data-theme="dark"]{
+  --tag-added:#4ade80;
+  --tag-fixed:#60a5fa;
+  --tag-changed:#fbbf24;
+  --tag-removed:#f87171;
+}
+
+.rel{
+  display:grid;grid-template-columns:minmax(0,10rem) minmax(0,1fr);
+  gap:clamp(20px,4vw,48px);
+  padding-block:clamp(32px,4vw,48px);
+  border-top:1px solid var(--line);
+}
+.rel-meta{display:flex;flex-direction:column;gap:6px}
+.rel-ver{
+  font-size:1.5rem;letter-spacing:-.032em;line-height:1.1;
+  font-variant-numeric:tabular-nums;
+}
+.rel-date{font-size:.8125rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.rel-latest{
+  align-self:flex-start;margin-top:2px;
+  font-size:.6875rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);border:1px solid currentColor;border-radius:999px;padding:2px 9px;
+}
+.rel-body{display:flex;flex-direction:column;gap:24px;max-width:42rem}
+.rel-intro{margin:0;color:var(--ink-2);line-height:1.6}
+.rel-group{display:flex;flex-direction:column;gap:10px}
+.rel-tag{
+  font-size:.6875rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
+  margin:0;
+}
+.t-added{color:var(--tag-added)}
+.t-fixed{color:var(--tag-fixed)}
+.t-changed{color:var(--tag-changed)}
+.t-removed{color:var(--tag-removed)}
+.rel-group ul{margin:0;padding-left:1.15rem;display:flex;flex-direction:column;gap:10px}
+.rel-group li{color:var(--ink-2);line-height:1.55}
+.rel-group li ul{margin-top:10px}
+.rel-group strong{color:var(--ink);font-weight:600}
+.rel-group code{
+  font-family:var(--mono);font-size:.8125em;background:var(--band);
+  border-radius:5px;padding:2px 5px;color:var(--ink);
+}
+.rel-group a{color:var(--accent);text-decoration:none}
+.rel-group a:hover{text-decoration:underline}
+.rel-callout{
+  border-left:2px solid var(--accent);padding:2px 0 2px 18px;
+  color:var(--ink-2);line-height:1.6;margin:0;
+}
+@media (max-width:720px){
+  .rel{grid-template-columns:1fr;gap:16px}
+  .rel-meta{flex-direction:row;align-items:baseline;gap:12px}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <linearGradient id="chr-red" x1="3.2173" y1="15" x2="44.7812" y2="15" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d93025"/><stop offset="1" stop-color="#ea4335"/>
+    </linearGradient>
+    <linearGradient id="chr-yellow" x1="20.7219" y1="47.6791" x2="41.5039" y2="11.6837" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fcc934"/><stop offset="1" stop-color="#fbbc04"/>
+    </linearGradient>
+    <linearGradient id="chr-green" x1="26.5981" y1="46.5015" x2="5.8161" y2="10.506" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1e8e3e"/><stop offset="1" stop-color="#34a853"/>
+    </linearGradient>
+    <symbol id="chrome-mark" viewBox="0 0 48 48">
+      <circle cx="24" cy="23.9947" r="12" fill="#fff"/>
+      <path d="M24,12H44.7812a23.9939,23.9939,0,0,0-41.5639.0029L13.6079,30l.0093-.0024A11.9852,11.9852,0,0,1,24,12Z" fill="url(#chr-red)"/>
+      <circle cx="24" cy="24" r="9.5" fill="#1a73e8"/>
+      <path d="M34.3913,30.0029,24.0007,48A23.994,23.994,0,0,0,44.78,12.0031H23.9989l-.0025.0093A11.985,11.985,0,0,1,34.3913,30.0029Z" fill="url(#chr-yellow)"/>
+      <path d="M13.6086,30.0031,3.218,12.006A23.994,23.994,0,0,0,24.0025,48L34.3931,30.0029l-.0067-.0068a11.9852,11.9852,0,0,1-20.7778.007Z" fill="url(#chr-green)"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="nav" id="nav">
+  <div class="wrap nav-in">
+    <a class="mark" href="/"><i>in</i>flow</a>
+    <nav class="nav-links">
+      <a class="opt" href="/#keyboard">Keyboard</a>
+      <a class="opt" href="/#local-first">Local-first</a>
+      <a class="opt" href="/#install">Install</a>
+      <a href="https://github.com/grinich/inflow">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+        <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap doc-head">
+    <p class="eyebrow">Releases</p>
+    <h1 class="display">Changelog</h1>
+    <p class="lede">
+      Every version of inflow, newest first. Installed from the Chrome Web Store, updates
+      arrive on their own — there is nothing to download.
+    </p>
+  </div>
+
+  <div class="wrap doc">
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.4.0</h2>
+        <time class="rel-date" datetime="2026-07-13">13 July 2026</time>
+        <span class="rel-latest">Latest</span>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>Sender avatars in notifications</strong> — native Chrome notifications now show the sender's profile picture (circle-cropped) instead of the generic app icon, with the app icon as fallback when the avatar can't be loaded. Requires a new <code>media.licdn.com</code> host permission.</li>
+            <li><strong>Avatar rail on narrow windows</strong> — below 700px window width the conversation list collapses to a compact avatar-only rail (unread dot and star badges, name + preview on hover) so the thread keeps usable width. Keyboard navigation works unchanged.</li>
+            <li><strong>Demo mode fires native notifications</strong> — simulated incoming messages now produce real OS notifications (when the app isn't focused), matching production behavior.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Thread pane layout at narrow widths</strong> — the contact name no longer overflows into the header buttons, header buttons no longer wrap or clip, and message bubbles are no longer squeezed by the invisible hover-actions strip (which also no longer intercepts clicks while hidden).</li>
+            <li><strong>Missed notifications after switching apps</strong> — notifications were wrongly suppressed when inflow was the active tab but Chrome wasn't the frontmost app. Suppression now requires the window to actually have OS focus.</li>
+            <li><strong>Composer stays focused after sending a message.</strong></li>
+            <li><strong>Rate limits and network blips no longer pile up as errors</strong> in <code>chrome://extensions</code> — transient failures (timeouts, dropped connections, HTTP 429/5xx) log as warnings and recover on their own.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-changed">Changed</h3>
+          <ul>
+            <li><strong>Removed profile scraping</strong> — the extension no longer calls LinkedIn's identity API. Everything shown (names, avatars, headline, location) comes from messaging data. Company/title display, the company logo badges, and the <code>company:</code> search filter are gone; demo mode people no longer have fabricated companies or roles.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.3.6</h2>
+        <time class="rel-date" datetime="2026-07-10">10 July 2026</time>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Notification clicks now open the right conversation</strong> — clicking a native message notification (or the in-app toast) opens the app focused on that specific thread instead of just raising the window.</li>
+            <li><strong>Mark-as-read now reliably syncs to LinkedIn</strong> — outbound read/unread requests are checked against the response body, so a silently-rejected batch update surfaces as an error instead of appearing to succeed.</li>
+            <li><strong>Read/unread toggled on LinkedIn now reflects in inflow</strong> — a thread marked read or unread on another device is reconciled from the authoritative server flag for any conversation, not just the top of the focused inbox. Optimistic local state is preserved while a mutation is in flight.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-changed">Changed</h3>
+          <ul>
+            <li>Redundant conversation refetches triggered by realtime echoes are coalesced into far fewer network calls.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.3.5</h2>
+        <time class="rel-date" datetime="2026-07-05">5 July 2026</time>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>Resizable sidebar</strong> — drag the divider between the conversation list and the thread to resize it (280px up to 60% of the window); double-click the divider to reset. Your chosen width persists across sessions. Thanks <a href="https://github.com/sharkymark">@sharkymark</a> for the suggestion (<a href="https://github.com/grinich/inflow/issues/6">#6</a>).</li>
+            <li>When the sidebar is narrow, the Focused/Other/Archive/Spam tabs collapse into a compact dropdown so the header never overflows.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-changed">Changed</h3>
+          <ul>
+            <li>README: install steps moved to the top (<a href="https://github.com/grinich/inflow/issues/7">#7</a>) and screenshots now illustrate the feature tour.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.3.4</h2>
+        <time class="rel-date" datetime="2026-07-05">5 July 2026</time>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Blank app on load</strong> — opening inflow could intermittently show an empty conversation list until a (lucky) reload. The first render raced the local database opening; queries that lost the race never recovered. They now reconnect the moment the database is ready.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-changed">Changed</h3>
+          <ul>
+            <li><strong>Much faster folder switching</strong> — the conversation list now renders only the rows in view instead of every conversation in the folder, batches its per-row lookups, and skips re-rendering unchanged rows during background sync. Switching between Focused/Other/Archived/Spam is instant even with hundreds of conversations, and revisiting a folder paints immediately from memory.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.3.3</h2>
+        <time class="rel-date" datetime="2026-07-05">5 July 2026</time>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Duplicate bubble after sending</strong> — a message you just sent could briefly show twice (the copy stored from the send response and the realtime echo carry timestamps a few ms apart) until the next thread refresh reconciled it. The two copies now collapse immediately.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.3.2</h2>
+        <time class="rel-date" datetime="2026-07-05">5 July 2026</time>
+      </div>
+      <div class="rel-body">
+        <p class="rel-intro">
+          A deep sync-consistency release: a systematic audit of everything flowing between
+          LinkedIn and inflow, with 31 fixes — each locked in by a regression test (the suite
+          grew to 656 tests).
+        </p>
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>Cross-device star sync</strong> — starring or unstarring a conversation on the LinkedIn website or your phone now updates inflow live, in both directions.</li>
+            <li><strong>Unsend sync</strong> — when someone unsends a message, it disappears from inflow immediately instead of lingering until the next refetch. Previously-stored copies of recalled messages are cleaned up too.</li>
+            <li><strong>Deletion sync</strong> — conversations you delete on the LinkedIn website (or another device) are now removed from inflow instead of living there forever. Conservative by design: a conversation must be absent from two consecutive full syncs before it's removed.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Unread accuracy</strong> — a batch of fixes for unread indicators that were wrong or stuck:
+              <ul>
+                <li>A sync page fetched moments before a new message arrived could clear the unread dot for a message you never saw.</li>
+                <li>Someone editing or reacting to an <em>old</em> message no longer marks the thread unread, pulls it out of Archive, or fires a "new message" notification.</li>
+                <li>Duplicate threads with the same person (InMail + regular) are shown merged, but the hidden twin's unread could never be cleared — the thread stayed unread forever and inflated the badge.</li>
+                <li>The toolbar badge now counts exactly what the Focused list shows.</li>
+              </ul>
+            </li>
+            <li><strong>Message ordering and timestamps</strong> — sent messages now get their real server timestamp immediately from the send response instead of the local clock, and a skewed system clock can no longer make the background sync silently skip newly arrived messages.</li>
+            <li><strong>Group chats</strong> — a message from a participant we hadn't synced yet could render as "You" and later show duplicated. Senders are now resolved from the event itself.</li>
+            <li><strong>Folder consistency</strong> — moving an archived conversation to Other or Spam no longer leaves it visible in Archived as well, and archive followed by a quick undo can no longer land on LinkedIn out of order and snap back.</li>
+            <li><strong>Deleted conversations stay deleted</strong> — a sync page fetched just before a local delete could silently resurrect the conversation.</li>
+            <li><strong>Unsent messages</strong> no longer leave an orphaned timestamp in the thread when they were the only message under it.</li>
+            <li><strong>Shared post previews</strong> refresh after a week — a post that failed to load once was cached as missing forever.</li>
+            <li><strong>Large mailboxes</strong> — the initial full sync no longer monopolizes the sync engine for hours; it works in short rounds so read-state reconciliation keeps running throughout.</li>
+            <li><strong>Sign-in after startup</strong> — interrupted sync items now recover on the next cycle instead of waiting for a browser restart; same after an account switch.</li>
+            <li><strong>Toolbar icon clicks while dragging a tab</strong> no longer error and do nothing — the click retries once the drag ends.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-changed">Changed</h3>
+          <ul>
+            <li>Database schema v12 (automatic, data-preserving migration).</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.3.1</h2>
+        <time class="rel-date" datetime="2026-06-27">27 June 2026</time>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Compose to new contacts</strong> — sending a first message to a recently connected person no longer fails with a misleading "not connected" error. The <code>createMessage</code> payload was missing a required field (<code>hostRecipientUrns</code>).</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.3.0</h2>
+        <time class="rel-date" datetime="2026-06-27">27 June 2026</time>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>Check for updates</strong> command in the command palette (<code>Cmd+K</code>) for an on-demand release check.</li>
+            <li>The running version is now shown on the keyboard shortcuts bar.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li>Update checks now run reliably — the GitHub API host is declared, so the background check is no longer blocked.</li>
+            <li>The <code>?</code> (shortcuts) and <code>!</code> (mark as spam) shortcuts now work on non-QWERTY keyboard layouts such as AZERTY. Thanks <a href="https://github.com/qchuchu">@qchuchu</a> (<a href="https://github.com/grinich/inflow/issues/4">#4</a>).</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-removed">Removed</h3>
+          <ul>
+            <li>The WhatsApp community top banner — the button in the conversation header already covers it.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.2.0</h2>
+        <time class="rel-date" datetime="2026-06-27">27 June 2026</time>
+      </div>
+      <div class="rel-body">
+        <p class="rel-intro">First public GitHub release, with in-app update notifications.</p>
+        <p class="rel-callout">
+          <strong>Existing users: this is a one-time fresh start.</strong> This build pins a stable
+          extension ID so all future updates preserve your data. Moving from an older build changes
+          the extension's identity once, so inflow will open empty — re-enter your Gemini key (if you
+          use AI features) and let it re-sync. This only happens this once; every release after this
+          keeps your data.
+        </p>
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>Update notifications</strong> — inflow now checks GitHub for new releases and shows a banner with a link to the release notes when an update is available.</li>
+            <li><strong>GitHub Releases</strong> — each version ships a downloadable <code>inflow-&lt;version&gt;-chrome.zip</code>.</li>
+            <li><strong>Stable extension ID</strong> — updates (zip download or rebuild) now preserve your conversations and settings regardless of where the extension folder lives.</li>
+            <li>New envelope app icon.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li>New conversations started from another device (e.g. your phone) no longer show the participant as "Unknown".</li>
+            <li>A conversation read on another device now reflects as read in inflow, even while the realtime connection is active.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
+        <h2 class="rel-ver">0.1.0</h2>
+      </div>
+      <div class="rel-body">
+        <p class="rel-intro">Initial pre-release builds, shared informally before GitHub Releases.</p>
+      </div>
+    </article>
+
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="mark" href="/" style="text-decoration:none"><i>in</i>flow</a>
+      <nav class="foot-links">
+        <a href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">Chrome Web Store</a>
+        <a href="https://github.com/grinich/inflow">GitHub</a>
+        <a href="/changelog">Changelog</a>
+        <a href="/privacy">Privacy</a>
+        <a href="https://github.com/grinich/inflow/issues">Support</a>
+      </nav>
+    </div>
+    <p class="fine">
+      inflow is an independent project and is <strong>not affiliated with, endorsed by, or associated
+      with LinkedIn or Microsoft</strong>. It reads and sends messages through LinkedIn's undocumented
+      internal APIs using your existing browser session, which may be inconsistent with LinkedIn's
+      <a href="https://www.linkedin.com/legal/user-agreement">User Agreement</a> and could put your
+      account at risk of restriction.
+    </p>
+    <p class="fine">
+      Provided as-is for personal and educational use, at your own risk. MIT licensed.
+    </p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var nav = document.getElementById('nav');
+  var onScroll = function(){ nav.classList.toggle('scrolled', window.scrollY > 8); };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>
+</body>
+</html>

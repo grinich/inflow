@@ -17,3 +17,6 @@ dist/
 *.part
 *.mp4
 *.mov
+
+# Vercel CLI project link (contains project/org ids)
+.vercel/

@@ -1,0 +1,1185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>inflow — a better inbox for LinkedIn</title>
+<meta name="description" content="A keyboard-driven inbox for your LinkedIn messages. Local-first, open source, no server. A Chrome extension.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="inflow — a better inbox for LinkedIn">
+<meta property="og:description" content="A keyboard-driven inbox for your LinkedIn messages. Local-first, open source, no server.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8C%A8%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/base.css">
+<style>
+/* Landing-page-only rules. Shared foundation lives in base.css. */
+
+/* The one always-dark chapter. Overrides the full token set locally so it
+   resolves identically whichever theme the page is in. */
+.stage{
+  --ground:#08090b;
+  --band:#0e0f13;
+  --panel:#121317;
+  --ink:#f5f6f8;
+  --ink-2:#a2a8b3;
+  --ink-3:#6c727c;
+  --line:#24262c;
+  --line-soft:#1a1c21;
+  --accent:#3b82f6;
+  --mark:#58a6ff;
+  --star:#facc15;
+  --bubble-in:#1c1e23;
+  --sel:rgba(37,99,235,.22);
+  --shadow:0 24px 60px -20px rgba(0,0,0,.7);
+  background:var(--ground);
+  color:var(--ink);
+}
+
+/* ---------- hero ---------- */
+.hero{padding-top:clamp(56px,9vw,104px);padding-bottom:clamp(72px,10vw,132px);overflow:hidden}
+.hero-in{display:flex;flex-direction:column;align-items:center;text-align:center;gap:26px}
+.hero .display{max-width:18ch}
+.hero .lede{max-width:34rem}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:2px}
+.hero-note{
+  font-size:.875rem;letter-spacing:-.008em;
+  color:var(--ink-2);margin:0;
+}
+.hero-note .sep{color:var(--ink-3);padding-inline:.3em}
+.hero-stage{margin-top:clamp(44px,6vw,76px);position:relative}
+
+/* ---------- browser frame + app mock ---------- */
+/* Chrome's own chrome: a tab strip over a toolbar, with its palette rather than
+   the page's, so the window reads as the browser and the app reads as ours.
+   Both themes are Chrome's real defaults, keyed off the page theme. */
+.frame{
+  --cr-strip:#dee1e6;
+  --cr-tab:#ffffff;
+  --cr-bar:#ffffff;
+  --cr-omni:#f1f3f4;
+  --cr-icon:#5f6368;
+  --cr-text:#3c4043;
+  --cr-edge:rgba(0,0,0,.10);
+  border-radius:12px;
+  background:var(--cr-bar);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .frame{
+    --cr-strip:#202124;
+    --cr-tab:#35363a;
+    --cr-bar:#35363a;
+    --cr-omni:#202124;
+    --cr-icon:#9aa0a6;
+    --cr-text:#e8eaed;
+    --cr-edge:rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"] .frame{
+  --cr-strip:#202124;
+  --cr-tab:#35363a;
+  --cr-bar:#35363a;
+  --cr-omni:#202124;
+  --cr-icon:#9aa0a6;
+  --cr-text:#e8eaed;
+  --cr-edge:rgba(0,0,0,.6);
+}
+
+.cr-strip{
+  display:flex;align-items:flex-end;gap:8px;
+  height:40px;padding:0 8px 0 12px;
+  background:var(--cr-strip);
+}
+.cr-lights{display:flex;align-items:center;gap:8px;height:34px;padding-right:6px;flex:none}
+.cr-lights i{width:12px;height:12px;border-radius:50%;display:block}
+.cr-lights i:nth-child(1){background:#ff5f57}
+.cr-lights i:nth-child(2){background:#febc2e}
+.cr-lights i:nth-child(3){background:#28c840}
+
+/* The active tab's flared feet: an 8px box either side with a quarter-circle
+   bitten out, which is what makes the silhouette read as Chrome. */
+.cr-tab{
+  position:relative;display:flex;align-items:center;gap:8px;
+  height:34px;padding:0 10px;min-width:0;max-width:260px;
+  background:var(--cr-tab);border-radius:8px 8px 0 0;
+}
+.cr-tab::before,.cr-tab::after{content:"";position:absolute;bottom:0;width:8px;height:8px}
+.cr-tab::before{left:-8px;background:radial-gradient(circle at top left,transparent 8px,var(--cr-tab) 8px)}
+.cr-tab::after{right:-8px;background:radial-gradient(circle at top right,transparent 8px,var(--cr-tab) 8px)}
+.cr-tab-title{
+  font-size:.75rem;color:var(--cr-text);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;min-width:0;letter-spacing:-.006em;
+}
+.cr-ico{width:16px;height:16px;flex:none;display:block;color:var(--cr-icon)}
+.cr-ico-sm{width:14px;height:14px}
+.cr-new{margin-left:8px;margin-bottom:9px}
+
+.cr-bar{
+  display:flex;align-items:center;gap:14px;
+  height:44px;padding:0 12px;
+  background:var(--cr-bar);
+  border-bottom:1px solid var(--cr-edge);
+}
+.cr-omni{
+  flex:1;min-width:0;height:28px;border-radius:999px;
+  background:var(--cr-omni);
+  display:flex;align-items:center;gap:8px;padding:0 12px;
+  font-size:.75rem;color:var(--cr-text);overflow:hidden;white-space:nowrap;
+}
+.cr-omni-name{display:flex;align-items:center;gap:6px;flex:none}
+.cr-omni-url{color:var(--cr-icon);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cr-avatar{
+  width:20px;height:20px;border-radius:50%;flex:none;
+  background:linear-gradient(140deg,#7c5cff,#3b82f6);
+}
+@media (max-width:620px){
+  .cr-hideable,.cr-omni-url,.cr-new{display:none}
+  .cr-bar{gap:10px}
+}
+
+/* Fixed row height: an auto row would grow to the tallest column and push the
+   composer out of the frame's clipped box. */
+.app{display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr);grid-template-rows:min(72vh,560px);overflow:hidden}
+.app-list{border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel);overflow:hidden}
+.app-head{display:flex;align-items:center;gap:10px;padding:11px 12px 9px;min-width:0}
+.app-head .mark{font-size:.9375rem;flex:none}
+.tabs{display:flex;gap:2px;min-width:0;overflow:hidden}
+.tab{
+  font-size:.6875rem;color:var(--ink-3);padding:3px 7px;border-radius:6px;white-space:nowrap;
+}
+.tab.on{background:var(--band);color:var(--ink);font-weight:500;box-shadow:inset 0 0 0 1px var(--line)}
+.app-search{
+  margin:0 12px 10px;height:30px;border-radius:8px;background:var(--band);
+  display:flex;align-items:center;justify-content:space-between;padding:0 9px;
+  font-size:.75rem;color:var(--ink-3);
+}
+.rows{
+  flex:1;overflow:hidden;min-width:0;
+  -webkit-mask-image:linear-gradient(to bottom,#000 86%,transparent);
+  mask-image:linear-gradient(to bottom,#000 86%,transparent);
+}
+.row{
+  display:grid;grid-template-columns:14px 30px minmax(0,1fr) auto;
+  align-items:center;gap:9px;
+  padding:9px 12px;min-width:0;
+  border-top:1px solid var(--line-soft);
+}
+.row.on{background:var(--sel)}
+.row-flag{display:flex;align-items:center;justify-content:center;width:14px}
+.udot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.star{width:13px;height:13px;fill:var(--star)}
+.av{
+  width:30px;height:30px;border-radius:50%;flex:none;
+  object-fit:cover;background:var(--band);display:block;
+}
+.row-txt{min-width:0;display:flex;flex-direction:column;gap:1px}
+.row-name,.row-prev{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-name{font-size:.8125rem;letter-spacing:-.014em;color:var(--ink)}
+.row.unread .row-name{font-weight:600}
+.row-prev{font-size:.75rem;color:var(--ink-3);letter-spacing:-.008em}
+.row-time{font-size:.6875rem;color:var(--ink-3);font-variant-numeric:tabular-nums;flex:none}
+
+.app-thread{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel);overflow:hidden}
+.th-head{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line)}
+.th-name{font-size:.8125rem;font-weight:600;letter-spacing:-.014em}
+.th-sub{font-size:.6875rem;color:var(--ink-3)}
+.th-act{margin-left:auto;display:flex;align-items:center;gap:8px}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  border:1px solid var(--line);border-radius:7px;padding:3px 8px;
+  font-size:.6875rem;color:var(--ink-2);
+}
+.msgs{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;gap:12px;padding:18px 16px;overflow:hidden}
+.stamp{align-self:center;font-size:.625rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.msg{display:flex;flex-direction:column;gap:4px;max-width:74%}
+.msg.in{align-self:flex-start}
+.msg.out{align-self:flex-end;align-items:flex-end}
+.msg-who{font-size:.625rem;color:var(--ink-3);padding-left:2px}
+.bubble{
+  padding:8px 13px;border-radius:16px;font-size:.8125rem;line-height:1.45;letter-spacing:-.01em;
+}
+.msg.in .bubble{background:var(--bubble-in);color:var(--ink);border-bottom-left-radius:6px}
+.msg.out .bubble{background:var(--bubble-out);color:var(--bubble-out-ink);border-bottom-right-radius:6px}
+.receipt{font-size:.625rem;color:var(--ink-3)}
+.composer{
+  margin:0 16px 16px;border:1px solid var(--line);border-radius:11px;background:var(--band);
+  display:flex;align-items:center;gap:10px;padding:9px 10px 9px 13px;
+}
+.composer .placeholder{font-size:.8125rem;color:var(--ink-3)}
+.composer .send{
+  margin-left:auto;background:var(--accent);color:#fff;
+  border-radius:7px;padding:4px 11px;font-size:.75rem;font-weight:500;
+}
+@media (max-width:800px){
+  .app{grid-template-columns:1fr;grid-template-rows:min(62vh,430px)}
+  .app-list{border-right:none}
+  .app-thread{display:none}
+}
+
+/* hero: the message that arrives on its own */
+.row-incoming{
+  max-height:0;opacity:0;padding-block:0;border-top-color:transparent;overflow:hidden;
+  transition:max-height .5s cubic-bezier(.22,1,.36,1),opacity .4s ease .12s,padding .5s cubic-bezier(.22,1,.36,1);
+}
+.row-incoming.arrived{max-height:56px;opacity:1;padding-block:9px;border-top-color:var(--line-soft)}
+
+/* ---------- keyboard chapter ---------- */
+.stage-grid{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);
+  gap:clamp(32px,5vw,64px);align-items:start;
+}
+@media (max-width:900px){.stage-grid{grid-template-columns:1fr}}
+
+.demo{
+  border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  box-shadow:var(--shadow);overflow:hidden;position:relative;
+}
+.demo:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.demo-head{
+  display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);
+}
+.demo-list{list-style:none;margin:0;padding:0}
+.demo-row{
+  display:grid;grid-template-columns:14px 30px minmax(0,1fr) auto;
+  align-items:center;gap:9px;padding:10px 12px;
+  border-top:1px solid var(--line-soft);
+  transition:background-color .16s ease,opacity .28s ease,max-height .28s ease,padding .28s ease;
+  max-height:60px;cursor:pointer;
+}
+.demo-row:first-child{border-top:none}
+.demo-row.is-sel{background:var(--sel)}
+.demo-row.leaving{opacity:0;max-height:0;padding-block:0;overflow:hidden}
+.demo-foot{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:11px 12px;border-top:1px solid var(--line);
+  font-size:.75rem;color:var(--ink-3);min-height:46px;
+}
+.demo-toast{
+  margin-left:auto;font-size:.75rem;color:var(--ink-2);
+  opacity:0;transition:opacity .2s ease;
+}
+.demo-toast.show{opacity:1}
+.taps{display:none;gap:6px;flex-wrap:wrap}
+@media (hover:none){
+  .taps{display:flex}
+  .demo-hint{display:none}
+}
+.tap{
+  border:1px solid var(--line);background:transparent;color:var(--ink-2);
+  border-radius:7px;padding:5px 10px;font-size:.75rem;font-family:var(--sans);cursor:pointer;
+}
+
+.keycap{
+  position:absolute;right:14px;bottom:56px;
+  width:52px;height:52px;border-radius:11px;
+  border:1px solid var(--line);background:var(--band);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:1.25rem;color:var(--ink);
+  opacity:0;transform:scale(.86);
+  transition:opacity .18s ease,transform .18s cubic-bezier(.22,1,.36,1);
+  pointer-events:none;
+}
+.keycap.hit{opacity:1;transform:scale(1)}
+
+/* shortcut sheet */
+.sheet{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:clamp(24px,3vw,40px)}
+.sheet-col h4{
+  margin:0 0 12px;font-family:var(--mono);font-size:.625rem;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-weight:400;
+}
+.sheet-col ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.sheet-col li{display:flex;align-items:baseline;gap:10px;font-size:.8125rem;color:var(--ink-2);letter-spacing:-.008em}
+.sheet-col li span:first-child{flex:1;min-width:0}
+kbd,.kbd{
+  font-family:var(--mono);font-size:.6875rem;line-height:1;
+  padding:4px 6px;border-radius:5px;
+  border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  white-space:nowrap;flex:none;
+}
+
+/* ---------- privacy chapter ---------- */
+.never{
+  display:flex;flex-wrap:wrap;gap:10px;margin-top:28px;
+}
+.never li{
+  list-style:none;font-size:.8125rem;color:var(--ink-2);
+  border:1px solid var(--line);border-radius:999px;padding:6px 13px;
+}
+
+/* ---------- search chapter ---------- */
+.searchbar{
+  border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  box-shadow:var(--shadow-sm);padding:14px 16px;
+  display:flex;align-items:center;gap:10px;min-height:56px;
+  font-family:var(--mono);font-size:.9375rem;color:var(--ink);
+  overflow:hidden;
+}
+.searchbar .q{white-space:nowrap;overflow:hidden}
+.searchbar .tok{color:var(--accent)}
+.caret{
+  display:inline-block;width:2px;height:1.05em;background:var(--accent);
+  vertical-align:-.15em;animation:blink 1.1s steps(1) infinite;
+}
+@keyframes blink{50%{opacity:0}}
+.tokens{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.tokens code{
+  font-family:var(--mono);font-size:.75rem;color:var(--ink-2);
+  border:1px solid var(--line);border-radius:7px;padding:5px 9px;background:var(--panel);
+}
+
+/* ---------- three-up ---------- */
+.threeup{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:clamp(28px,4vw,52px);margin-top:clamp(40px,5vw,64px);
+}
+.threeup > div{border-top:1px solid var(--line);padding-top:20px}
+.threeup h3{margin-bottom:8px}
+.threeup p{margin:0;font-size:.9375rem;color:var(--ink-2);line-height:1.55}
+
+/* ---------- spec sheet ---------- */
+.specs{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+  gap:clamp(28px,3.5vw,48px);margin-top:clamp(40px,5vw,64px);
+}
+.spec h4{
+  margin:0 0 14px;padding-bottom:10px;border-bottom:1px solid var(--line);
+  font-size:.8125rem;font-weight:600;letter-spacing:-.01em;color:var(--ink);
+}
+.spec ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.spec li{font-size:.875rem;color:var(--ink-2);line-height:1.45;letter-spacing:-.008em}
+
+/* ---------- install ---------- */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:clamp(28px,4vw,48px);margin-top:clamp(40px,5vw,64px)}
+.step{border-top:1px solid var(--ink);padding-top:18px}
+.step .num{font-family:var(--mono);font-size:.6875rem;letter-spacing:.16em;color:var(--ink-3);display:block;margin-bottom:12px}
+.step h3{margin-bottom:8px}
+.step p{margin:0;font-size:.9375rem;color:var(--ink-2);line-height:1.55}
+.step code,code.inline{
+  font-family:var(--mono);font-size:.8125em;background:var(--band);
+  border-radius:5px;padding:2px 5px;color:var(--ink);
+}
+
+.closer{text-align:center;display:flex;flex-direction:column;align-items:center;gap:24px}
+
+/* ---------- reduced motion: page-specific pieces ---------- */
+@media (prefers-reduced-motion:reduce){
+  .row-incoming{max-height:56px;opacity:1;padding-block:9px;border-top-color:var(--line-soft)}
+  .caret{animation:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Brand marks, defined once and referenced by every button. Chrome's is
+     Google's own artwork; GitHub's takes currentColor so it follows the button. -->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <linearGradient id="chr-red" x1="3.2173" y1="15" x2="44.7812" y2="15" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#d93025"/><stop offset="1" stop-color="#ea4335"/>
+    </linearGradient>
+    <linearGradient id="chr-yellow" x1="20.7219" y1="47.6791" x2="41.5039" y2="11.6837" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fcc934"/><stop offset="1" stop-color="#fbbc04"/>
+    </linearGradient>
+    <linearGradient id="chr-green" x1="26.5981" y1="46.5015" x2="5.8161" y2="10.506" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1e8e3e"/><stop offset="1" stop-color="#34a853"/>
+    </linearGradient>
+    <symbol id="chrome-mark" viewBox="0 0 48 48">
+      <circle cx="24" cy="23.9947" r="12" fill="#fff"/>
+      <path d="M24,12H44.7812a23.9939,23.9939,0,0,0-41.5639.0029L13.6079,30l.0093-.0024A11.9852,11.9852,0,0,1,24,12Z" fill="url(#chr-red)"/>
+      <circle cx="24" cy="24" r="9.5" fill="#1a73e8"/>
+      <path d="M34.3913,30.0029,24.0007,48A23.994,23.994,0,0,0,44.78,12.0031H23.9989l-.0025.0093A11.985,11.985,0,0,1,34.3913,30.0029Z" fill="url(#chr-yellow)"/>
+      <path d="M13.6086,30.0031,3.218,12.006A23.994,23.994,0,0,0,24.0025,48L34.3931,30.0029l-.0067-.0068a11.9852,11.9852,0,0,1-20.7778.007Z" fill="url(#chr-green)"/>
+    </symbol>
+    <symbol id="inflow-mark" viewBox="0 0 16 16">
+      <rect width="16" height="16" rx="3.4" fill="#2b5ce6"/>
+      <path d="M3.4 5.6h9.2v5.4a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6z" fill="#fff"/>
+      <path d="M3.4 5.6 8 9.1l4.6-3.5a.6.6 0 0 0-.5-.3H3.9a.6.6 0 0 0-.5.3z" fill="#2b5ce6"/>
+      <path d="M3.4 5.6 8 9.1l4.6-3.5" fill="none" stroke="#fff" stroke-width="1.1" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="github-mark" viewBox="0 0 16 16">
+      <path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8C0 11.54 2.29 14.53 5.47 15.59C5.87 15.66 6.02 15.42 6.02 15.21C6.02 15.02 6.01 14.39 6.01 13.72C4 14.09 3.48 13.23 3.32 12.78C3.23 12.55 2.84 11.84 2.5 11.65C2.22 11.5 1.82 11.13 2.49 11.12C3.12 11.11 3.57 11.7 3.72 11.94C4.44 13.15 5.59 12.81 6.05 12.6C6.12 12.08 6.33 11.73 6.56 11.53C4.78 11.33 2.92 10.64 2.92 7.58C2.92 6.71 3.23 5.99 3.74 5.43C3.66 5.23 3.38 4.41 3.82 3.31C3.82 3.31 4.49 3.1 6.02 4.13C6.66 3.95 7.34 3.86 8.02 3.86C8.7 3.86 9.38 3.95 10.02 4.13C11.55 3.09 12.22 3.31 12.22 3.31C12.66 4.41 12.38 5.23 12.3 5.43C12.81 5.99 13.12 6.7 13.12 7.58C13.12 10.65 11.25 11.33 9.47 11.53C9.76 11.78 10.01 12.26 10.01 13.01C10.01 14.08 10 14.94 10 15.21C10 15.42 10.15 15.67 10.55 15.59C13.71 14.53 16 11.53 16 8C16 3.58 12.42 0 8 0Z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="nav" id="nav">
+  <div class="wrap nav-in">
+    <a class="mark" href="#top"><i>in</i>flow</a>
+    <nav class="nav-links">
+      <a class="opt" href="#keyboard">Keyboard</a>
+      <a class="opt" href="#local-first">Local-first</a>
+      <a class="opt" href="#install">Install</a>
+      <a href="https://github.com/grinich/inflow">GitHub</a>
+      <a class="btn btn-primary btn-sm" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+        <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ============ HERO ============ -->
+  <section class="sec hero">
+    <div class="wrap hero-in">
+      <h1 class="display rise d1">A keyboard-driven inbox for your LinkedIn messages.</h1>
+      <p class="lede rise d2">
+        inflow opens in a browser tab and syncs your conversations to your own machine, so you can
+        read, reply, and archive at the speed you type. Just the messages — none of the feed.
+      </p>
+      <div class="hero-cta rise d3">
+        <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+          <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/grinich/inflow">
+          <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#github-mark"/></svg>Star on GitHub
+        </a>
+      </div>
+      <p class="hero-note rise d3">Free and open source<span class="sep">·</span>Chrome, Edge, Arc, Brave</p>
+    </div>
+
+    <div class="wrap hero-stage rise d3">
+      <div class="frame">
+        <div class="cr-strip">
+          <span class="cr-lights"><i></i><i></i><i></i></span>
+          <span class="cr-tab">
+            <svg class="cr-ico" viewBox="0 0 16 16" aria-hidden="true" style="color:inherit"><use href="#inflow-mark"/></svg>
+            <span class="cr-tab-title">inflow — LinkedIn Messages</span>
+            <svg class="cr-ico cr-ico-sm" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </span>
+          <svg class="cr-ico cr-new" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+        </div>
+        <div class="cr-bar">
+          <svg class="cr-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 8H3M7 4L3 8l4 4"/></svg>
+          <svg class="cr-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity:.4"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+          <svg class="cr-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-3.96"/><path d="M13.7 2v3h-3"/></svg>
+          <div class="cr-omni">
+            <span class="cr-omni-name">
+              <svg class="cr-ico cr-ico-sm" viewBox="0 0 16 16" aria-hidden="true"><use href="#inflow-mark"/></svg>
+              inflow — LinkedIn Messaging
+            </span>
+            <span class="cr-omni-url">chrome-extension://ndehgbgifkapdigmefglpgacpagoclge/app.html</span>
+          </div>
+          <svg class="cr-ico cr-hideable" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.4l1.7 3.5 3.8.55-2.75 2.7.65 3.8L8 11.15 4.6 12.95l.65-3.8L2.5 6.45l3.8-.55z"/></svg>
+          <svg class="cr-ico cr-hideable" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 2.2a1.3 1.3 0 0 1 2.6 0V3.4h2.3c.4 0 .7.3.7.7v2.3h1.2a1.3 1.3 0 0 1 0 2.6h-1.2v2.3c0 .4-.3.7-.7.7H9v-1.2a1.3 1.3 0 0 0-2.6 0v1.2H4.1a.7.7 0 0 1-.7-.7V9.7H2.2a1.3 1.3 0 0 1 0-2.6h1.2V4.1c0-.4.3-.7.7-.7h2.3z"/></svg>
+          <span class="cr-avatar"></span>
+          <svg class="cr-ico" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="3.2" r="1.35"/><circle cx="8" cy="8" r="1.35"/><circle cx="8" cy="12.8" r="1.35"/></svg>
+        </div>
+        <div class="app">
+          <!-- conversation list -->
+          <aside class="app-list">
+            <div class="app-head">
+              <span class="mark"><i>in</i>flow</span>
+              <div class="tabs">
+                <span class="tab on">Focused</span>
+                <span class="tab">Other</span>
+                <span class="tab">Archive</span>
+                <span class="tab">Spam</span>
+              </div>
+            </div>
+            <div class="app-search"><span>Search 1,284 conversations</span><span class="kbd">/</span></div>
+            <div class="rows" id="heroRows">
+              <div class="row unread row-incoming" id="heroIncoming">
+                <span class="row-flag"><span class="udot"></span></span>
+                <img class="av" src="/avatars/w17.jpg" alt="Emma Larsson" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Emma Larsson</span>
+                  <span class="row-prev">Perfect — sending the deck over now.</span>
+                </span>
+                <span class="row-time">now</span>
+              </div>
+              <div class="row unread">
+                <span class="row-flag"><span class="udot"></span></span>
+                <img class="av" src="/avatars/w25.jpg" alt="Hannah Brooks" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Hannah Brooks</span>
+                  <span class="row-prev">Reaching out because I think there's a real…</span>
+                </span>
+                <span class="row-time">34s</span>
+              </div>
+              <div class="row on">
+                <span class="row-flag"></span>
+                <img class="av" src="/avatars/w68.jpg" alt="Priya Sharma" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Priya Sharma</span>
+                  <span class="row-prev">We're hosting a small dinner next Thursday…</span>
+                </span>
+                <span class="row-time">23h</span>
+              </div>
+              <div class="row">
+                <span class="row-flag"><svg class="star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4-5.8-3-5.8 3 1.1-6.4L2.6 9.4l6.5-.9L12 2.6z"/></svg></span>
+                <img class="av" src="/avatars/m32.jpg" alt="Marcus Rivera" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Marcus Rivera</span>
+                  <span class="row-prev">Would love to chat about what you're building</span>
+                </span>
+                <span class="row-time">1d</span>
+              </div>
+              <div class="row">
+                <span class="row-flag"></span>
+                <img class="av" src="/avatars/m36.jpg" alt="David Park" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">David Park</span>
+                  <span class="row-prev">Good question. We approached it by focusing…</span>
+                </span>
+                <span class="row-time">3d</span>
+              </div>
+              <div class="row">
+                <span class="row-flag"></span>
+                <img class="av" src="/avatars/m11.jpg" alt="Ryan McCarthy" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Ryan McCarthy</span>
+                  <span class="row-prev">Thanks for the intro — following up here.</span>
+                </span>
+                <span class="row-time">3d</span>
+              </div>
+              <div class="row">
+                <span class="row-flag"><svg class="star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4-5.8-3-5.8 3 1.1-6.4L2.6 9.4l6.5-.9L12 2.6z"/></svg></span>
+                <img class="av" src="/avatars/w72.jpg" alt="Maria Gonzalez" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Maria Gonzalez</span>
+                  <span class="row-prev">Appreciate the kind words! Happy to chat…</span>
+                </span>
+                <span class="row-time">4d</span>
+              </div>
+              <div class="row">
+                <span class="row-flag"></span>
+                <img class="av" src="/avatars/m45.jpg" alt="Daniel Kim" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Daniel Kim</span>
+                  <span class="row-prev">Following up on our conversation from the…</span>
+                </span>
+                <span class="row-time">5d</span>
+              </div>
+              <div class="row">
+                <span class="row-flag"></span>
+                <img class="av" src="/avatars/m29.jpg" alt="Sam Taylor" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Sam Taylor</span>
+                  <span class="row-prev">Hope you're doing well! I noticed we have…</span>
+                </span>
+                <span class="row-time">6d</span>
+              </div>
+              <div class="row">
+                <span class="row-flag"></span>
+                <img class="av" src="/avatars/w14.jpg" alt="Mei Lin" width="30" height="30" loading="lazy" decoding="async">
+                <span class="row-txt">
+                  <span class="row-name">Mei Lin</span>
+                  <span class="row-prev">Any chance you're free for coffee next week?</span>
+                </span>
+                <span class="row-time">6d</span>
+              </div>
+            </div>
+          </aside>
+
+          <!-- thread -->
+          <section class="app-thread">
+            <div class="th-head">
+              <img class="av" src="/avatars/w68.jpg" alt="Priya Sharma" width="30" height="30" loading="lazy" decoding="async" style="width:34px;height:34px">
+              <span>
+                <span class="th-name">Priya Sharma</span>
+                <span class="th-sub" style="display:block">San Francisco Bay Area</span>
+              </span>
+              <span class="th-act">
+                <span class="chip">Archive <span class="kbd">E</span></span>
+              </span>
+            </div>
+            <div class="msgs">
+              <span class="stamp">Yesterday, 9:25 AM</span>
+              <div class="msg in">
+                <span class="msg-who">Priya Sharma</span>
+                <span class="bubble">Would love to hear what you're building. Saw the launch post — it really resonated.</span>
+              </div>
+              <div class="msg out">
+                <span class="bubble">Thank you! Happy to walk you through it. Are you free later this week?</span>
+                <span class="receipt">Read ✓</span>
+              </div>
+              <span class="stamp">Yesterday, 12:28 PM</span>
+              <div class="msg in">
+                <span class="msg-who">Priya Sharma</span>
+                <span class="bubble">We're hosting a small dinner next Thursday for founders in the space. Would you like to join?</span>
+              </div>
+            </div>
+            <div class="composer">
+              <span class="placeholder">Reply…</span>
+              <span class="kbd">R</span>
+              <span class="send">Send ↵</span>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ KEYBOARD ============ -->
+  <section class="sec stage" id="keyboard">
+    <div class="wrap">
+      <div class="sec-head rise">
+        <p class="eyebrow">Keyboard</p>
+        <h2 class="h2">Your hands never leave the home row.</h2>
+        <p class="lede">
+          Every action in the inbox is one key. Move, star, archive, reply, undo —
+          a week of messages goes by without reaching for the trackpad.
+        </p>
+      </div>
+
+      <div class="stage-grid" style="margin-top:clamp(40px,5vw,64px)">
+        <div class="demo rise" id="demo" tabindex="0" role="application" aria-label="Try the inflow keyboard shortcuts">
+          <div class="demo-head">
+            <span class="mark" style="font-size:.9375rem"><i>in</i>flow</span>
+            <span class="tab on">Focused</span>
+            <span style="margin-left:auto;font-size:.6875rem;color:var(--ink-3)" id="demoCount">6 conversations</span>
+          </div>
+          <ul class="demo-list" id="demoList"></ul>
+          <div class="demo-foot">
+            <span class="demo-hint">
+              <kbd>J</kbd> <kbd>K</kbd> move · <kbd>S</kbd> star · <kbd>U</kbd> unread · <kbd>E</kbd> archive · <kbd>Z</kbd> undo
+            </span>
+            <span class="taps">
+              <button class="tap" data-key="j" type="button">J</button>
+              <button class="tap" data-key="k" type="button">K</button>
+              <button class="tap" data-key="s" type="button">S</button>
+              <button class="tap" data-key="u" type="button">U</button>
+              <button class="tap" data-key="e" type="button">E</button>
+              <button class="tap" data-key="z" type="button">Z</button>
+            </span>
+            <span class="demo-toast" id="demoToast" role="status" aria-live="polite"></span>
+          </div>
+          <div class="keycap" id="keycap" aria-hidden="true">J</div>
+        </div>
+
+        <div class="rise d1">
+          <h3 class="h3">Muscle memory, borrowed.</h3>
+          <p class="body" style="margin-top:10px">
+            The bindings come from the mail clients you already know — <code class="inline">J</code> and
+            <code class="inline">K</code> to move, <code class="inline">E</code> to archive,
+            <code class="inline">Z</code> to undo. Destructive actions are always undoable, so you can
+            triage fast without being careful.
+          </p>
+          <p class="body" style="margin-top:14px">
+            Press <kbd>?</kbd> anywhere in the app for the full sheet.
+          </p>
+        </div>
+      </div>
+
+      <div class="sheet rise" style="margin-top:clamp(48px,6vw,84px)">
+        <div class="sheet-col">
+          <h4>Navigation</h4>
+          <ul>
+            <li><span>Move selection down</span><kbd>J</kbd></li>
+            <li><span>Move selection up</span><kbd>K</kbd></li>
+            <li><span>Open conversation</span><kbd>↵</kbd></li>
+            <li><span>Go back</span><kbd>Esc</kbd></li>
+            <li><span>Focused / Other</span><kbd>1</kbd><kbd>2</kbd></li>
+            <li><span>Archived / Spam</span><kbd>3</kbd><kbd>4</kbd></li>
+            <li><span>Go to starred</span><kbd>G S</kbd></li>
+            <li><span>Go to unread</span><kbd>G U</kbd></li>
+          </ul>
+        </div>
+        <div class="sheet-col">
+          <h4>Actions</h4>
+          <ul>
+            <li><span>Archive / move to Focused</span><kbd>E</kbd></li>
+            <li><span>Move to Other</span><kbd>O</kbd></li>
+            <li><span>Star conversation</span><kbd>S</kbd></li>
+            <li><span>Toggle read / unread</span><kbd>U</kbd></li>
+            <li><span>Mark unread &amp; go back</span><kbd>⇧U</kbd></li>
+            <li><span>Open LinkedIn profile</span><kbd>P</kbd></li>
+            <li><span>Delete conversation</span><kbd>D</kbd></li>
+            <li><span>Mark as spam</span><kbd>!</kbd></li>
+          </ul>
+        </div>
+        <div class="sheet-col">
+          <h4>Compose</h4>
+          <ul>
+            <li><span>Reply</span><kbd>R</kbd></li>
+            <li><span>Send message</span><kbd>↵</kbd></li>
+            <li><span>Send + archive</span><kbd>⌘↵</kbd></li>
+            <li><span>New line</span><kbd>⇧↵</kbd></li>
+          </ul>
+        </div>
+        <div class="sheet-col">
+          <h4>Global</h4>
+          <ul>
+            <li><span>Compose new message</span><kbd>C</kbd></li>
+            <li><span>Search</span><kbd>/</kbd></li>
+            <li><span>Command palette</span><kbd>⌘K</kbd></li>
+            <li><span>Undo last action</span><kbd>Z</kbd></li>
+            <li><span>Show all shortcuts</span><kbd>?</kbd></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PRIVACY ============ -->
+  <section class="sec" id="local-first">
+    <div class="wrap">
+      <div class="sec-head rise">
+        <p class="eyebrow">Local-first</p>
+        <h2 class="h2">There is no inflow server.</h2>
+        <p class="lede">
+          No account to create, no backend to trust, no analytics. inflow reads your messages with the
+          LinkedIn session already in your browser and stores them in IndexedDB on your own machine,
+          partitioned per account. The developer cannot see your data, because there is nowhere for it to go.
+        </p>
+      </div>
+
+      <div class="manifest rise d1">
+        <div class="hostrow head">
+          <span>Host</span><span>Why</span><span>What is sent</span>
+        </div>
+        <div class="hostrow">
+          <span class="host">www.linkedin.com</span>
+          <span class="why">Read and send your messages</span>
+          <span class="what">The LinkedIn session cookies already in your browser</span>
+        </div>
+        <div class="hostrow">
+          <span class="host">media.licdn.com</span>
+          <span class="why">Profile photos for desktop notifications</span>
+          <span class="what">Nothing but the image URL</span>
+        </div>
+        <div class="hostrow">
+          <span class="host">generativelanguage.googleapis.com</span>
+          <span class="why">Optional AI replies — off until you add a key</span>
+          <span class="what">The open conversation, under your own Gemini key</span>
+        </div>
+        <div class="hostrow">
+          <span class="host">api.github.com</span>
+          <span class="why">Check whether a newer version shipped</span>
+          <span class="what">Nothing about you — a public release lookup</span>
+        </div>
+      </div>
+
+      <ul class="never rise d2">
+        <li>No selling or sharing of data</li>
+        <li>No advertising or profiling</li>
+        <li>No telemetry or crash reporting</li>
+        <li>Uninstalling deletes everything</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ SEARCH ============ -->
+  <section class="sec sec-band" id="search">
+    <div class="wrap">
+      <div class="sec-head rise">
+        <p class="eyebrow">Search</p>
+        <h2 class="h2">Find it the way you remember it.</h2>
+        <p class="lede">
+          Local search filters as you type, across every message already on your machine — then hands off to
+          LinkedIn's own search when you need to go further back.
+        </p>
+      </div>
+
+      <div class="searchbar rise d1" style="margin-top:clamp(36px,4.5vw,56px)" aria-hidden="true">
+        <span class="q" id="typedQuery"></span><span class="caret"></span>
+      </div>
+
+      <div class="tokens rise d2">
+        <code>is:unread</code><code>is:read</code><code>is:starred</code><code>is:group</code>
+        <code>has:draft</code><code>has:attachment</code><code>from:name</code>
+        <code>after:2026-01-01</code><code>before:2026-01-01</code>
+        <code>newer:7d</code><code>older:30d</code>
+      </div>
+
+      <div class="threeup">
+        <div class="rise">
+          <h3 class="h3">Autocomplete built in</h3>
+          <p>Start typing a filter and finish it with Tab or Enter. The rest of the query stays free text.</p>
+        </div>
+        <div class="rise d1">
+          <h3 class="h3">Matches, highlighted</h3>
+          <p>Results show the matched words in context inside the preview line, not just the sender's name.</p>
+        </div>
+        <div class="rise d2">
+          <h3 class="h3">Deeper on demand</h3>
+          <p>Paginated server-side search reaches conversations that haven't been backfilled yet.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SYNC ============ -->
+  <section class="sec" id="sync">
+    <div class="wrap">
+      <div class="sec-head rise">
+        <p class="eyebrow">Sync</p>
+        <h2 class="h2">Already there when you open it.</h2>
+        <p class="lede">
+          A background service worker keeps a live stream open and backfills history in priority order,
+          so the inbox is warm before you arrive.
+        </p>
+      </div>
+      <div class="threeup">
+        <div class="rise">
+          <h3 class="h3">Realtime, then polling</h3>
+          <p>Server-sent events deliver new messages the moment they land, with a 30-second poll underneath as a safety net.</p>
+        </div>
+        <div class="rise d1">
+          <h3 class="h3">Send before the network</h3>
+          <p>Messages appear instantly and reconcile on confirmation. Actions taken offline queue up and replay when you're back.</p>
+        </div>
+        <div class="rise d2">
+          <h3 class="h3">Notifications that land right</h3>
+          <p>Native Chrome notifications carry the sender's photo, and clicking one opens that exact thread.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SPECS ============ -->
+  <section class="sec sec-band" id="specs">
+    <div class="wrap">
+      <div class="sec-head rise">
+        <p class="eyebrow">Everything else</p>
+        <h2 class="h2">The rest of the inbox.</h2>
+      </div>
+      <div class="specs">
+        <div class="spec rise">
+          <h4>Messaging</h4>
+          <ul>
+            <li>Send, edit, and unsend</li>
+            <li>File attachments and paste-to-attach images</li>
+            <li>Emoji reactions and read receipts</li>
+            <li>Reply to a specific message</li>
+            <li>Drafts saved as you type</li>
+            <li>Emoji shortcodes — <code class="inline">:smile</code></li>
+          </ul>
+        </div>
+        <div class="spec rise d1">
+          <h4>Inbox</h4>
+          <ul>
+            <li>Focused, Other, Archived, Spam</li>
+            <li>Star, archive, spam, delete</li>
+            <li>One-click unread filter</li>
+            <li>Undo for destructive actions</li>
+            <li>Multiple LinkedIn accounts, separate databases</li>
+            <li>Compact avatar rail on narrow windows</li>
+          </ul>
+        </div>
+        <div class="spec rise d2">
+          <h4>Thread</h4>
+          <ul>
+            <li>Grouped bubbles with time separators</li>
+            <li>Image lightbox and file downloads</li>
+            <li>Audio and video attachments</li>
+            <li>Shared-post previews</li>
+            <li>Light, dark, and system themes</li>
+          </ul>
+        </div>
+        <div class="spec rise">
+          <h4>AI assist — optional</h4>
+          <ul>
+            <li>Reply suggestions for incoming messages</li>
+            <li>Inline autocomplete while composing</li>
+            <li>Bring your own Google Gemini key</li>
+            <li>Entirely off until you add one</li>
+          </ul>
+        </div>
+        <div class="spec rise d1">
+          <h4>Under the hood</h4>
+          <ul>
+            <li>Manifest V3, built with WXT</li>
+            <li>React 19</li>
+            <li>Dexie / IndexedDB with live queries</li>
+            <li>Zustand for state</li>
+            <li>Tailwind CSS v4</li>
+          </ul>
+        </div>
+        <div class="spec rise d2">
+          <h4>For the curious</h4>
+          <ul>
+            <li>Debug panel with live sync progress</li>
+            <li>Diagnostic API report</li>
+            <li>Database stats and reset controls</li>
+            <li>Configurable backfill window</li>
+            <li>Pause and resume sync</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ INSTALL ============ -->
+  <section class="sec" id="install">
+    <div class="wrap">
+      <div class="sec-head rise">
+        <p class="eyebrow">Install</p>
+        <h2 class="h2">One click from the Chrome Web Store.</h2>
+        <div class="hero-cta" style="justify-content:flex-start">
+          <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+            <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
+          </a>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step rise">
+          <span class="num">01</span>
+          <h3 class="h3">Add it</h3>
+          <p>Open the listing and hit <em>Add to Chrome</em>. Pin the icon while you're there — inflow opens from the toolbar.</p>
+        </div>
+        <div class="step rise d1">
+          <span class="num">02</span>
+          <h3 class="h3">Be signed into LinkedIn</h3>
+          <p>In any tab. inflow uses the session you already have; there is no inflow account to create.</p>
+        </div>
+        <div class="step rise d2">
+          <span class="num">03</span>
+          <h3 class="h3">Open it</h3>
+          <p>Click the icon and the inbox fills itself, newest conversations first, while history backfills behind you.</p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ CLOSER ============ -->
+  <section class="sec sec-band">
+    <div class="wrap closer">
+      <h2 class="h2 rise">LinkedIn messaging, but better.</h2>
+      <div class="hero-cta rise d1">
+        <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+          <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/grinich/inflow">
+          <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#github-mark"/></svg>Star on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-top">
+      <span class="mark"><i>in</i>flow</span>
+      <nav class="foot-links">
+        <a href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">Chrome Web Store</a>
+        <a href="https://github.com/grinich/inflow">GitHub</a>
+        <a href="/changelog">Changelog</a>
+        <a href="/privacy">Privacy</a>
+        <a href="https://github.com/grinich/inflow/issues">Support</a>
+      </nav>
+    </div>
+    <p class="fine">
+      inflow is an independent project and is <strong>not affiliated with, endorsed by, or associated
+      with LinkedIn or Microsoft</strong>. It reads and sends messages through LinkedIn's undocumented
+      internal APIs using your existing browser session, which may be inconsistent with LinkedIn's
+      <a href="https://www.linkedin.com/legal/user-agreement">User Agreement</a> and could put your
+      account at risk of restriction.
+    </p>
+    <p class="fine">
+      Provided as-is for personal and educational use, at your own risk. MIT licensed.
+    </p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---- nav hairline on scroll ---- */
+  var nav = document.getElementById('nav');
+  var onScroll = function () { nav.classList.toggle('scrolled', window.scrollY > 8); };
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  /* ---- scroll reveals ---- */
+  var rises = document.querySelectorAll('.rise');
+  if (reduced || !('IntersectionObserver' in window)) {
+    rises.forEach(function (el) { el.classList.add('in'); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+    rises.forEach(function (el) { io.observe(el); });
+    // Hero is above the fold — show it immediately.
+    requestAnimationFrame(function () {
+      document.querySelectorAll('.hero .rise').forEach(function (el) { el.classList.add('in'); });
+    });
+  }
+
+  /* ---- hero: a message arrives on its own ---- */
+  var incoming = document.getElementById('heroIncoming');
+  if (incoming && !reduced) {
+    setTimeout(function () { incoming.classList.add('arrived'); }, 2200);
+  } else if (incoming) {
+    incoming.classList.add('arrived');
+  }
+
+  /* ---- keyboard playground ---- */
+  var PEOPLE = [
+    { f: 'w25', n: 'Hannah Brooks',  p: "Reaching out because I think there's a real fit here", t: '34s', unread: true,  star: false },
+    { f: 'w17', n: 'Emma Larsson',   p: 'We met briefly at the meetup — great to connect',      t: '1m',  unread: true,  star: false },
+    { f: 'w68', n: 'Priya Sharma',   p: "We're hosting a small dinner next Thursday",           t: '23h', unread: false, star: false },
+    { f: 'm32', n: 'Marcus Rivera',  p: "Would love to chat about what you're building",        t: '1d',  unread: false, star: true  },
+    { f: 'm36', n: 'David Park',     p: 'Good question. We approached it by focusing on…',      t: '3d',  unread: false, star: false },
+    { f: 'm11', n: 'Ryan McCarthy',  p: 'Thanks for the intro — following up here.',            t: '3d',  unread: false, star: false }
+  ];
+
+  var list = document.getElementById('demoList');
+  var demo = document.getElementById('demo');
+  if (!list || !demo) return;
+
+  var STAR = '<svg class="star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4-5.8-3-5.8 3 1.1-6.4L2.6 9.4l6.5-.9L12 2.6z"/></svg>';
+  var rows = PEOPLE.slice();
+  var sel = 0;
+  var undoStack = [];
+  var toastTimer;
+
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+  function render() {
+    list.innerHTML = rows.map(function (r, idx) {
+      var flag = r.unread ? '<span class="udot"></span>' : (r.star ? STAR : '');
+      return '<li class="demo-row' + (idx === sel ? ' is-sel' : '') + '" data-idx="' + idx + '">' +
+        '<span class="row-flag">' + flag + '</span>' +
+        '<img class="av" src="/avatars/' + r.f + '.jpg" alt="" width="30" height="30" loading="lazy" decoding="async">' +
+        '<span class="row-txt">' +
+          '<span class="row-name" style="' + (r.unread ? 'font-weight:600' : '') + '">' + esc(r.n) + '</span>' +
+          '<span class="row-prev">' + esc(r.p) + '</span>' +
+        '</span>' +
+        '<span class="row-time">' + r.t + '</span>' +
+      '</li>';
+    }).join('');
+    var count = document.getElementById('demoCount');
+    if (count) count.textContent = rows.length + (rows.length === 1 ? ' conversation' : ' conversations');
+  }
+
+  function toast(msg) {
+    var el = document.getElementById('demoToast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2600);
+  }
+
+  function flashKey(label) {
+    var cap = document.getElementById('keycap');
+    if (!cap || reduced) return;
+    cap.textContent = label;
+    cap.classList.add('hit');
+    clearTimeout(cap._t);
+    cap._t = setTimeout(function () { cap.classList.remove('hit'); }, 420);
+  }
+
+  function archive() {
+    if (!rows.length) return;
+    var node = list.children[sel];
+    var removed = rows[sel];
+    undoStack.push({ item: removed, at: sel });
+    var finish = function () {
+      rows.splice(rows.indexOf(removed), 1);
+      if (sel > rows.length - 1) sel = Math.max(0, rows.length - 1);
+      render();
+    };
+    if (node && !reduced) { node.classList.add('leaving'); setTimeout(finish, 240); } else { finish(); }
+    toast('Archived. Press Z to undo.');
+  }
+
+  function undo() {
+    var last = undoStack.pop();
+    if (!last) { toast('Nothing to undo.'); return; }
+    rows.splice(Math.min(last.at, rows.length), 0, last.item);
+    sel = Math.min(last.at, rows.length - 1);
+    render();
+    toast('Restored ' + last.item.n.split(' ')[0] + '.');
+  }
+
+  function act(key) {
+    switch (key) {
+      case 'j': if (rows.length) { sel = Math.min(sel + 1, rows.length - 1); render(); } flashKey('J'); break;
+      case 'k': if (rows.length) { sel = Math.max(sel - 1, 0); render(); } flashKey('K'); break;
+      case 's':
+        if (rows.length) {
+          rows[sel].star = !rows[sel].star;
+          if (rows[sel].star) rows[sel].unread = false;
+          render();
+          toast(rows[sel].star ? 'Starred.' : 'Unstarred.');
+        }
+        flashKey('S'); break;
+      case 'u':
+        if (rows.length) {
+          rows[sel].unread = !rows[sel].unread;
+          render();
+          toast(rows[sel].unread ? 'Marked unread.' : 'Marked read.');
+        }
+        flashKey('U'); break;
+      case 'e': archive(); flashKey('E'); break;
+      case 'z': undo(); flashKey('Z'); break;
+      default: return false;
+    }
+    return true;
+  }
+
+  render();
+
+  /* Keys act only while the demo is on screen, so the page still scrolls normally elsewhere. */
+  var live = false;
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      live = entries[0].isIntersecting;
+    }, { threshold: 0.4 }).observe(demo);
+  } else {
+    live = true;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (!live && document.activeElement !== demo) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (act(e.key.toLowerCase())) e.preventDefault();
+  });
+
+  list.addEventListener('click', function (e) {
+    var li = e.target.closest('.demo-row');
+    if (!li) return;
+    sel = Number(li.dataset.idx);
+    render();
+    demo.focus({ preventScroll: true });
+  });
+
+  document.querySelectorAll('.tap').forEach(function (b) {
+    b.addEventListener('click', function () { act(b.dataset.key); });
+  });
+
+  /* ---- search chapter: type out a query once, when it scrolls in ---- */
+  var target = document.getElementById('typedQuery');
+  if (target) {
+    var QUERY = 'is:unread from:priya newer:7d dinner';
+    var paint = function (text) {
+      target.innerHTML = text.split(' ').map(function (w) {
+        return /^(is|has|from|after|before|newer|older):/.test(w)
+          ? '<span class="tok">' + esc(w) + '</span>'
+          : esc(w);
+      }).join(' ');
+    };
+    if (reduced || !('IntersectionObserver' in window)) {
+      paint(QUERY);
+    } else {
+      var typed = false;
+      new IntersectionObserver(function (entries, obs) {
+        if (!entries[0].isIntersecting || typed) return;
+        typed = true;
+        obs.disconnect();
+        var n = 0;
+        var tick = setInterval(function () {
+          n += 1;
+          paint(QUERY.slice(0, n));
+          if (n >= QUERY.length) clearInterval(tick);
+        }, 45);
+      }, { threshold: 0.6 }).observe(target.parentNode);
+    }
+  }
+})();
+</script>
+</body>
+</html>
