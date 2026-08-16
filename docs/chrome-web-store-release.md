@@ -10,89 +10,71 @@ The store listing is
 
 ## One-time setup
 
-The workflow authenticates as you, through a Google OAuth client. Minting the
-refresh token requires clicking through a consent screen, so it cannot be
-automated — do it once, and the token keeps working until you revoke it.
-
-### 1. Enable the API
-
-In the [Google Cloud console](https://console.cloud.google.com/), create (or
-pick) a project and enable **Chrome Web Store API** under *APIs & Services →
-Library*.
-
-### 2. Create an OAuth client
-
-*APIs & Services → Credentials → Create credentials → OAuth client ID*.
-
-- Application type: **Desktop app**
-- Note the **Client ID** and **Client secret**
-
-On the OAuth consent screen, add your own Google account (the one that owns the
-store listing) as a **test user**. The app can stay in *Testing* — it is only
-ever used by you.
-
-> Publishing status matters: in *Testing*, refresh tokens expire after 7 days.
-> Either move the consent screen to **In production** (no verification is needed
-> for a private, single-user client) or expect to re-mint the token weekly.
-
-### 3. Authorize, once
-
-Open this URL in a browser, replacing `<CLIENT_ID>`, and approve the consent
-screen:
-
-```
-https://accounts.google.com/o/oauth2/auth?response_type=code&access_type=offline&prompt=consent&client_id=<CLIENT_ID>&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=https://www.googleapis.com/auth/chromewebstore
-```
-
-Google shows an authorization **code**. Exchange it for a refresh token:
+The workflow authenticates as you, through a Google OAuth client, because the
+Chrome Web Store API has no service-account path. Minting the refresh token
+needs a consent screen click, so it cannot be fully automated — but everything
+either side of that click is:
 
 ```sh
-curl -sS -X POST https://oauth2.googleapis.com/token \
-  -d client_id=<CLIENT_ID> \
-  -d client_secret=<CLIENT_SECRET> \
-  -d code=<CODE> \
-  -d grant_type=authorization_code \
-  -d redirect_uri=urn:ietf:wg:oauth:2.0:oob
+./scripts/setup-cws-secrets.sh
 ```
 
-Copy `refresh_token` out of the response. It is shown once.
+It prompts for the client ID and secret, opens the consent screen, exchanges the
+code, **verifies the token can actually reach the listing**, and writes all three
+GitHub Actions secrets. Nothing touches disk or a command line, so the values
+stay out of `ps`, your shell history, and any log.
 
-### 4. Store the secrets
+The ownership check is the part worth having: authorizing the wrong Google
+account produces a token that looks perfectly valid and then fails deep inside a
+release run. The script catches it before storing anything.
 
-In *Settings → Secrets and variables → Actions* on the repo, add:
+### What it needs first
 
-| Secret | Value |
-|--------|-------|
-| `CWS_CLIENT_ID` | Client ID from step 2 |
-| `CWS_CLIENT_SECRET` | Client secret from step 2 |
-| `CWS_REFRESH_TOKEN` | Refresh token from step 3 |
+An OAuth client of type **Desktop app**, in a Google Cloud project with the
+**Chrome Web Store API** enabled.
 
-The extension ID is not a secret — it is hardcoded in the workflow, since it is
-the same ID that appears in the public listing URL.
+Today that is the `xchat-releases` project, which already has the API enabled,
+an OAuth consent screen set to **In production**, and a client named
+`inflow-ci`. Reusing it is deliberate — the project is only a home for the
+client, and a fresh one would mean redoing the API enable and the production
+toggle for no benefit. The client is separate from `xchat-ci` so revoking one
+extension's access does not break the other's releases.
+
+If you ever start from nothing:
+
+1. [Google Cloud console](https://console.cloud.google.com/) → *APIs & Services
+   → Library* → enable **Chrome Web Store API**.
+2. *Credentials → Create credentials → OAuth client ID* → **Desktop app**.
+3. *Google Auth Platform → Audience* → set publishing status to **In
+   production**. Leaving it in *Testing* expires the refresh token every 7 days,
+   and releases start failing a week after they last worked.
+
+Then run the script.
 
 ## Cutting a release
 
-Unchanged from before, plus the store step happening on its own:
-
-1. Add the version's section to `CHANGELOG.md`, and mirror it into
-   `site/changelog.html` so the site stays current.
+1. Add the version's section to `CHANGELOG.md`, then `npm run changelog:site`
+   to regenerate the page on inflow.im (`npm test` fails if you forget).
 2. `npm version <patch|minor|major>`
 3. `git push --follow-tags`
 
-The workflow then runs the tests, builds both zips, creates the GitHub Release
-with the sideload zip attached, and uploads + publishes the store zip.
+CI runs the tests, builds both zips, creates the GitHub Release with the
+sideload zip attached, and uploads + publishes the store zip.
 
 ## When it fails
 
-The store step is a separate job, so a failure there never rolls back the
-GitHub Release — re-run just that job once fixed.
+The store step is a separate job, so a failure there never rolls back the GitHub
+Release — fix the cause and re-run just that job.
 
 - **"Could not mint an access token"** — the refresh token was revoked or
-  expired. Redo step 3. If this keeps happening weekly, the consent screen is
-  still in *Testing*; move it to *In production*.
-- **Upload rejected** — the response body carries the reason. The usual causes
-  are a version that is not higher than the published one (the store refuses
-  re-uploads of the same version) and a manifest that still carries a `key`
-  field, which is why the store build uses `npm run zip:store`.
+  expired. Re-run `./scripts/setup-cws-secrets.sh`. If this recurs weekly, the
+  consent screen slipped back to *Testing*.
+- **Upload rejected** — the reason is in the logged response body. The usual
+  causes are a version that is not higher than the published one (the store
+  refuses a re-upload of the same version) and a manifest still carrying a `key`
+  field, which is why the store build goes through `npm run zip:store`.
 - **Review rejection** arrives by email from Google, not through the workflow.
-  The uploaded draft stays in the dashboard; fix and push a new tag.
+  The uploaded draft stays in the dashboard; fix it and push a new tag.
+
+Revoke access any time at
+[myaccount.google.com/permissions](https://myaccount.google.com/permissions).
