@@ -39,6 +39,7 @@ import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression
 import { getSSEStatus } from './realtime/sse-client';
 import { checkForUpdate } from './update-check';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
+import type { Invitation } from '@/types/network';
 
 /**
  * Serialize a mutation (archive/move/read/star/delete/edit) on the same
@@ -314,12 +315,28 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     }
     case 'FETCH_INVITATIONS': {
       const PAGE = 40;
-      const raw = await fetchInvitationsRaw(0, PAGE);
-      const invitations = normalizeInvitations(raw);
-      // Only prune when this page is the COMPLETE server set (came back not full).
-      // Pruning on a partial first page would delete valid page-2+ invitations
-      // that simply weren't fetched. We still never resurrect locally-acted-on ones.
-      if (invitations.length < PAGE) {
+      const MAX_PAGES = 10; // 400 invitations — a runaway stop, not an expected ceiling
+      const invitations: Invitation[] = [];
+      const seenIds = new Set<string>();
+      // Walk every page: the view has no load-more, so anything left unfetched
+      // is permanently invisible to the user.
+      let complete = false;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const raw = await fetchInvitationsRaw(page * PAGE, PAGE);
+        const batch = normalizeInvitations(raw);
+        // Guard against a server that ignores `start` and replays page 1 forever.
+        const unseen = batch.filter((i) => !seenIds.has(i.id));
+        for (const i of unseen) seenIds.add(i.id);
+        invitations.push(...unseen);
+        if (batch.length < PAGE || unseen.length === 0) {
+          complete = true;
+          break;
+        }
+      }
+      // Only prune when we walked the COMPLETE server set. Pruning after a
+      // partial read would delete valid invitations we simply didn't fetch.
+      // We still never resurrect locally-acted-on ones.
+      if (complete) {
         const serverIds = new Set(invitations.map((i) => i.id));
         const localPending = await db.invitations.where('status').equals('pending').toArray();
         await db.invitations.bulkDelete(

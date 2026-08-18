@@ -110,7 +110,9 @@ export function NetworkView() {
         return;
       }
       const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      // SELECT counts as an editable control (same list as useKeyboard): the sort
+      // dropdown needs its own Arrow keys to change options.
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
       if (e.metaKey || e.ctrlKey) return;
       if (isInput) {
         if (e.key === 'Escape') (target as HTMLElement).blur();

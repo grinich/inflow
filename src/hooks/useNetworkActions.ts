@@ -1,9 +1,22 @@
 import { useCallback } from 'react';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
-import { useUIStore } from '@/store/ui-store';
+import { useUIStore, type InboxTab } from '@/store/ui-store';
 import type { Invitation, Connection } from '@/types/network';
 import type { Conversation } from '@/types/conversation';
+
+/**
+ * Which inbox folder a conversation is visible in — mirrors the per-tab queries
+ * in useConversations. Opening a thread while the wrong tab is active leaves it
+ * out of `conversations`, and App's selection reconciliation then swaps it for
+ * whatever the active folder holds.
+ */
+function tabForConversation(c: Pick<Conversation, 'archived' | 'category'>): InboxTab {
+  if (c.archived === 1) return 'archived';
+  if (c.category === 'SPAM') return 'spam';
+  if (c.category === 'SECONDARY_INBOX') return 'other';
+  return 'focused';
+}
 
 export function useNetworkActions() {
   const showToast = useUIStore((s) => s.showToast);
@@ -42,18 +55,21 @@ export function useNetworkActions() {
   const messageConnection = useCallback(async (conn: Connection) => {
     const store = useUIStore.getState();
     const convs = await db.conversations.toArray();
-    const existing = convs.find(
-      (c) =>
-        c.draft !== 1 &&
-        c.participantUrns.includes(conn.profileUrn) &&
-        c.participantUrns.filter((u) => u !== conn.profileUrn).length <= 1
-    );
+    // Strictly 1:1 — `participantUrns` excludes the viewer, so a group thread
+    // containing this person has length >= 2. Matching loosely could drop the
+    // message into a group and send it to an extra recipient.
+    // Of the duplicate 1:1 threads LinkedIn can create for one person, take the
+    // most recent: that's the one useConversations keeps when it merges them.
+    const existing = convs
+      .filter((c) => c.draft !== 1 && c.participantUrns.length === 1 && c.participantUrns[0] === conn.profileUrn)
+      .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
     store.setAppView('inbox');
-    store.setInboxTab('focused');
     if (existing) {
+      store.setInboxTab(tabForConversation(existing)); // before openThread — a tab switch restores that tab's own selection
       store.openThread(existing.id, 0);
       return;
     }
+    store.setInboxTab('focused');
     const memberId = conn.profileUrn.split(':').pop()!;
     const draftConv: Conversation = {
       id: `draft-${memberId}`,

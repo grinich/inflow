@@ -5,6 +5,21 @@ export interface Command {
   action: () => void;
 }
 
+/**
+ * Commands that read or mutate the selected inbox conversation. The palette is
+ * reachable from the Network view, where there is no visible conversation —
+ * running these there would silently act on an offscreen inbox row.
+ */
+const INBOX_ONLY = new Set([
+  'archive',
+  'move-to-other',
+  'move-to-spam',
+  'mark-read',
+  'mark-unread',
+  'open',
+  'reply',
+]);
+
 export function buildCommands(actions: {
   archiveSelected: () => void;
   /** True in the Archived tab, where `archiveSelected` restores to Focused. */
@@ -41,8 +56,10 @@ export function buildCommands(actions: {
   reportBug: () => void;
   joinWhatsApp: () => void;
   checkForUpdate: () => void;
+  /** Active route — inbox-only commands are dropped while Network is up. */
+  appView: 'inbox' | 'network';
 }): Command[] {
-  return [
+  const all: Command[] = [
     {
       id: 'archive',
       // In the Archived tab this slot un-archives, so it has to say so. It read
@@ -98,4 +115,8 @@ export function buildCommands(actions: {
       action: actions.toggleDemoMode,
     },
   ];
+
+  if (actions.appView !== 'network') return all;
+  // Already on Network, so its own entry is a no-op too.
+  return all.filter((c) => !INBOX_ONLY.has(c.id) && c.id !== 'go-network');
 }
