@@ -8,31 +8,37 @@ import {
 } from '@/lib/app-route';
 import type { InboxTab } from '@/store/ui-store';
 
-const route = (inboxTab: InboxTab = 'focused', unread = false): AppRoute => ({ inboxTab, unread });
+const route = (view: 'inbox' | 'network', inboxTab: InboxTab = 'focused', unread = false): AppRoute =>
+  ({ view, inboxTab, unread });
 
 describe('app-route hash parsing', () => {
   it.each([
-    ['', route()],
-    ['#', route()],
-    ['#/', route()],
-    ['#/inbox', route()],
-    ['#/unknown', route()],
-    ['#/networking', route()],
-    ['#/anything-else', route()],
+    ['', route('inbox')],
+    ['#', route('inbox')],
+    ['#/', route('inbox')],
+    ['#/inbox', route('inbox')],
+    ['#/unknown', route('inbox')],
+    ['#/networking', route('inbox')],
+    ['#/network', route('network')],
+    ['#network', route('network')],
+    ['#/network/', route('network')],
+    ['#/network/connections', route('network')],
+    ['#/NETWORK', route('network')],
+    ['#/network?foo=1', route('network')],
     // Every inbox tab is its own destination.
-    ['#/inbox/focused', route('focused')],
-    ['#/inbox/other', route('other')],
-    ['#/inbox/archived', route('archived')],
-    ['#/inbox/spam', route('spam')],
-    ['#/inbox/ARCHIVED', route('archived')],
+    ['#/inbox/focused', route('inbox', 'focused')],
+    ['#/inbox/other', route('inbox', 'other')],
+    ['#/inbox/archived', route('inbox', 'archived')],
+    ['#/inbox/spam', route('inbox', 'spam')],
+    ['#/inbox/ARCHIVED', route('inbox', 'archived')],
     // An unknown tab is a stale or hand-edited URL: land on the inbox rather
     // than a blank screen.
-    ['#/inbox/nonsense', route('focused')],
+    ['#/inbox/nonsense', route('inbox', 'focused')],
     // Unread rides along as a modifier on the tab.
-    ['#/inbox/other?unread', route('other', true)],
-    ['#/inbox/spam?unread', route('spam', true)],
-    ['#/inbox?unread', route('focused', true)],
-    ['#/inbox/other?foo=1', route('other')],
+    ['#/inbox/other?unread', route('inbox', 'other', true)],
+    ['#/inbox/spam?unread', route('inbox', 'spam', true)],
+    ['#/inbox?unread', route('inbox', 'focused', true)],
+    ['#/inbox/other?foo=1', route('inbox', 'other')],
   ])('parses %j', (hash, expected) => {
     expect(parseAppRouteHash(hash)).toEqual(expected);
   });
@@ -45,12 +51,21 @@ describe('app-route hash parsing', () => {
   it('round-trips every inbox tab, with and without unread', () => {
     for (const tab of ['focused', 'other', 'archived', 'spam'] as const) {
       for (const unread of [false, true]) {
-        const r = route(tab, unread);
+        const r = route('inbox', tab, unread);
         expect(parseAppRouteHash(appRouteToHash(r))).toEqual(r);
       }
     }
   });
 
+  it('round-trips the network view', () => {
+    expect(parseAppRouteHash(appRouteToHash(route('network')))).toEqual(route('network'));
+  });
+
+  it('does not carry unread into the network view', () => {
+    // The network view has its own filter box; the inbox's unread token would
+    // be meaningless there and must not survive in the URL.
+    expect(appRouteToHash({ view: 'network', inboxTab: 'other', unread: true })).toBe('#/network');
+  });
 });
 
 describe('the unread token', () => {

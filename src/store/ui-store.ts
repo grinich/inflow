@@ -11,12 +11,13 @@ import {
   queryHasUnread,
   setUnreadInQuery,
   type AppRoute,
+  type AppView,
 } from '@/lib/app-route';
 
 export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system';
 export type InboxTab = 'focused' | 'other' | 'archived' | 'spam';
-export type AppView = 'inbox' | 'network';
+export type { AppView };
 export type NetworkTab = 'invitations' | 'connections';
 
 export interface Toast {
@@ -146,12 +147,13 @@ applyTheme(initialTheme);
 // Restore view on load
 const initialView = getStoredView();
 
-// The nav state — which inbox tab, and whether the unread filter is on — is
-// routed by the URL hash (see lib/app-route). Read it on load so a reload or a
-// deep link lands exactly where it left off. The URL wins over the
-// localStorage-restored tab when it carries one; a bare `app.html` falls back
-// to the stored tab.
+// The nav state — the top-level view, which inbox tab, and whether the unread
+// filter is on — is routed by the URL hash (see lib/app-route). Read it on load
+// so a reload or a deep link lands exactly where it left off. The URL wins over
+// the localStorage-restored tab when it carries one; a bare `app.html` falls
+// back to the stored tab.
 const initialRoute = readAppRouteFromLocation();
+const initialAppView = initialRoute.view;
 const initialInboxTab = locationHasRoute() ? initialRoute.inboxTab : initialView.inboxTab;
 const initialSearchQuery = initialRoute.unread ? 'is:unread' : '';
 
@@ -177,7 +179,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   searchQuery: initialSearchQuery,
   theme: initialTheme,
   inboxTab: initialInboxTab,
-  appView: 'inbox',
+  appView: initialAppView,
   networkTab: 'invitations',
   networkSelectedIndex: 0,
   lightboxImageUrl: null,
@@ -301,8 +303,12 @@ export const useUIStore = create<UIState>((set, get) => ({
 // nav state has to remember to route itself, and setSearchQuery — which the
 // unread filter rides on — fires on every keystroke.
 
-function routeOf(state: { inboxTab: InboxTab; searchQuery: string }): AppRoute {
-  return { inboxTab: state.inboxTab, unread: queryHasUnread(state.searchQuery) };
+function routeOf(state: { appView: AppView; inboxTab: InboxTab; searchQuery: string }): AppRoute {
+  return {
+    view: state.appView,
+    inboxTab: state.inboxTab,
+    unread: queryHasUnread(state.searchQuery),
+  };
 }
 
 function syncRoute(route: AppRoute, opts: { replace?: boolean; force?: boolean }) {
@@ -320,10 +326,11 @@ useUIStore.subscribe((state, prev) => {
   const route = routeOf(state);
   const previous = routeOf(prev);
   if (appRouteToHash(route) === appRouteToHash(previous)) return;
-  // A tab change is a destination and belongs in history. Toggling unread only
-  // filters the tab you are already on, and typing in the search box can flip
-  // it repeatedly — so it replaces rather than stacking up.
-  syncRoute(route, { replace: route.inboxTab === previous.inboxTab });
+  // A view or tab change is a destination and belongs in history. Toggling
+  // unread only filters the tab you are already on, and typing in the search
+  // box can flip it repeatedly — so it replaces rather than stacking up.
+  const onlyUnreadChanged = route.view === previous.view && route.inboxTab === previous.inboxTab;
+  syncRoute(route, { replace: onlyUnreadChanged });
 });
 
 // Back/forward, or an edited URL, changes the hash without going through the
@@ -331,10 +338,13 @@ useUIStore.subscribe((state, prev) => {
 // hash already matches, so this never ping-pongs.
 subscribeToAppRouteHash((route) => {
   const store = useUIStore.getState();
-  if (route.inboxTab !== store.inboxTab) store.setInboxTab(route.inboxTab);
-  // Read after setInboxTab, which clears the query on a tab change.
-  const current = useUIStore.getState().searchQuery;
-  if (route.unread !== queryHasUnread(current)) {
-    store.setSearchQuery(setUnreadInQuery(current, route.unread));
+  if (route.view !== store.appView) store.setAppView(route.view);
+  if (route.view === 'inbox') {
+    if (route.inboxTab !== store.inboxTab) store.setInboxTab(route.inboxTab);
+    // Read after setInboxTab, which clears the query on a tab change.
+    const current = useUIStore.getState().searchQuery;
+    if (route.unread !== queryHasUnread(current)) {
+      store.setSearchQuery(setUnreadInQuery(current, route.unread));
+    }
   }
 });
