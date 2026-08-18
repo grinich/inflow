@@ -23,6 +23,13 @@ All notable changes to inflow are documented here. This project follows
   to Other, so the two keys are the two ways back out.
 
 ### Added
+- **Network view** — keyboard-driven triage for connection requests and a
+  browsable list of recent connections. `G N` opens it (or pick "Go to
+  Network" from the command palette); `1` / `2` / `Tab` switch between
+  Invitations and Connections, `J` / `K` move, `/` filters, `Enter` accepts
+  an invitation or messages a connection, `D` / `X` / `⌫` ignores, `P` opens
+  the profile, and `Esc` returns to the inbox. It has its own address
+  (`#/network`), so reloads and deep links land on it.
 - **Reloading keeps your place** — which tab you are on, and whether the unread
   filter is on, now live in the URL: `#/inbox/archived`, `#/inbox/other?unread`.
   ⌘R off Archive used to drop you back on Focused. Back and forward step
@@ -33,6 +40,10 @@ All notable changes to inflow are documented here. This project follows
   This works through inflow.im/app as well, where the app runs in an iframe: it
   hands its route to the page around it, which keeps it in the address bar and
   gives it back on the next load.
+
+### Changed
+- **`⌫` archives in the inbox**, matching `E`, so the same key clears a
+  row in both the inbox and the network view.
 
 ## [0.6.1] - 2026-08-29
 
