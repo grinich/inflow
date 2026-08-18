@@ -1,7 +1,5 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { AuthGate } from '@/components/common/AuthGate';
-import { ConversationList } from '@/components/conversations/ConversationList';
-import { ThreadView } from '@/components/thread/ThreadView';
 import { CommandPalette } from '@/components/command-palette/CommandPalette';
 import { ShortcutOverlay, SHORTCUT_PANEL_PADDING } from '@/components/common/ShortcutOverlay';
 import { ImageLightbox } from '@/components/common/ImageLightbox';
@@ -14,14 +12,12 @@ import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
 import { PendingNavigation } from '@/components/common/PendingNavigation';
 import { DebugPanel } from '@/components/common/DebugPanel';
-import { NewMessageComposer } from '@/components/composer/NewMessageComposer';
+import { InboxView } from '@/components/inbox/InboxView';
 import { NetworkView } from '@/components/network/NetworkView';
 import { useConversations } from '@/hooks/useConversations';
 import { useRemoteSearch } from '@/hooks/useRemoteSearch';
 import { useKeyboard } from '@/hooks/useKeyboard';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
-import { useResizableSidebar } from '@/hooks/useResizableSidebar';
-import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useUIStore } from '@/store/ui-store';
 import { consumeComposeParam, consumeConversationParam, isEmbeddedInShell } from '@/lib/launch-params';
@@ -35,7 +31,6 @@ export function App() {
   const { remoteResults, isSearching, hasMore, loadMore } = useRemoteSearch();
   const selectedConversationId = useUIStore((s) => s.selectedConversationId);
   const appView = useUIStore((s) => s.appView);
-  const composeNewActive = useUIStore((s) => s.composeNewActive);
   const shortcutPanelOpen = useUIStore((s) => s.shortcutOverlayOpen);
   const deleteConfirmId = useUIStore((s) => s.deleteConfirmId);
   const setDeleteConfirmId = useUIStore((s) => s.setDeleteConfirmId);
@@ -43,8 +38,6 @@ export function App() {
   const setSpamConfirmId = useUIStore((s) => s.setSpamConfirmId);
   const actions = useOptimisticAction();
   useSendObjectUrlReaper();
-  const { width: sidebarWidth, isDragging: isDraggingSidebar, onDividerMouseDown, onDividerDoubleClick } = useResizableSidebar();
-  const railMode = useCollapsedSidebar();
   const [debugOpen, setDebugOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragCounter = useRef(0);
@@ -219,10 +212,6 @@ export function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [toggleDebug, debugOpen]);
 
-  const selectedConversation = selectedConversationId
-    ? conversations.find((c) => c.id === selectedConversationId) || null
-    : null;
-
   const deleteConversation = deleteConfirmId
     ? conversations.find((c) => c.id === deleteConfirmId) || null
     : null;
@@ -247,42 +236,21 @@ export function App() {
     <AuthGate>
       <UpdateBanner />
       <div className={`flex min-h-0 flex-1 overflow-hidden bg-surface text-fg transition-[padding-bottom] duration-200 ease-out ${shortcutPanelOpen ? SHORTCUT_PANEL_PADDING : 'pb-0'}`}>
+        {/* Route switch — the view is the URL hash (see lib/app-route). */}
         {appView === 'network' ? (
           <NetworkView />
         ) : (
-          <>
-            {/* Conversation List — collapses to a fixed avatar rail on narrow windows */}
-            <div style={{ width: railMode ? RAIL_WIDTH : sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
-              <ConversationList conversations={conversations} isLoading={isLoading} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} compact={railMode} />
-            </div>
-
-            {/* Resize handle: thin visual divider with a wider invisible hit zone.
-                Drag to resize the sidebar, double-click to reset. Hidden in rail
-                mode — the rail width is fixed. */}
-            {!railMode && (
-              <div
-                onMouseDown={onDividerMouseDown}
-                onDoubleClick={onDividerDoubleClick}
-                title="Drag to resize · double-click to reset"
-                className={`group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize ${isDraggingSidebar ? 'bg-blue-500/40' : ''}`}
-              >
-                <div className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isDraggingSidebar ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-500/60'}`} />
-              </div>
-            )}
-
-            {/* Thread View or New Message Composer */}
-            <div className="flex h-full min-w-0 flex-1 flex-col">
-              {composeNewActive ? (
-                <NewMessageComposer
-                  key={selectedConversation?.draft === 1 ? selectedConversation.id : 'new'}
-                  draftConversation={selectedConversation?.draft === 1 ? selectedConversation : undefined}
-                  composeRef={composeRef}
-                />
-              ) : selectedConversation ? (
-                <ThreadView conversation={selectedConversation} composeRef={composeRef} />
-              ) : null}
-            </div>
-          </>
+          <InboxView
+            conversations={conversations}
+            isLoading={isLoading}
+            isDiscovering={isDiscovering}
+            category={category}
+            isSearching={isSearching}
+            hasMoreSearchResults={hasMore}
+            onLoadMoreSearch={loadMore}
+            onOpenDebug={() => setDebugOpen(true)}
+            composeRef={composeRef}
+          />
         )}
       </div>
 
