@@ -9,7 +9,7 @@
 // can never get stuck in demo mode (just remove the query param).
 // ---------------------------------------------------------------------------
 
-import { DEMO_PEOPLE, DEMO_MESSAGES_INBOUND, DEMO_MESSAGES_OUTBOUND, DEMO_OPENERS, DEMO_INVITATIONS, DEMO_CONNECTION_COUNT, DEMO_CONNECTION_DAY_GAPS } from './demo-data';
+import { DEMO_PEOPLE, DEMO_MESSAGES_INBOUND, DEMO_MESSAGES_OUTBOUND, DEMO_OPENERS, DEMO_INVITATIONS, DEMO_CONNECTION_COUNT, DEMO_CONNECTION_DAY_GAPS, DEMO_CONNECTION_HEADLINES } from './demo-data';
 import { buildNotificationIcon } from './notification-icon';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 import type { Conversation } from '@/types/conversation';
@@ -99,7 +99,7 @@ function buildDemoConnections(): Connection[] {
   return DEMO_PEOPLE.slice(0, DEMO_CONNECTION_COUNT).map((p, i) => ({
     profileUrn: `urn:li:fsd_profile:demo-conn-${i}`,
     name: `${p.firstName} ${p.lastName}`,
-    headline: `${p.title} at ${p.company}`,
+    headline: DEMO_CONNECTION_HEADLINES[i],
     pictureUrl: p.picture,
     publicId: '',
     connectedAt: Date.now() - DEMO_CONNECTION_DAY_GAPS[i] * DAY_MS,

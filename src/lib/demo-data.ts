@@ -104,6 +104,28 @@ export const DEMO_INVITATIONS = [
   { firstName: 'Hugo', lastName: 'Silva', headline: 'DevRel at CloudForge', picture: pic('m55.jpg'), message: 'Big fan of inflow — would love to compare notes on Voyager APIs.', daysAgo: 6 },
 ] as const;
 
-/** First N DEMO_PEOPLE become demo connections, staggered over recent weeks. */
+/**
+ * First N DEMO_PEOPLE become demo connections, staggered over recent weeks.
+ * DEMO_PEOPLE carry no headline (the inbox never shows one), so connections
+ * take theirs from DEMO_CONNECTION_HEADLINES by index — the two lists must
+ * stay the same length as DEMO_CONNECTION_COUNT.
+ */
 export const DEMO_CONNECTION_COUNT = 15;
 export const DEMO_CONNECTION_DAY_GAPS = [0, 1, 1, 2, 3, 5, 7, 9, 12, 16, 21, 27, 34, 42, 55] as const;
+export const DEMO_CONNECTION_HEADLINES = [
+  'VP of Engineering at Lumen Analytics',
+  'Staff Software Engineer at Orbital',
+  'Head of Product at Kestrel Health',
+  'Founder & CEO at Ridgeline Robotics',
+  'Design Lead at Meridian Studio',
+  'Senior Data Scientist at Halcyon AI',
+  'Engineering Manager at Northwind',
+  'Growth Marketing at Driftwood Labs',
+  'Principal Engineer at Brightpath',
+  'Partner at Seabright Ventures',
+  'Developer Advocate at CloudForge',
+  'Product Manager at Tidewater',
+  'Chief Technology Officer at Alder Systems',
+  'Security Researcher at Basalt',
+  'Frontend Engineer at Pinecrest',
+] as const;
