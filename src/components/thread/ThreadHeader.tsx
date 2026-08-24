@@ -62,7 +62,6 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
   return (
     <div className="min-w-0 border-b border-edge px-4 py-3 @container">
       <div className="flex min-w-0 items-center gap-3">
-        {/* Avatar with company logo overlay */}
         {profileUrl ? (
           <a href={profileUrl} target="_blank" rel="noopener noreferrer" className="relative shrink-0 cursor-pointer">
             <GroupAvatar

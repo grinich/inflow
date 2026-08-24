@@ -433,7 +433,8 @@ export async function mergeProfiles(profiles: Profile[]): Promise<void> {
   const urns = profiles.map((p) => p.urn);
   // Read + merge + write in one transaction: this runs concurrently from
   // independent background paths (SSE, discovery, sync, repair), and a stale
-  // bulkGet snapshot would let a sparse copy overwrite a just-enriched row.
+  // bulkGet snapshot would let a sparse copy overwrite fields another writer
+  // just filled in.
   await db.transaction('rw', db.profiles, async () => {
     const existing = await db.profiles.bulkGet(urns);
     for (let i = 0; i < profiles.length; i++) {

@@ -47,10 +47,9 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
   const dbGen = useDbGeneration();
 
   // ── Batched row metadata ───────────────────────────────────────────────────
-  // These used to be three IndexedDB queries PER ROW on mount (draft, failed
-  // message, company profile) — ~900 queries when switching to a large folder,
-  // plus one live profile subscription per row. Batch them into three
-  // list-level queries and pass values down as props.
+  // These used to be separate IndexedDB queries PER ROW on mount (draft,
+  // failed message) — hundreds of queries when switching to a large folder.
+  // Batch them into list-level queries and pass values down as props.
 
   const draftsByConv = useLiveQuery(
     async () => {
