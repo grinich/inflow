@@ -43,6 +43,10 @@ inflow is a Chrome extension (MV3) that provides a keyboard-driven messaging cli
 4. CI runs tests, builds both zips, creates a GitHub Release, and uploads +
    publishes the store build to the Chrome Web Store automatically
    (see `docs/chrome-web-store-release.md` for the required secrets)
+5. Deploy the site: `cd site && npx vercel --prod`. The Vercel project is NOT
+   connected to the GitHub repo, so pushing does not deploy — without this
+   step the changelog page on inflow.im stays stale (0.5.0 shipped without it
+   and the live page was missing the release until 0.5.1's deploy)
 
 ## Marketing site
 
