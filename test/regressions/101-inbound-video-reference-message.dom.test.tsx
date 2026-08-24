@@ -13,11 +13,24 @@ vi.mock('@/hooks/useCachedImage', () => ({
   preloadImages: () => () => {},
 }));
 
-import { render } from '@testing-library/react';
+import { render, fireEvent, waitFor } from '@testing-library/react';
 import { normalizeMessages, normalizeConversations } from '@/lib/voyager-normalizer';
 import { MessageBubble } from '@/components/thread/MessageBubble';
+import { VideoLightbox } from '@/components/common/VideoLightbox';
+import { useUIStore } from '@/store/ui-store';
+import { mockFetch } from '../mocks/fetch';
 import { makeMessage } from '../fixtures/factories';
 import type { VoyagerResponse } from '../../entrypoints/background/api/types';
+
+// jsdom doesn't implement blob object URLs (used by the video lightbox player)
+beforeAll(() => {
+  (URL as any).createObjectURL = vi.fn(() => 'blob:mock-video');
+  (URL as any).revokeObjectURL = vi.fn();
+});
+
+afterEach(() => {
+  useUIStore.setState({ lightboxVideoUrl: null });
+});
 
 const STREAM_URL = 'https://www.linkedin.com/dms/prv/vid/v2/D4E23AQF/video.mp4';
 const THUMB_URL = 'https://www.linkedin.com/dms/prv/image/v2/D4E23AQF/thumb.jpg';
@@ -118,7 +131,7 @@ describe('conversation-list preview for a *video-only last message', () => {
 });
 
 describe('MessageBubble with a body-less inbound video message', () => {
-  it('renders the video (was: rendered nothing at all)', () => {
+  it('renders the video and opens the in-app player on click (was: rendered nothing at all)', () => {
     const message = makeMessage({
       id: 'urn:li:msg_message:(2-conv,100)',
       body: '',
@@ -140,11 +153,16 @@ describe('MessageBubble with a body-less inbound video message', () => {
       <MessageBubble message={message} grouped={false} isLastInGroup={false} senderProfileUrl={null} />
     );
 
-    const link = container.querySelector(`a[href="${STREAM_URL}"]`);
-    expect(link).not.toBeNull();
-    const thumb = link!.querySelector('img');
+    const button = container.querySelector('button[title="Play video"]');
+    expect(button).not.toBeNull();
+    const thumb = button!.querySelector('img');
     expect(thumb?.getAttribute('src')).toBe(THUMB_URL);
-    expect(link!.textContent).toContain('0:35'); // duration badge
+    expect(button!.textContent).toContain('0:35'); // duration badge
+
+    // Clicking plays in the in-app modal — never a new tab
+    expect(container.querySelector(`a[href="${STREAM_URL}"]`)).toBeNull();
+    fireEvent.click(button!);
+    expect(useUIStore.getState().lightboxVideoUrl).toBe(STREAM_URL);
   });
 
   it('renders a "Video" chip when there is no thumbnail (unresolved reference)', () => {
@@ -160,5 +178,46 @@ describe('MessageBubble with a body-less inbound video message', () => {
     );
 
     expect(container.textContent).toContain('Video');
+  });
+});
+
+describe('VideoLightbox', () => {
+  it('fetches the video (credentialed, like image caching) and plays it from a blob URL', async () => {
+    mockFetch(STREAM_URL, async () => new Response(new Uint8Array([0, 1, 2, 3]), {
+      status: 200,
+      headers: { 'content-type': 'video/mp4' },
+    }));
+
+    useUIStore.setState({ lightboxVideoUrl: STREAM_URL });
+    const { container } = render(<VideoLightbox />);
+
+    await waitFor(() => {
+      const video = container.querySelector('video');
+      expect(video).not.toBeNull();
+      expect(video!.getAttribute('src')).toBe('blob:mock-video');
+    });
+  });
+
+  it('closes on Escape', async () => {
+    mockFetch(STREAM_URL, async () => new Response(new Uint8Array([0]), { status: 200 }));
+    useUIStore.setState({ lightboxVideoUrl: STREAM_URL });
+    const { container } = render(<VideoLightbox />);
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useUIStore.getState().lightboxVideoUrl).toBeNull();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('shows an "Open on LinkedIn" fallback when the fetch fails (expired signed URL)', async () => {
+    mockFetch(STREAM_URL, async () => new Response('expired', { status: 401 }));
+    useUIStore.setState({ lightboxVideoUrl: STREAM_URL });
+    const { container } = render(<VideoLightbox />);
+
+    await waitFor(() => {
+      const link = container.querySelector(`a[href="${STREAM_URL}"]`);
+      expect(link).not.toBeNull();
+      expect(link!.textContent).toContain('Open on LinkedIn');
+    });
   });
 });

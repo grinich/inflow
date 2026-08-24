@@ -33,6 +33,7 @@ interface UIState {
   theme: Theme;
   inboxTab: InboxTab;
   lightboxImageUrl: string | null;
+  lightboxVideoUrl: string | null;
   deleteConfirmId: string | null;
   spamConfirmId: string | null;
   demoMode: boolean;
@@ -58,6 +59,8 @@ interface UIState {
   setInboxTab: (tab: InboxTab) => void;
   openLightbox: (url: string) => void;
   closeLightbox: () => void;
+  openVideoLightbox: (url: string) => void;
+  closeVideoLightbox: () => void;
   setDeleteConfirmId: (id: string | null) => void;
   setSpamConfirmId: (id: string | null) => void;
   setReplyingTo: (msg: Message | null) => void;
@@ -147,6 +150,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   theme: initialTheme,
   inboxTab: initialView.inboxTab,
   lightboxImageUrl: null,
+  lightboxVideoUrl: null,
   deleteConfirmId: null,
   spamConfirmId: null,
   demoMode: checkDemoMode(),
@@ -188,6 +192,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
   openLightbox: (url) => set({ lightboxImageUrl: url }),
   closeLightbox: () => set({ lightboxImageUrl: null }),
+  openVideoLightbox: (url) => set({ lightboxVideoUrl: url }),
+  closeVideoLightbox: () => set({ lightboxVideoUrl: null }),
   setDeleteConfirmId: (id) => set({ deleteConfirmId: id }),
   setSpamConfirmId: (id) => set({ spamConfirmId: id }),
   setReplyingTo: (msg) => set({ replyingTo: msg }),

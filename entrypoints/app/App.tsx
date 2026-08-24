@@ -5,6 +5,7 @@ import { ThreadView } from '@/components/thread/ThreadView';
 import { CommandPalette } from '@/components/command-palette/CommandPalette';
 import { ShortcutOverlay, SHORTCUT_PANEL_PADDING } from '@/components/common/ShortcutOverlay';
 import { ImageLightbox } from '@/components/common/ImageLightbox';
+import { VideoLightbox } from '@/components/common/VideoLightbox';
 import { ConfirmDeleteModal } from '@/components/common/ConfirmDeleteModal';
 import { ConfirmSpamModal } from '@/components/common/ConfirmSpamModal';
 import { AISetupModal } from '@/components/common/AISetupModal';
@@ -265,6 +266,7 @@ export function App() {
       <CommandPalette conversations={conversations} composeRef={composeRef} />
       <ShortcutOverlay />
       <ImageLightbox />
+      <VideoLightbox />
       {deleteConversation && (
         <ConfirmDeleteModal
           participantNames={deleteConversation.participantNames}
