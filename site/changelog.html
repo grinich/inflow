@@ -131,9 +131,30 @@
     <!-- CHANGELOG:START -->
     <article class="rel">
       <div class="rel-meta">
+        <h2 class="rel-ver">0.5.1</h2>
+        <time class="rel-date" datetime="2026-08-24">24 August 2026</time>
+        <span class="rel-latest">Latest</span>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Video messages were invisible</strong> — LinkedIn delivers received videos as a reference to a separate video entity, not inline, so no attachment was extracted; with no body text the message rendered as nothing at all (worst when the video was the only message: the thread looked empty). The conversation preview was blank for the same reason and now says "Sent a video".</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>In-app video player</strong> — videos show as a thumbnail with a play button and duration badge, and clicking plays them in a modal right in the window (Escape or a backdrop click closes it) instead of opening a new tab.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
         <h2 class="rel-ver">0.5.0</h2>
         <time class="rel-date" datetime="2026-08-16">16 August 2026</time>
-        <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
         <section class="rel-group">

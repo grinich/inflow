@@ -4,6 +4,21 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.1] - 2026-08-24
+
+### Fixed
+- **Video messages were invisible** — LinkedIn delivers received videos as a
+  reference to a separate video entity, not inline, so no attachment was
+  extracted; with no body text the message rendered as nothing at all (worst
+  when the video was the only message: the thread looked empty). The
+  conversation preview was blank for the same reason and now says
+  "Sent a video".
+
+### Added
+- **In-app video player** — videos show as a thumbnail with a play button and
+  duration badge, and clicking plays them in a modal right in the window
+  (Escape or a backdrop click closes it) instead of opening a new tab.
+
 ## [0.5.0] - 2026-08-16
 
 ### Added
