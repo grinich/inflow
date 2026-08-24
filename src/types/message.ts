@@ -1,6 +1,6 @@
 export interface MessageAttachment {
   type: 'image' | 'gif' | 'file' | 'video' | 'audio' | 'sharedPost' | 'externalMedia' | 'unknown';
-  /** Image URL (for type=image and type=gif) */
+  /** Image URL (for type=image and type=gif; thumbnail for type=video) */
   imageUrl?: string;
   /** File name (for type=file) */
   fileName?: string;
@@ -18,7 +18,7 @@ export interface MessageAttachment {
   externalUrl?: string;
   /** Fallback text description */
   fallbackText?: string;
-  /** Original dimensions (for type=gif) */
+  /** Original dimensions (for type=gif and type=video) */
   width?: number;
   height?: number;
 }

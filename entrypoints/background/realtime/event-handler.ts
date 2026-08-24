@@ -13,7 +13,7 @@
 
 import { getMemberUrn } from '../auth/session';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, needsParticipantRepair, extractAudioAttachment, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
+import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, extractAttachments, needsParticipantRepair, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
 import { withoutRecalled } from '@/lib/message-dedup';
 import { repairConversationParticipants } from '../sync/repair-participants';
 import { reconcileRecalledMessages } from '../sync/reconcile-messages';
@@ -176,7 +176,7 @@ async function applyInboundMessageToConversation(
     if (!haveEventParts && !sender) backfillConversationParticipants(ctx, convId, memberUrn);
   }
 }
-import type { Message, MessageAttachment, ReactionSummary } from '@/types/message';
+import type { Message } from '@/types/message';
 
 /**
  * Show a native OS notification for an inbound message.
@@ -1460,101 +1460,8 @@ async function handleReadReceipt(ctx: RealtimeContext, data: any): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
-// Attachment extraction (mirrors voyager-normalizer.ts)
+// Reply-context extraction
 // ---------------------------------------------------------------------------
-
-function extractAttachments(
-  renderContent: any[] | undefined,
-  included?: any[]
-): MessageAttachment[] {
-  if (!renderContent || !Array.isArray(renderContent)) return [];
-
-  // Build lookup for referenced entities (ExternalMedia for GIFs)
-  const entityMap = new Map<string, any>();
-  if (included) {
-    for (const e of included) {
-      if (e.entityUrn) entityMap.set(e.entityUrn, e);
-    }
-  }
-
-  const attachments: MessageAttachment[] = [];
-
-  for (const item of renderContent) {
-    if (item['*externalMedia']) {
-      // GIF (Tenor/Giphy) — stored as a separate ExternalMedia entity
-      const ref = item['*externalMedia'];
-      const ext = entityMap.get(ref);
-      if (ext?.media?.url) {
-        attachments.push({
-          type: 'gif',
-          imageUrl: ext.media.url,
-          fallbackText: ext.title || 'GIF',
-          width: ext.media.originalWidth || undefined,
-          height: ext.media.originalHeight || undefined,
-        });
-      } else {
-        attachments.push({ type: 'gif', fallbackText: 'GIF' });
-      }
-    } else if (item.vectorImage) {
-      const img = item.vectorImage;
-      let imageUrl = img.rootUrl || '';
-      if (!imageUrl && img.artifacts?.length) {
-        imageUrl = img.artifacts[0]?.fileUrl || '';
-      }
-      if (imageUrl) attachments.push({ type: 'image', imageUrl });
-    } else if (item.file) {
-      const f = item.file;
-      attachments.push({
-        type: 'file',
-        fileName: f.name || f.fileName || 'File',
-        fileUrl: f.url || f.downloadUrl || '',
-        fileSize: f.byteSize || f.size || undefined,
-        mimeType: f.mediaType || f.mimeType || undefined,
-      });
-    } else if (item.video) {
-      const v = item.video;
-      attachments.push({
-        type: 'video',
-        externalUrl:
-          v.progressiveStreams?.[0]?.streamingLocations?.[0]?.url ||
-          v.url ||
-          '',
-        fallbackText: 'Video',
-      });
-    } else if (item.audio) {
-      attachments.push(extractAudioAttachment(item.audio));
-    } else if (item.hostUrnData) {
-      const h = item.hostUrnData;
-      if (h.type === 'PREMIUM_INMAIL' || h.hostUrn?.includes('dummyId'))
-        continue;
-      const activityMatch = h.hostUrn?.match(/urn:li:activity:(\d+)/);
-      const activityId = activityMatch?.[1];
-      attachments.push({
-        type: 'sharedPost',
-        postUrn: h.hostUrn || '',
-        externalUrl: activityId
-          ? `https://www.linkedin.com/feed/update/urn:li:activity:${activityId}/`
-          : undefined,
-        fallbackText:
-          h.type === 'FEED_UPDATE' ? 'Shared a post' : h.type || 'Shared content',
-      });
-    } else if (item.externalMedia) {
-      const ext = item.externalMedia;
-      attachments.push({
-        type: 'externalMedia',
-        externalUrl: ext.url || '',
-        fallbackText: ext.title || 'External link',
-      });
-    } else if (item.unavailableContent) {
-      attachments.push({
-        type: 'unknown',
-        fallbackText: 'Content no longer available',
-      });
-    }
-  }
-
-  return attachments;
-}
 
 function extractRepliedMessage(
   renderContent: any[] | undefined
@@ -1576,6 +1483,6 @@ function extractRepliedMessage(
   return undefined;
 }
 
-// extractReactions + getParticipantPicture are shared from '@/lib/voyager-normalizer'
-// (imported above). (extractAttachments/extractRepliedMessage intentionally stay
-// local — the SSE variants differ: no participantMap, no included[] resolution.)
+// extractReactions + getParticipantPicture + extractAttachments are shared from
+// '@/lib/voyager-normalizer' (imported above). extractRepliedMessage stays local —
+// the SSE variant has no participantMap to resolve sender names from.

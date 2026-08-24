@@ -379,7 +379,7 @@ function lastMessageFallback(msg: VoyagerEntity | undefined): string {
   const item = rc[0];
   if (item.vectorImage) return 'Sent an image';
   if (item.file) return `Sent a file: ${item.file.name || item.file.fileName || 'File'}`;
-  if (item.video) return 'Sent a video';
+  if (item.video || item['*video']) return 'Sent a video';
   if (item.audio) return 'Sent a voice message';
   if (item.hostUrnData) return 'Shared a post';
   if (item.externalMedia) return item.externalMedia.title || 'Shared a link';
@@ -394,10 +394,10 @@ function lastMessageFallback(msg: VoyagerEntity | undefined): string {
  * Each renderContent item has multiple nullable fields — exactly one is non-null.
  * `included` is the full response included array, used to resolve entity references.
  */
-function extractAttachments(renderContent: any[] | undefined, included?: any[]): MessageAttachment[] {
+export function extractAttachments(renderContent: any[] | undefined, included?: any[]): MessageAttachment[] {
   if (!renderContent || !Array.isArray(renderContent)) return [];
 
-  // Build lookup for referenced entities (ExternalMedia for GIFs)
+  // Build lookup for referenced entities (ExternalMedia for GIFs, VideoPlayMetadata for videos)
   const entityMap = new Map<string, any>();
   if (included) {
     for (const e of included) {
@@ -445,14 +445,13 @@ function extractAttachments(renderContent: any[] | undefined, included?: any[]):
         fileSize: f.byteSize || f.size || undefined,
         mimeType: f.mediaType || f.mimeType || undefined,
       });
-    } else if (item.video) {
-      // Video attachment
-      const v = item.video;
-      attachments.push({
-        type: 'video',
-        externalUrl: v.progressiveStreams?.[0]?.streamingLocations?.[0]?.url || v.url || '',
-        fallbackText: 'Video',
-      });
+    } else if (item.video || item['*video']) {
+      // Video — inline VideoPlayMetadata, or (the usual case for received
+      // videos) a `*video` reference to a VideoPlayMetadata entity in
+      // included[]. An unresolvable reference still yields an attachment so
+      // the message renders instead of vanishing (empty body + nothing else).
+      const v = item.video || entityMap.get(item['*video']);
+      attachments.push(v ? extractVideoAttachment(v) : { type: 'video', fallbackText: 'Video' });
     } else if (item.audio) {
       attachments.push(extractAudioAttachment(item.audio));
     } else if (item.hostUrnData) {
@@ -529,6 +528,43 @@ function durationMsFromAudio(audio: any): number | undefined {
   const raw = audio?.durationMs ?? audio?.durationInMs ?? audio?.duration;
   if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return undefined;
   return raw < 1000 ? Math.round(raw * 1000) : Math.round(raw);
+}
+
+/**
+ * Map a com.linkedin.videocontent.VideoPlayMetadata object (inline `video`, or
+ * resolved from a `*video` reference) to a video attachment: playable stream
+ * URL, poster thumbnail, and duration.
+ */
+export function extractVideoAttachment(video: any): MessageAttachment {
+  const externalUrl = firstStreamingLocationUrl(video);
+
+  // Thumbnail is a VectorImage; messaging videos ship rootUrl='' with the full
+  // URL in fileIdentifyingUrlPathSegment, so concatenation covers both shapes.
+  let imageUrl = '';
+  const thumb = video?.thumbnail;
+  const artifact = pickArtifact(thumb?.artifacts, 480);
+  if (artifact?.fileUrl) {
+    imageUrl = artifact.fileUrl;
+  } else if (artifact?.fileIdentifyingUrlPathSegment) {
+    imageUrl = `${thumb?.rootUrl || ''}${artifact.fileIdentifyingUrlPathSegment}`;
+  }
+
+  const duration = video?.duration;
+  const durationMs =
+    typeof duration === 'number' && Number.isFinite(duration) && duration > 0
+      ? Math.round(duration)
+      : undefined;
+
+  return {
+    type: 'video',
+    fallbackText: 'Video',
+    ...(externalUrl ? { externalUrl } : {}),
+    ...(imageUrl ? { imageUrl } : {}),
+    ...(durationMs ? { durationMs } : {}),
+    ...(artifact?.width && artifact?.height
+      ? { width: artifact.width, height: artifact.height }
+      : {}),
+  };
 }
 
 export function extractAudioAttachment(audio: any): MessageAttachment {
