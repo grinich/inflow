@@ -6,6 +6,12 @@
 
 An experimental Chrome extension that reimagines LinkedIn messaging with a keyboard-driven, local-first UI. Built as a personal project to explore browser extension development with React, IndexedDB, and real-time streaming.
 
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+    <img src="assets/add-to-chrome.svg" alt="Add inflow to Chrome" height="58">
+  </a>
+</p>
+
 ## Install
 
 You need Google Chrome or any Chromium-based browser (Edge, Arc, Brave, etc.).
