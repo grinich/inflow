@@ -4,6 +4,15 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.2] - 2026-08-25
+
+### Added
+- **inflow badge on notification icons** — native message notifications now
+  show the inflow logo badged in the corner of the sender's avatar, so it's
+  clear at a glance which app the alert came from. (The large icon next to a
+  notification is always Chrome's own logo — the OS puts it there for every
+  extension.)
+
 ## [0.5.1] - 2026-08-24
 
 ### Fixed
@@ -234,6 +243,8 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.5.2]: https://github.com/grinich/inflow/releases/tag/v0.5.2
+[0.5.1]: https://github.com/grinich/inflow/releases/tag/v0.5.1
 [0.5.0]: https://github.com/grinich/inflow/releases/tag/v0.5.0
 [0.4.0]: https://github.com/grinich/inflow/releases/tag/v0.4.0
 [0.3.6]: https://github.com/grinich/inflow/releases/tag/v0.3.6
