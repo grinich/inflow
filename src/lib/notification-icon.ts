@@ -1,6 +1,6 @@
 /**
  * Build the icon for a native message notification: the sender's avatar,
- * circle-cropped, with the inflow logo badged in the bottom-right corner.
+ * circle-cropped.
  *
  * MV3 requires this indirection — chrome.notifications.create only renders
  * data:/blob: URLs or extension-local resources, so a remote LinkedIn CDN
@@ -12,7 +12,6 @@
  */
 
 const CANVAS_SIZE = 192;
-const BADGE_SIZE = 72;
 
 export async function buildNotificationIcon(avatarUrl: string): Promise<string | null> {
   try {
@@ -23,38 +22,10 @@ export async function buildNotificationIcon(avatarUrl: string): Promise<string |
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    ctx.save();
     ctx.beginPath();
     ctx.arc(CANVAS_SIZE / 2, CANVAS_SIZE / 2, CANVAS_SIZE / 2, 0, Math.PI * 2);
     ctx.clip();
     ctx.drawImage(avatar, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    ctx.restore();
-
-    // Badge failure is non-fatal — a plain avatar beats no icon.
-    const badge = await fetchBitmap(chrome.runtime.getURL('icon-128.png')).catch(() => null);
-    if (badge) {
-      const r = BADGE_SIZE / 2;
-      const cx = CANVAS_SIZE - r;
-      const cy = CANVAS_SIZE - r;
-      // White plate behind the logo so it stays legible over any avatar.
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.fill();
-      const inset = 6;
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, r - inset, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(
-        badge,
-        cx - r + inset,
-        cy - r + inset,
-        BADGE_SIZE - inset * 2,
-        BADGE_SIZE - inset * 2
-      );
-      ctx.restore();
-    }
 
     const blob = await canvas.convertToBlob({ type: 'image/png' });
     return await blobToDataUrl(blob);
