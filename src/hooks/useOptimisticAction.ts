@@ -688,14 +688,15 @@ export function useOptimisticAction() {
 
     const bridgeMsg = { type: 'EDIT_MESSAGE' as const, conversationId, messageId, body: newBody };
 
-    // Optimistically update local DB
-    await db.messages.update(messageId, { body: newBody, editedAt: Date.now() });
+    // Optimistically update local DB. Mentions are cleared (undefined deletes
+    // the key in Dexie) — their offsets only fit the pre-edit body.
+    await db.messages.update(messageId, { body: newBody, editedAt: Date.now(), mentions: undefined });
 
     if (!navigator.onLine) {
       await createQueuedAction({
         type: 'edit_message',
         conversationId,
-        rollbackData: { messageId, body: oldMessage.body, editedAt: oldMessage.editedAt },
+        rollbackData: { messageId, body: oldMessage.body, editedAt: oldMessage.editedAt, mentions: oldMessage.mentions },
         bridgeMessage: bridgeMsg,
       });
       return true;
@@ -704,14 +705,14 @@ export function useOptimisticAction() {
     const actionId = await createPendingAction({
       type: 'edit_message',
       conversationId,
-      rollbackData: { messageId, body: oldMessage.body, editedAt: oldMessage.editedAt },
+      rollbackData: { messageId, body: oldMessage.body, editedAt: oldMessage.editedAt, mentions: oldMessage.mentions },
       bridgeMessage: bridgeMsg,
     });
     try {
       const res = await sendBridgeMessage(bridgeMsg);
 
       if (!res.success) {
-        await db.messages.update(messageId, { body: oldMessage.body, editedAt: oldMessage.editedAt });
+        await db.messages.update(messageId, { body: oldMessage.body, editedAt: oldMessage.editedAt, mentions: oldMessage.mentions });
         await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: res.error || 'Failed to edit message' });
         return false;
@@ -723,7 +724,7 @@ export function useOptimisticAction() {
         await queueAction(actionId, bridgeMsg);
         return true;
       }
-      await db.messages.update(messageId, { body: oldMessage.body, editedAt: oldMessage.editedAt });
+      await db.messages.update(messageId, { body: oldMessage.body, editedAt: oldMessage.editedAt, mentions: oldMessage.mentions });
       await db.pendingActions.update(actionId, { status: 'failed' });
       showToast({ message: 'Failed to edit message' });
       return false;

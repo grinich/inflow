@@ -20,6 +20,8 @@ export interface MessageFixture {
   senderProfileId: string;
   senderName?: string;
   body: string;
+  /** Raw AttributedText attributes (e.g. @-mention entities) on the body */
+  bodyAttributes?: any[];
   createdAt?: number;
   renderContent?: any[];
 }
@@ -112,7 +114,7 @@ export function buildMessagesPageResponse(
       entityUrn: msg.id || `urn:li:msg_message:${convId}_${msg.index || 0}`,
       '*conversation': `urn:li:msg_conversation:(urn:li:fsd_profile:SELF,${convId})`,
       '*sender': participants.get(msg.senderProfileId),
-      body: { text: msg.body },
+      body: { text: msg.body, ...(msg.bodyAttributes ? { attributes: msg.bodyAttributes } : {}) },
       deliveredAt: msg.createdAt || Date.now(),
       renderContent: msg.renderContent || [],
     });

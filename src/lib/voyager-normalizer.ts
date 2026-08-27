@@ -1,5 +1,5 @@
 import type { Conversation, ServerConversation } from '@/types/conversation';
-import type { Message, MessageAttachment, RepliedMessage, ReactionSummary } from '@/types/message';
+import type { Message, MessageAttachment, MessageMention, RepliedMessage, ReactionSummary } from '@/types/message';
 import type { Profile } from '@/types/profile';
 import type { VoyagerResponse, VoyagerEntity } from '@/types/voyager';
 import { extractConversationId } from './conversation-urn';
@@ -13,6 +13,32 @@ import { pickArtifact } from './voyager-image';
 export function extractProfileId(urn: string): string {
   const match = urn.match(/fsd_profile:([^,)]+)/);
   return match ? match[1] : urn;
+}
+
+/**
+ * Extract @-mention attributes from a message body (pemberly AttributedText).
+ * LinkedIn delivers mentions as `body.attributes` entries whose attribute kind
+ * (`attributeKind` or `attributeKindUnion`, depending on decoration) holds the
+ * mentioned entity's URN; the display name lives in the plain text at
+ * [start, start+length). Malformed or out-of-range entries are skipped so the
+ * text always renders regardless of payload shape.
+ */
+export function extractBodyMentions(body: any): MessageMention[] {
+  const text = typeof body?.text === 'string' ? body.text : '';
+  const attrs = body?.attributes;
+  if (!text || !Array.isArray(attrs)) return [];
+  const mentions: MessageMention[] = [];
+  for (const attr of attrs) {
+    const start = attr?.start;
+    const length = attr?.length;
+    if (typeof start !== 'number' || typeof length !== 'number') continue;
+    if (length <= 0 || start < 0 || start + length > text.length) continue;
+    const kind = attr.attributeKindUnion ?? attr.attributeKind;
+    const urn = kind?.entity?.urn;
+    if (typeof urn !== 'string' || !urn.startsWith('urn:li:')) continue;
+    mentions.push({ start, length, urn });
+  }
+  return mentions.sort((a, b) => a.start - b.start);
 }
 
 const VALID_PROFILE_URN = /^urn:li:fsd_profile:[A-Za-z0-9_-]+$/;
@@ -281,6 +307,8 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
     // Extract reaction summaries
     const reactions = extractReactions(entity.reactionSummaries);
 
+    const mentions = extractBodyMentions(entity.body);
+
     messages.push({
       id: entity.entityUrn,
       conversationId,
@@ -298,6 +326,7 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
       ...(recalledAt ? { recalledAt } : {}),
       ...(seenAt ? { seenAt } : {}),
       ...(reactions.length > 0 ? { reactions } : {}),
+      ...(mentions.length > 0 ? { mentions } : {}),
     });
   }
 
@@ -353,6 +382,7 @@ export function extractSentMessage(
     // identifiable is not worth storing.
     if (typeof urn !== 'string' || !urn.startsWith('urn:li:msg_message:')) continue;
     if (typeof entity.deliveredAt !== 'number') continue;
+    const mentions = extractBodyMentions(entity.body);
     return {
       id: urn,
       conversationId,
@@ -362,6 +392,7 @@ export function extractSentMessage(
       body: entity.body?.text || '',
       createdAt: entity.deliveredAt,
       isFromMe: true,
+      ...(mentions.length > 0 ? { mentions } : {}),
     };
   }
   return null;

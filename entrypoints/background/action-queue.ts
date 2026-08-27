@@ -326,11 +326,12 @@ async function rollbackAction(action: PendingAction): Promise<void> {
       }
       break;
     case 'edit_message':
-      // rollbackData is { messageId, body, editedAt }
+      // rollbackData is { messageId, body, editedAt, mentions }
       if (data.messageId) {
         await db.messages.update(data.messageId, {
           body: data.body,
           editedAt: data.editedAt,
+          mentions: data.mentions,
         }).catch(() => {});
       }
       break;

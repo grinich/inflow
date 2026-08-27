@@ -1,4 +1,4 @@
-import { normalizeConversations, normalizeMessages } from '@/lib/voyager-normalizer';
+import { normalizeConversations, normalizeMessages, extractBodyMentions } from '@/lib/voyager-normalizer';
 import type { VoyagerResponse } from '@/types/voyager';
 
 // ---------------------------------------------------------------------------
@@ -58,6 +58,7 @@ function makeMessage(opts: {
   conversationUrn?: string;
   senderRef: string;
   body?: string;
+  bodyAttributes?: any[];
   deliveredAt?: number;
   renderContent?: any[];
   editedAt?: number;
@@ -71,7 +72,10 @@ function makeMessage(opts: {
     entityUrn: opts.entityUrn,
     '*conversation': opts.conversationUrn,
     '*sender': opts.senderRef,
-    body: opts.body !== undefined ? { text: opts.body } : { text: '' },
+    body: {
+      text: opts.body ?? '',
+      ...(opts.bodyAttributes ? { attributes: opts.bodyAttributes } : {}),
+    },
     deliveredAt: opts.deliveredAt ?? 1700000000000,
     renderContent: opts.renderContent,
     editedAt: opts.editedAt,
@@ -723,6 +727,77 @@ describe('normalizeMessages()', () => {
 
     const messages = normalizeMessages(response, '2-conv');
     expect(messages[0].senderName).toBe('Unknown');
+  });
+
+  describe('body mentions', () => {
+    it('extracts @-mention attributes with the mentioned entity URN', () => {
+      const body = 'Thanks Nathaniel Botwick for the intro!';
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          makeMessage({
+            entityUrn: 'urn:li:msg_message:(2-conv,100)',
+            senderRef: participantAlice.entityUrn,
+            body,
+            bodyAttributes: [
+              {
+                start: body.indexOf('Nathaniel'),
+                length: 'Nathaniel Botwick'.length,
+                attributeKindUnion: { entity: { urn: 'urn:li:fsd_profile:NATE123' } },
+              },
+            ],
+            deliveredAt: 1700000001000,
+          }),
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect(messages[0].mentions).toEqual([
+        { start: 7, length: 17, urn: 'urn:li:fsd_profile:NATE123' },
+      ]);
+    });
+
+    it('supports the attributeKind (non-union) decoration shape', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          makeMessage({
+            entityUrn: 'urn:li:msg_message:(2-conv,100)',
+            senderRef: participantAlice.entityUrn,
+            body: 'cc Bob Jones',
+            bodyAttributes: [
+              { start: 3, length: 9, attributeKind: { entity: { urn: 'urn:li:fsd_profile:BOB' } } },
+            ],
+            deliveredAt: 1700000001000,
+          }),
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect(messages[0].mentions).toEqual([
+        { start: 3, length: 9, urn: 'urn:li:fsd_profile:BOB' },
+      ]);
+    });
+
+    it('omits the mentions field entirely when there are no mention attributes', () => {
+      const response: VoyagerResponse = {
+        data: {},
+        included: [
+          participantAlice,
+          makeMessage({
+            entityUrn: 'urn:li:msg_message:(2-conv,100)',
+            senderRef: participantAlice.entityUrn,
+            body: 'plain text',
+            deliveredAt: 1700000001000,
+          }),
+        ],
+      };
+
+      const messages = normalizeMessages(response, '2-conv');
+      expect('mentions' in messages[0]).toBe(false);
+    });
   });
 
   it('sorts messages by createdAt ascending', () => {
@@ -1659,5 +1734,56 @@ describe('normalizeConversations() edge cases', () => {
     expect(conversations[0].participantUrns).toEqual([]);
     expect(conversations[0].participantNames).toEqual([]);
     expect(conversations[0].participantPictures).toEqual([]);
+  });
+});
+
+// ============================================================================
+// extractBodyMentions
+// ============================================================================
+describe('extractBodyMentions()', () => {
+  it('returns [] for missing/empty/malformed bodies', () => {
+    expect(extractBodyMentions(undefined)).toEqual([]);
+    expect(extractBodyMentions({})).toEqual([]);
+    expect(extractBodyMentions({ text: 'hi' })).toEqual([]);
+    expect(extractBodyMentions({ text: '', attributes: [{ start: 0, length: 1 }] })).toEqual([]);
+    expect(extractBodyMentions({ text: 'hi', attributes: 'not-an-array' })).toEqual([]);
+  });
+
+  it('skips attributes with out-of-range or non-numeric offsets', () => {
+    const body = {
+      text: 'short',
+      attributes: [
+        { start: 0, length: 99, attributeKindUnion: { entity: { urn: 'urn:li:fsd_profile:A' } } },
+        { start: -1, length: 3, attributeKindUnion: { entity: { urn: 'urn:li:fsd_profile:B' } } },
+        { start: '0', length: 3, attributeKindUnion: { entity: { urn: 'urn:li:fsd_profile:C' } } },
+        { start: 0, length: 0, attributeKindUnion: { entity: { urn: 'urn:li:fsd_profile:D' } } },
+      ],
+    };
+    expect(extractBodyMentions(body)).toEqual([]);
+  });
+
+  it('skips attributes without an entity URN (e.g. bold/italic styling)', () => {
+    const body = {
+      text: 'hello world',
+      attributes: [
+        { start: 0, length: 5, attributeKindUnion: { bold: {} } },
+        { start: 6, length: 5, attributeKindUnion: { entity: { urn: 12345 } } },
+      ],
+    };
+    expect(extractBodyMentions(body)).toEqual([]);
+  });
+
+  it('sorts mentions by start offset', () => {
+    const body = {
+      text: 'Bob and Alice',
+      attributes: [
+        { start: 8, length: 5, attributeKindUnion: { entity: { urn: 'urn:li:fsd_profile:ALICE' } } },
+        { start: 0, length: 3, attributeKindUnion: { entity: { urn: 'urn:li:fsd_profile:BOB' } } },
+      ],
+    };
+    expect(extractBodyMentions(body).map((m) => m.urn)).toEqual([
+      'urn:li:fsd_profile:BOB',
+      'urn:li:fsd_profile:ALICE',
+    ]);
   });
 });

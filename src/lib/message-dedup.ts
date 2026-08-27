@@ -60,19 +60,21 @@ export function dedupeMessagesForDisplay(all: Message[]): Message[] {
 
   // Freshest edit (max editedAt) seen per stable identity, to fold onto the
   // surviving copy.
-  const freshestEdit = new Map<string, { body: string; editedAt: number; attachments?: Message['attachments'] }>();
+  const freshestEdit = new Map<string, { body: string; editedAt: number; attachments?: Message['attachments']; mentions?: Message['mentions'] }>();
   for (const m of all) {
     if (!m.editedAt) continue;
     const key = messageDedupeKey(m);
     const cur = freshestEdit.get(key);
     if (!cur || m.editedAt > cur.editedAt) {
-      freshestEdit.set(key, { body: m.body, editedAt: m.editedAt, attachments: m.attachments });
+      freshestEdit.set(key, { body: m.body, editedAt: m.editedAt, attachments: m.attachments, mentions: m.mentions });
     }
   }
   const withFreshestEdit = (m: Message): Message => {
     const e = freshestEdit.get(messageDedupeKey(m));
     if (e && e.editedAt > (m.editedAt ?? 0)) {
-      return { ...m, body: e.body, editedAt: e.editedAt, ...(e.attachments ? { attachments: e.attachments } : {}) };
+      // mentions are replaced (not preserved) alongside body — offsets are only
+      // valid for the body they were extracted with.
+      return { ...m, body: e.body, editedAt: e.editedAt, mentions: e.mentions, ...(e.attachments ? { attachments: e.attachments } : {}) };
     }
     return m;
   };
@@ -145,7 +147,7 @@ export interface DedupPlan {
   /** Field preservation to apply to canonical entries before deleting orphans. */
   updates: {
     id: string;
-    updates: { editedAt?: number; reactions?: ReactionSummary[]; body?: string; attachments?: Message['attachments'] };
+    updates: { editedAt?: number; reactions?: ReactionSummary[]; body?: string; attachments?: Message['attachments']; mentions?: Message['mentions'] };
   }[];
 }
 
@@ -222,7 +224,12 @@ export function planSseDedup(allMsgs: Message[], opts: { includeSentTemps?: bool
     // the orphan is deleted.
     if ((orphan.editedAt ?? 0) > (canonical.editedAt ?? 0)) {
       u.editedAt = orphan.editedAt;
-      if (orphan.body !== canonical.body) u.body = orphan.body;
+      if (orphan.body !== canonical.body) {
+        u.body = orphan.body;
+        // Replace mentions with the edited copy's (undefined clears the stale
+        // ones via Dexie update) — offsets only fit the body they came from.
+        u.mentions = orphan.mentions;
+      }
       if (orphan.attachments?.length && !canonical.attachments?.length) u.attachments = orphan.attachments;
     }
     if (orphan.reactions?.length && !canonical.reactions?.length) u.reactions = orphan.reactions;

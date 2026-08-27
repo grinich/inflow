@@ -13,7 +13,7 @@
 
 import { getMemberUrn } from '../auth/session';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, extractAttachments, needsParticipantRepair, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
+import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, extractAttachments, extractBodyMentions, needsParticipantRepair, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
 import { withoutRecalled } from '@/lib/message-dedup';
 import { repairConversationParticipants } from '../sync/repair-participants';
 import { reconcileRecalledMessages } from '../sync/reconcile-messages';
@@ -1209,6 +1209,7 @@ async function handleIncludedMessage(
     const attachments = extractAttachments(entity.renderContent, included);
     const repliedMessage = extractRepliedMessage(entity.renderContent);
     const reactions = extractReactions(entity.reactionSummaries);
+    const mentions = extractBodyMentions(entity.body);
 
     const resolvedName = member
       ? `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim()
@@ -1227,6 +1228,7 @@ async function handleIncludedMessage(
       ...(repliedMessage ? { repliedMessage } : {}),
       ...(entity.editedAt ? { editedAt: entity.editedAt } : {}),
       ...(reactions.length > 0 ? { reactions } : {}),
+      ...(mentions.length > 0 ? { mentions } : {}),
     });
   }
 
@@ -1317,6 +1319,7 @@ async function handleSingleMessageEntity(
   const attachments = extractAttachments(entity.renderContent);
   const repliedMessage = extractRepliedMessage(entity.renderContent);
   const reactions = extractReactions(entity.reactionSummaries);
+  const mentions = extractBodyMentions(entity.body);
 
   // DEBUG: log edit/reaction fields from raw entity
   if (entity.editedAt || entity.lastEditedAt || entity.reactionSummaries) {
@@ -1336,6 +1339,7 @@ async function handleSingleMessageEntity(
     ...(repliedMessage ? { repliedMessage } : {}),
     ...(entity.editedAt ? { editedAt: entity.editedAt } : {}),
     ...(reactions.length > 0 ? { reactions } : {}),
+    ...(mentions.length > 0 ? { mentions } : {}),
   };
 
   debugLog(

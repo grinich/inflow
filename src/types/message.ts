@@ -31,6 +31,15 @@ export interface RepliedMessage {
   sentAt?: number;       // original message timestamp (for API payload)
 }
 
+export interface MessageMention {
+  /** Start offset into body (UTF-16 code units, matching String.prototype.slice) */
+  start: number;
+  /** Length of the mention's display text within body */
+  length: number;
+  /** URN of the mentioned entity (e.g. urn:li:fsd_profile:… or urn:li:fsd_company:…) */
+  urn: string;
+}
+
 export interface ReactionSummary {
   emoji: string;
   count: number;
@@ -58,4 +67,8 @@ export interface Message {
   recalledAt?: number;
   seenAt?: number;    // timestamp when recipient read this message
   reactions?: ReactionSummary[];
+  /** @-mentions in body, from LinkedIn's AttributedText attributes. Offsets
+   *  are only valid for the body they were extracted with — any path that
+   *  replaces body must replace (or clear) mentions too. */
+  mentions?: MessageMention[];
 }
