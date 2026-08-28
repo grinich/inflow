@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { db } from '@/db/database';
+import { pruneImageCache } from '@/lib/image-cache';
 
 // ── In-memory cache ──────────────────────────────────────────────────
 // Sits in front of IndexedDB so repeated renders get data synchronously
@@ -10,17 +11,8 @@ const pending = new Set<string>();           // in-flight fetches
 const subscribers = new Set<() => void>();   // useSyncExternalStore listeners
 
 // Bound the durable IndexedDB image cache so it can't grow without limit. Pruned
-// lazily (every Nth write) using the cachedAt index, evicting the oldest entries.
-const IMAGE_CACHE_MAX = 1000;
+// lazily (every Nth write) using the shared eviction in @/lib/image-cache.
 let _putsSincePrune = 0;
-async function pruneImageCache(): Promise<void> {
-  try {
-    const count = await db.imageCache.count();
-    if (count <= IMAGE_CACHE_MAX) return;
-    const oldest = await db.imageCache.orderBy('cachedAt').limit(count - IMAGE_CACHE_MAX).primaryKeys();
-    if (oldest.length) await db.imageCache.bulkDelete(oldest as string[]);
-  } catch {}
-}
 
 // Batch notify: coalesce multiple synchronous cache fills into one re-render
 let notifyScheduled = false;

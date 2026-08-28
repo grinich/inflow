@@ -47,12 +47,36 @@ function replayPriority(action: PendingAction): number {
   return 0;
 }
 
-function orderQueuedActions(a: PendingAction, b: PendingAction): number {
-  if (a.conversationId === b.conversationId) {
-    const priority = replayPriority(a) - replayPriority(b);
-    if (priority !== 0) return priority;
+/**
+ * Order queued actions for replay: global timestamp order, but within each
+ * conversation's subsequence sends replay before category mutations (see
+ * replayPriority). Implemented as a per-conversation stable partition
+ * reassembled into the original slots — NOT as one Array.sort comparator:
+ * "priority only within the same conversation" is not a transitive relation,
+ * and an intransitive comparator makes the sort order implementation-defined
+ * (interleaved conversations replayed a category move before that
+ * conversation's own send).
+ */
+function orderQueuedActions(queued: PendingAction[]): PendingAction[] {
+  const byConv = new Map<string, PendingAction[]>();
+  for (const action of queued) {
+    let list = byConv.get(action.conversationId);
+    if (!list) byConv.set(action.conversationId, (list = []));
+    list.push(action);
   }
-  return a.timestamp - b.timestamp;
+  for (const list of byConv.values()) {
+    // Array.sort is stable, so equal priorities keep their timestamp order.
+    list.sort((a, b) => replayPriority(a) - replayPriority(b));
+  }
+  // Each slot keeps its conversation; consume that conversation's reordered
+  // actions in sequence so cross-conversation chronology is untouched.
+  const cursors = new Map<string, number>();
+  return queued.map((action) => {
+    const list = byConv.get(action.conversationId)!;
+    const idx = cursors.get(action.conversationId) ?? 0;
+    cursors.set(action.conversationId, idx + 1);
+    return list[idx];
+  });
 }
 
 /**
@@ -97,11 +121,9 @@ export async function drainActionQueue(): Promise<void> {
     // Prune old confirmed/failed actions before draining
     await cleanupStaleActions();
 
-    const queued = await db.pendingActions
-      .where('status')
-      .equals('queued')
-      .sortBy('timestamp');
-    queued.sort(orderQueuedActions);
+    const queued = orderQueuedActions(
+      await db.pendingActions.where('status').equals('queued').sortBy('timestamp'),
+    );
 
     if (queued.length === 0) return;
 

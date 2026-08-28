@@ -4,13 +4,15 @@ import { normalizeConversations } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
 import { networkErrorLevel } from '@/lib/transient-error';
 import { db, mergeProfiles } from '@/db/database';
+import { pruneImageCache } from '@/lib/image-cache';
 import { mergeConversation } from './merge-conversation';
 import type { ServerConversation } from '@/types/conversation';
 import type { Profile } from '@/types/profile';
 
 const IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
-async function cacheProfilePhotos(urls: string[]): Promise<void> {
+/** Exported for tests. */
+export async function cacheProfilePhotos(urls: string[]): Promise<void> {
   const uniqueUrls = [...new Set(urls.filter(Boolean))];
   if (uniqueUrls.length === 0) return;
 
@@ -55,6 +57,9 @@ async function cacheProfilePhotos(urls: string[]): Promise<void> {
   if (toStore.length > 0) {
     await db.imageCache.bulkPut(toStore);
     debugLog('info', `Cached ${toStore.length} profile photos`);
+    // Signed CDN URLs rotate, so this path re-caches the same photos under new
+    // keys every rotation — evict beyond the cap or the table grows forever.
+    await pruneImageCache();
   }
 }
 
