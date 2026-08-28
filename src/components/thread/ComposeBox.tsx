@@ -163,16 +163,45 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       for (const url of prevUrls.current.values()) URL.revokeObjectURL(url);
     }, []);
 
+    // Draft persistence guards. Saves are gated on the draft having LOADED for
+    // the current conversation (navigating past a conversation faster than its
+    // IndexedDB read must not persist the still-empty composer over its stored
+    // draft — saveDraft with empty state DELETES the row), and skipped when the
+    // state matches what's already persisted (an empty composer would otherwise
+    // issue a delete every second, and even a no-op Dexie write re-fires every
+    // liveQuery observing draftAttachments — re-rendering the conversation list
+    // once per second).
+    const draftLoadedRef = useReactRef(false);
+    const lastSavedKeyRef = useReactRef<string | null>(null);
+    const draftKey = (text: string, files: File[]) =>
+      `${text}\u0000${files.map((f) => `${f.name}:${f.size}`).join(',')}`;
+    const persistDraft = useCallback((convId: string, text: string, files: File[], force = false) => {
+      if (!force && !draftLoadedRef.current) return;
+      const key = draftKey(text, files);
+      if (!force && key === lastSavedKeyRef.current) return;
+      lastSavedKeyRef.current = key;
+      saveDraft(convId, text, files);
+      document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: convId }));
+    }, []);
+
     // Restore draft when switching conversations
     useEffect(() => {
       let cancelled = false;
+      draftLoadedRef.current = false;
+      lastSavedKeyRef.current = null;
       setBody('');
       setAttachments([]);
       setReplyingTo(null);
       loadDraft(conversationId).then((draft) => {
         if (cancelled) return;
-        setBody(draft.text);
-        setAttachments(draft.files);
+        lastSavedKeyRef.current = draftKey(draft.text, draft.files);
+        draftLoadedRef.current = true;
+        // Never clobber input the user produced while the read was in flight —
+        // their typing is authoritative over the stored draft.
+        if (bodyRef.current === '' && attachmentsRef.current.length === 0) {
+          setBody(draft.text);
+          setAttachments(draft.files);
+        }
       });
       return () => { cancelled = true; };
     }, [conversationId]);
@@ -196,8 +225,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
 
         setAttachments((prev) => {
           const next = [...prev, ...newFiles];
-          saveDraft(conversationId, bodyRef.current, next);
-          document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+          persistDraft(conversationId, bodyRef.current, next);
           return next;
         });
       }
@@ -208,21 +236,18 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     // Periodically save draft to IndexedDB and notify ConversationRow
     useEffect(() => {
       const timer = setInterval(() => {
-        saveDraft(conversationId, bodyRef.current, attachmentsRef.current);
-        document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+        persistDraft(conversationId, bodyRef.current, attachmentsRef.current);
       }, SAVE_INTERVAL);
       return () => {
-        saveDraft(conversationId, bodyRef.current, attachmentsRef.current);
-        document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+        persistDraft(conversationId, bodyRef.current, attachmentsRef.current);
         clearInterval(timer);
       };
-    }, [conversationId]);
+    }, [conversationId, persistDraft]);
 
     function removeAttachment(index: number) {
       setAttachments((prev) => {
         const next = prev.filter((_, j) => j !== index);
-        saveDraft(conversationId, bodyRef.current, next);
-        document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+        persistDraft(conversationId, bodyRef.current, next);
         return next;
       });
     }
@@ -258,8 +283,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       setBody('');
       setAttachments([]);
       useUIStore.getState().setReplyingTo(null);
-      saveDraft(conversationId, '', []);
-      document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+      persistDraft(conversationId, '', [], true);
       // Reset textarea height
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
       // Keep focus in the composer so the user can immediately type the next
@@ -293,8 +317,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     function restoreCompose(text: string, files?: File[]) {
       setBody(text);
       setAttachments(files ?? []);
-      saveDraft(conversationId, text, files ?? []);
-      document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+      persistDraft(conversationId, text, files ?? [], true);
     }
 
     async function handleDraftSend(text: string, files?: File[], archiveAfterSend = false) {
@@ -346,19 +369,25 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
           // with no participant data (the recipient's profile may have never been
           // synced), leaving it labeled "Unknown". Merge with any row the echo may
           // have already created so we don't clobber its lastMessage/category.
-          const echoed = await db.conversations.get(realConversationId);
-          await db.conversations.put({
-            id: realConversationId,
-            participantUrns: draftConv.participantUrns,
-            participantNames: draftConv.participantNames,
-            participantPictures: draftConv.participantPictures,
-            lastMessage: echoed?.lastMessage || text,
-            lastActivityAt: echoed?.lastActivityAt ?? Date.now(),
-            read: echoed?.read ?? 1,
-            archived: echoed?.archived ?? 0,
-            category: echoed?.category || 'PRIMARY_INBOX',
-            hasAttachments: echoed?.hasAttachments ?? (bridgeAttachments?.length ? 1 : 0),
-            starred: echoed?.starred ?? 0,
+          // Read-modify-write in one transaction so an SSE echo landing in
+          // between isn't clobbered. When we just archived, the stored row must
+          // say so — an echoed pre-archive category would leave the thread
+          // sitting in Focused until a sync corrects it.
+          await db.transaction('rw', db.conversations, async () => {
+            const echoed = await db.conversations.get(realConversationId);
+            await db.conversations.put({
+              id: realConversationId,
+              participantUrns: draftConv.participantUrns,
+              participantNames: draftConv.participantNames,
+              participantPictures: draftConv.participantPictures,
+              lastMessage: echoed?.lastMessage || text,
+              lastActivityAt: echoed?.lastActivityAt ?? Date.now(),
+              read: echoed?.read ?? 1,
+              archived: archiveAfterSend ? 1 : (echoed?.archived ?? 0),
+              category: archiveAfterSend ? 'ARCHIVE' : (echoed?.category || 'PRIMARY_INBOX'),
+              hasAttachments: echoed?.hasAttachments ?? (bridgeAttachments?.length ? 1 : 0),
+              starred: echoed?.starred ?? 0,
+            });
           });
 
           // Clean up draft conversation
@@ -396,8 +425,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         setBody('');
         setAttachments([]);
         setReplyingTo(null);
-        saveDraft(conversationId, '', []);
-        document.dispatchEvent(new CustomEvent('inflow:draft-change', { detail: conversationId }));
+        persistDraft(conversationId, '', [], true);
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
         const ta = textareaRef.current;
         if (ta) ta.blur();
