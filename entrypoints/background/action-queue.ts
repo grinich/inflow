@@ -30,6 +30,15 @@ let draining = false;
 /** Age threshold after which confirmed/failed actions are cleaned up. */
 const ACTION_CLEANUP_AGE_MS = 24 * 60 * 60 * 1000; // 1 day
 
+/**
+ * Age after which a 'pending' row is considered stranded. Pending rows are
+ * transitioned only by an in-page promise callback — a tab closed, crashed,
+ * or discarded mid-flight leaves the row 'pending' forever, where it guards
+ * its conversation from server merges indefinitely (hasPendingAction) and
+ * grows the table without bound. Real in-flight actions resolve in seconds.
+ */
+const PENDING_ABANDON_AGE_MS = 60 * 60 * 1000; // 1 hour
+
 function replayPriority(action: PendingAction): number {
   // LinkedIn moves a thread back to Focused when a new message lands. For
   // offline send+archive / send+move flows, replay sends before later category
@@ -85,6 +94,18 @@ function orderQueuedActions(queued: PendingAction[]): PendingAction[] {
  */
 async function cleanupStaleActions(): Promise<void> {
   try {
+    // Reclaim stranded in-flight actions: mark hour-old 'pending' rows as
+    // 'failed' so they stop guarding their conversation and age out with the
+    // normal cleanup below.
+    const abandonCutoff = Date.now() - PENDING_ABANDON_AGE_MS;
+    const abandoned = await db.pendingActions
+      .filter((a) => a.status === 'pending' && a.timestamp < abandonCutoff)
+      .toArray();
+    if (abandoned.length > 0) {
+      await db.pendingActions.bulkPut(abandoned.map((a) => ({ ...a, status: 'failed' as const })));
+      debugLog('info', `[ACTION-QUEUE] Reclaimed ${abandoned.length} abandoned pending action(s)`);
+    }
+
     const cutoff = Date.now() - ACTION_CLEANUP_AGE_MS;
     const stale = await db.pendingActions
       .filter((a) =>
