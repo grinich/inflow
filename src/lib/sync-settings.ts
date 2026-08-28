@@ -36,8 +36,11 @@ export async function getBackfillWindow(): Promise<BackfillWindow> {
   const stored = await readLocal<string>(STORAGE_KEY);
   // Validate against known windows — an unknown value (or read error → undefined)
   // must NOT fall through to WINDOW_MS[x]=undefined (which getBackfillCutoff would
-  // read as "sync everything").
-  return stored && stored in WINDOW_MS ? (stored as BackfillWindow) : DEFAULT_WINDOW;
+  // read as "sync everything"). Own-property check, not `in`: a corrupted value
+  // like "toString" passes `in` via the prototype chain.
+  return stored && Object.prototype.hasOwnProperty.call(WINDOW_MS, stored)
+    ? (stored as BackfillWindow)
+    : DEFAULT_WINDOW;
 }
 
 /** Set the backfill window. */

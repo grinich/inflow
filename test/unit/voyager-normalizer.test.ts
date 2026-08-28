@@ -492,7 +492,12 @@ describe('normalizeConversations()', () => {
       expect(conversations[0].category).toBe('PRIMARY_INBOX');
     });
 
-    it('defaults to PRIMARY_INBOX when categories is empty', () => {
+    it('leaves category undefined when categories is empty (merge supplies the first-insert default)', () => {
+      // An empty categories array carries no information — deriving
+      // archived:0 / PRIMARY_INBOX from it would let a merge pop an archived
+      // thread back into Focused (regression 113). New conversations still
+      // land in PRIMARY_INBOX via mergeConversation's `?? 'PRIMARY_INBOX'`
+      // first-insert default.
       const response: VoyagerResponse = {
         data: {},
         included: [
@@ -506,7 +511,8 @@ describe('normalizeConversations()', () => {
       };
 
       const { conversations } = normalizeConversations(response);
-      expect(conversations[0].category).toBe('PRIMARY_INBOX');
+      expect(conversations[0].category).toBeUndefined();
+      expect(conversations[0].archived).toBeUndefined();
     });
 
     it('does NOT return STARRED as category when categories is [INBOX, STARRED] (fix #3)', () => {

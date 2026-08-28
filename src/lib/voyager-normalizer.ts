@@ -252,9 +252,13 @@ export function normalizeConversations(raw: VoyagerResponse, myMemberUrn?: strin
           : conv.unreadCount !== undefined
             ? (conv.unreadCount === 0 ? 1 : 0)
             : undefined,
-      archived: conv.categories ? (conv.categories.includes('ARCHIVE') ? 1 : 0) : undefined,
-      category: conv.categories ? pickInboxCategory(conv.categories) : undefined,
-      starred: conv.categories ? (conv.categories.includes('STARRED') ? 1 : 0) : undefined,
+      // `?.length` not truthiness: an EMPTY categories array carries no
+      // information (same "absence is NOT a value" rule) — deriving
+      // archived:0 / PRIMARY_INBOX from it would let merge pop an archived
+      // thread back into Focused.
+      archived: conv.categories?.length ? (conv.categories.includes('ARCHIVE') ? 1 : 0) : undefined,
+      category: conv.categories?.length ? pickInboxCategory(conv.categories) : undefined,
+      starred: conv.categories?.length ? (conv.categories.includes('STARRED') ? 1 : 0) : undefined,
     };
   });
 
@@ -480,13 +484,20 @@ export function extractAttachments(renderContent: any[] | undefined, included?: 
         attachments.push({ type: 'gif', fallbackText: 'GIF' });
       }
     } else if (item.vectorImage) {
-      // Inline image
+      // Inline image. LinkedIn ships several shapes: a complete rootUrl, an
+      // artifact fileUrl, or rootUrl + fileIdentifyingUrlPathSegment (either a
+      // directory root + segment, or an empty root with the full URL in the
+      // segment — the same shapes extractVideoAttachment and
+      // getParticipantPicture already handle).
       const img = item.vectorImage;
-      let imageUrl = img.rootUrl || '';
-      // If rootUrl has artifacts, build full URL (but LinkedIn usually gives complete rootUrl for messaging images)
-      if (!imageUrl && img.artifacts?.length) {
-        const artifact = img.artifacts[0];
-        if (artifact?.fileUrl) imageUrl = artifact.fileUrl;
+      let imageUrl = '';
+      const artifact = img.artifacts?.length ? pickArtifact(img.artifacts, 800) ?? img.artifacts[0] : undefined;
+      if (artifact?.fileUrl) {
+        imageUrl = artifact.fileUrl;
+      } else if (artifact?.fileIdentifyingUrlPathSegment) {
+        imageUrl = `${img.rootUrl || ''}${artifact.fileIdentifyingUrlPathSegment}`;
+      } else {
+        imageUrl = img.rootUrl || '';
       }
       if (imageUrl) {
         attachments.push({ type: 'image', imageUrl });

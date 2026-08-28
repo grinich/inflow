@@ -259,6 +259,12 @@ export function useConversations() {
         results = results.filter((c) => c.lastActivityAt < ts);
       }
 
+      // Token strips above leave doubled internal spaces ("project is:unread
+      // update" → "project  update"); collapse them like stripFilterTokens
+      // does, or a mid-query token makes the free-text match nothing while
+      // the highlighter (which uses stripFilterTokens) highlights it anyway.
+      q = q.replace(/\s+/g, ' ').trim();
+
       if (q) {
         const lower = q.toLowerCase();
         results = results.filter(

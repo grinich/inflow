@@ -25,7 +25,12 @@ export function computeWindow(
   if (rowCount <= 0 || rowHeight <= 0) {
     return { start: 0, end: 0, topPad: 0, bottomPad: 0 };
   }
-  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  // Clamp start into the list: when the list shrinks while the container is
+  // scrolled past its new end (search narrowing a long list), an unclamped
+  // start exceeds `end` and the window renders zero rows behind a huge top
+  // spacer — which keeps the container tall, so the browser never clamps
+  // scrollTop and the blank list never self-corrects.
+  const start = Math.max(0, Math.min(Math.floor(scrollTop / rowHeight) - overscan, rowCount - 1));
   const end = Math.min(rowCount, Math.ceil((scrollTop + Math.max(viewportHeight, 0)) / rowHeight) + overscan);
   return {
     start,
