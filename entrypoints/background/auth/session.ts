@@ -2,6 +2,7 @@ import { voyagerFetch } from '../api/client';
 import { getLinkedInCookies } from './cookies';
 import { switchDatabase, memberIdFromUrn } from '@/db/database';
 import { debugLog } from '@/lib/debug-log';
+import { isTransientNetworkError } from '@/lib/transient-error';
 
 export interface Session {
   authenticated: boolean;
@@ -141,10 +142,12 @@ export async function getSession(): Promise<Session> {
   } catch (err: any) {
     // Network errors (fetch failed, DNS, timeout) should NOT be treated as
     // "unauthenticated" — that would cause AuthGate to flash a login screen
-    // on every transient network blip. Only return unauthenticated for errors
-    // that indicate a genuine auth problem (HTTP 401/403 are handled above
-    // via res.ok check). Rethrow network errors so callers can handle them.
-    if (err?.name === 'TypeError' || err?.message?.includes('fetch')) {
+    // on every transient network blip. isTransientNetworkError covers the
+    // AbortSignal.timeout TimeoutError that voyagerFetch's request bound
+    // produces, not just fetch TypeErrors. Only return unauthenticated for
+    // errors that indicate a genuine auth problem (HTTP 401/403 are handled
+    // above via the res.ok check).
+    if (isTransientNetworkError(err) || err?.message?.includes('fetch')) {
       debugLog('warn', `[SESSION] Network error during /me check: ${err}`);
       // If we have a cached session, return it rather than losing auth state
       if (cachedSession) return cachedSession;
