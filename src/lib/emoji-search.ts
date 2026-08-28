@@ -10,7 +10,10 @@ export interface EmojiResult {
  * e.g. ":smi" -> captures "smi". Used by the compose box and message editor to
  * trigger emoji autocomplete. Anchored to the end; capture group 1 is the query.
  */
-export const EMOJI_SHORTCODE_RE = /:([a-z0-9_+-]*)$/;
+// The colon must sit at a word boundary (start of text or after whitespace) —
+// without the lookbehind, "ratio is 3:1" opened the emoji popup with query "1"
+// and Enter INSERTED an emoji instead of sending the message.
+export const EMOJI_SHORTCODE_RE = /(?<=^|\s):([a-z0-9_+-]*)$/;
 
 interface EmojiEntry {
   emoji: string;

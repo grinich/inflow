@@ -123,12 +123,20 @@ export async function seedDemoData(): Promise<void> {
     let lastBody = '';
     let lastActivityAt = convStart;
 
+    let ts = convStart;
     for (let m = 0; m < msgCount; m++) {
       const isFromMe = m % 3 === 1 || m % 5 === 3; // roughly 40% outbound
       const body = isFromMe
         ? pick(DEMO_MESSAGES_OUTBOUND)
         : pick(DEMO_MESSAGES_INBOUND);
-      const createdAt = convStart + m * randInt(60_000, 1_800_000);
+      // Accumulate the gap — `convStart + m * randInt(...)` re-rolled the
+      // interval per index, so message 2 could land BEFORE message 1 and
+      // threads rendered out of order (with lastActivityAt pointing at a
+      // message that wasn't the newest). Cap the gap so recent conversations
+      // can't accumulate past `now` (future timestamps).
+      const maxGap = Math.max(60_000, Math.min(1_800_000, Math.floor((now - convStart) / msgCount)));
+      ts += randInt(60_000, maxGap);
+      const createdAt = ts;
       lastBody = body;
       lastActivityAt = createdAt;
 

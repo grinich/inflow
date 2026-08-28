@@ -185,13 +185,15 @@ export function NewMessageComposer({ draftConversation, composeRef }: NewMessage
     setQuery('');
     setResults([]);
 
-    // Clean up old draft if recipients changed
-    if (draftConvId) {
+    // The draft id is derived from the recipient set — re-key the persisted
+    // draft text/attachments to the new id BEFORE cleaning up the old rows.
+    // Changing recipients is not "discard": deleting the draftAttachments row
+    // here destroyed the typed message and attached files.
+    const convId = makeDraftConversationId(updated.map((r) => r.profileUrn));
+    if (draftConvId && draftConvId !== convId) {
+      await migrateDraftRow(draftConvId, convId);
       await cleanupDraft(draftConvId);
     }
-
-    // Create/update draft conversation with all recipients
-    const convId = makeDraftConversationId(updated.map((r) => r.profileUrn));
     const draftConv: Conversation = {
       id: convId,
       participantUrns: updated.map((r) => r.profileUrn),
@@ -221,16 +223,18 @@ export function NewMessageComposer({ draftConversation, composeRef }: NewMessage
     const updated = recipients.filter((_, i) => i !== index);
     setRecipients(updated);
 
-    // Clean up old draft
-    if (draftConvId) {
-      await cleanupDraft(draftConvId);
-    }
-
     if (updated.length === 0) {
+      // Last recipient removed — nowhere to re-key the draft to.
+      if (draftConvId) await cleanupDraft(draftConvId);
       setDraftConvId(null);
     } else {
-      // Recreate draft with remaining recipients
+      // Recreate draft with remaining recipients, carrying the typed
+      // text/attachments over to the re-keyed id (see handleSelectRecipient).
       const convId = makeDraftConversationId(updated.map((r) => r.profileUrn));
+      if (draftConvId && draftConvId !== convId) {
+        await migrateDraftRow(draftConvId, convId);
+        await cleanupDraft(draftConvId);
+      }
       const draftConv: Conversation = {
         id: convId,
         participantUrns: updated.map((r) => r.profileUrn),
@@ -254,6 +258,15 @@ export function NewMessageComposer({ draftConversation, composeRef }: NewMessage
   const cleanupDraft = async (convId: string) => {
     try { await db.conversations.delete(convId); } catch {}
     try { await db.draftAttachments.delete(convId); } catch {}
+  };
+
+  /** Re-key the persisted draft text/attachments when the recipient set (and
+   *  therefore the draft conversation id) changes. */
+  const migrateDraftRow = async (fromId: string, toId: string) => {
+    try {
+      const row = await db.draftAttachments.get(fromId);
+      if (row) await db.draftAttachments.put({ ...row, conversationId: toId });
+    } catch {}
   };
 
   const handleTransitionToThread = async () => {
@@ -369,7 +382,10 @@ export function NewMessageComposer({ draftConversation, composeRef }: NewMessage
                 handleTransitionToThread();
               } else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setSelectedIdx((i) => Math.min(i + 1, results.length - 1));
+                // Clamp at 0: with an empty list, min(i+1, -1) drove the index
+                // to -1, and late-arriving async results never reset it — Enter
+                // became a permanent no-op for that query.
+                setSelectedIdx((i) => Math.max(0, Math.min(i + 1, results.length - 1)));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setSelectedIdx((i) => Math.max(i - 1, 0));

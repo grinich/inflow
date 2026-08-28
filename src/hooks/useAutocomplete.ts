@@ -4,7 +4,10 @@ import { buildAutocompletePrompt, MIN_BODY_LENGTH } from '@/lib/autocomplete-pro
 import { ENABLE_AI_AUTOCOMPLETE } from '@/lib/feature-flags';
 import type { Message } from '@/types/message';
 
-const DEBOUNCE_MS = 80;
+// Must exceed a normal typing cadence (~150-300ms between keys) or it
+// coalesces nothing: at 80ms every keystroke fired a real Gemini streaming
+// request that the next keystroke aborted (~55 requests per 60-char reply).
+const DEBOUNCE_MS = 300;
 
 interface UseAutocompleteOptions {
   body: string;
@@ -42,9 +45,16 @@ export function useAutocomplete({
   const abortRef = useRef<AbortController | null>(null);
   const justAcceptedRef = useRef(false);
 
-  // Clear suggestion when conversation changes
+  // Clear suggestion when conversation changes — and abort any in-flight
+  // prediction. The body-change effect only aborts when `body` differs; if the
+  // new conversation's restored draft is byte-identical, a suggestion computed
+  // from the PREVIOUS conversation's messages would land in the new one.
   useEffect(() => {
     setSuggestion(null);
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
   }, [conversationId]);
 
   // On body change: clear suggestion and debounce a new prediction
