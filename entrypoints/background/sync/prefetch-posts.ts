@@ -7,6 +7,25 @@ import type { Message } from '@/types/message';
  *  age out cached posts (and not-found sentinels) on the same schedule. */
 export const POST_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+/** Cap for the post cache — the TTL only governs refresh, not removal, so
+ *  without eviction every shared post ever seen stays in IndexedDB forever. */
+export const POST_CACHE_MAX = 500;
+
+/** Evict the oldest cached posts (by cachedAt) beyond the cap. Best-effort. */
+async function prunePostCache(): Promise<void> {
+  try {
+    const count = await db.postCache.count();
+    if (count <= POST_CACHE_MAX) return;
+    const oldest = await db.postCache
+      .orderBy('cachedAt')
+      .limit(count - POST_CACHE_MAX)
+      .primaryKeys();
+    if (oldest.length) await db.postCache.bulkDelete(oldest as string[]);
+  } catch {
+    // maintenance only — never block the fetch path
+  }
+}
+
 /** In-flight post fetches — deduplicates concurrent prefetch calls for the same URN. */
 const _inflightPostFetches = new Map<string, Promise<void>>();
 
@@ -88,4 +107,5 @@ async function _fetchAndCachePost(urn: string, now: number): Promise<void> {
   } finally {
     _inflightPostFetches.delete(urn);
   }
+  await prunePostCache();
 }
