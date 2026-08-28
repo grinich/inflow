@@ -36,18 +36,32 @@ export function stashUnmatchedReceipt(messageUrn: string, seenAt: number): void 
 }
 
 /**
- * Apply (and consume) buffered receipts onto message rows about to be
- * written. Mutates the rows in place.
+ * Apply buffered receipts onto message rows about to be written (mutates the
+ * rows in place, taking the max of buffered and already-present seenAt).
+ *
+ * NON-DESTRUCTIVE: returns the matched message URNs; call
+ * consumePendingReceipts with them only AFTER the write commits. Deleting on
+ * apply destroyed the only copy of a receipt whenever the surrounding
+ * transaction aborted (e.g. an account switch's isStaleContext early-return),
+ * and the pagination API doesn't reliably return receipts — the message would
+ * show unseen forever.
  */
-export function applyPendingReceipts(messages: Array<{ id: string; seenAt?: number }>): void {
-  if (pending.size === 0) return;
+export function applyPendingReceipts(messages: Array<{ id: string; seenAt?: number }>): string[] {
+  if (pending.size === 0) return [];
   prune();
+  const matched: string[] = [];
   for (const m of messages) {
     const entry = pending.get(m.id);
     if (!entry) continue;
-    pending.delete(m.id);
+    matched.push(m.id);
     if (!m.seenAt || entry.seenAt > m.seenAt) m.seenAt = entry.seenAt;
   }
+  return matched;
+}
+
+/** Drop buffered receipts whose values have been durably written. */
+export function consumePendingReceipts(messageUrns: string[]): void {
+  for (const urn of messageUrns) pending.delete(urn);
 }
 
 function prune(): void {

@@ -15,7 +15,7 @@ import { getMemberUrn } from '../auth/session';
 import { fetchMessages } from '../api/messages';
 import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, extractAttachments, extractBodyMentions, messagePreviewText, needsParticipantRepair, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
 import { withoutRecalled, preserveSseFields } from '@/lib/message-dedup';
-import { stashUnmatchedReceipt, applyPendingReceipts } from './pending-receipts';
+import { stashUnmatchedReceipt, applyPendingReceipts, consumePendingReceipts } from './pending-receipts';
 import { repairConversationParticipants } from '../sync/repair-participants';
 import { reconcileRecalledMessages } from '../sync/reconcile-messages';
 import { debugLog } from '@/lib/debug-log';
@@ -98,8 +98,7 @@ function findNewOutboundMessages(ctx: RealtimeContext, convId: string, msgs: Mes
  * (e.g. a SeenReceipt) can't land in between and get clobbered.
  */
 async function writeSseMessages(ctx: RealtimeContext, messages: Message[]): Promise<void> {
-  // A receipt may have arrived before this row existed — consume it now.
-  applyPendingReceipts(messages);
+  let appliedReceipts: string[] = [];
   await ctx.database.transaction('rw', ctx.database.messages, async () => {
     if (isStaleContext(ctx)) return;
     const existing = await ctx.database.messages.bulkGet(messages.map((m) => m.id));
@@ -116,8 +115,13 @@ async function writeSseMessages(ctx: RealtimeContext, messages: Message[]): Prom
       // body.attributes from an echo whose text didn't change).
       if (prev.mentions?.length && !m.mentions?.length && m.body === prev.body) m.mentions = prev.mentions;
     }
+    // A receipt may have arrived before its row existed — apply it AFTER the
+    // stored-field carry-over (so a newer stored seenAt wins the max) and
+    // consume only once the write commits (see applyPendingReceipts).
+    appliedReceipts = applyPendingReceipts(messages);
     await ctx.database.messages.bulkPut(messages);
   });
+  consumePendingReceipts(appliedReceipts);
 }
 
 /**
@@ -644,6 +648,9 @@ async function handleVoyagerEvent(
   }
 
   const messages: Message[] = [];
+  // Ids whose sender PROVABLY resolved to the member URN (not the
+  // unresolved-sender heuristic) — the only messages allowed to imply read.
+  const provenSelfIds = new Set<string>();
   const conversationIds = new Set<string>();
 
   for (const entity of included) {
@@ -723,6 +730,7 @@ async function handleVoyagerEvent(
     // Use dashEntityUrn (urn:li:fsd_message:...) as the ID so it matches
     // the poller's Messenger API format and avoids duplicate entries.
     const messageId = entity.dashEntityUrn || entity.entityUrn;
+    if (self.provenSelf) provenSelfIds.add(messageId);
 
     messages.push({
       id: messageId,
@@ -765,7 +773,13 @@ async function handleVoyagerEvent(
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
     newInboundByConv.set(convId, await findNewInboundMessages(ctx, convId, convMessages));
-    newOutboundByConv.set(convId, await findNewOutboundMessages(ctx, convId, convMessages));
+    // Only PROVEN self messages may imply "read" — resolveSelfSender's
+    // unresolved-sender heuristic can misclassify a real inbound as self, and
+    // that must never clear a genuine unread flag.
+    newOutboundByConv.set(
+      convId,
+      await findNewOutboundMessages(ctx, convId, convMessages.filter((m) => provenSelfIds.has(m.id))),
+    );
   }
 
   if (isStaleContext(ctx)) return;
@@ -1153,13 +1167,16 @@ async function _doFetchLatest(
   // backfill paths apply; without it every echo-triggered refetch wiped them.
   // Read + put in one transaction so a concurrent SSE write can't land in
   // between and get overwritten with stale preserved values.
-  applyPendingReceipts(messages);
+  let appliedReceipts: string[] = [];
   await ctx.database.transaction('rw', ctx.database.messages, async () => {
     if (isStaleContext(ctx)) return;
     const existingRows = await ctx.database.messages.bulkGet(messages.map((m) => m.id));
     preserveSseFields(messages, existingRows);
+    // After preservation, so a newer stored seenAt wins; consume post-commit.
+    appliedReceipts = applyPendingReceipts(messages);
     await ctx.database.messages.bulkPut(messages);
   });
+  consumePendingReceipts(appliedReceipts);
 
   // Remove stored copies of messages this fetch no longer returned live within
   // its time range — messages recalled/unsent on LinkedIn disappear live.
@@ -1250,21 +1267,23 @@ async function resolveSelfSender(
   senderUrn: string,
   memberUrn: string,
   resolvedFromPayload: boolean,
-): Promise<{ isFromMe: boolean; senderUrn: string }> {
-  if (senderUrn === memberUrn) return { isFromMe: true, senderUrn: memberUrn };
+): Promise<{ isFromMe: boolean; senderUrn: string; provenSelf: boolean }> {
+  if (senderUrn === memberUrn) return { isFromMe: true, senderUrn: memberUrn, provenSelf: true };
   // A sender we successfully resolved from the payload that isn't us is genuinely
   // someone else — trust it.
-  if (resolvedFromPayload) return { isFromMe: false, senderUrn };
+  if (resolvedFromPayload) return { isFromMe: false, senderUrn, provenSelf: false };
   // The reference itself carries a well-formed profile URN that isn't ours —
   // a real other sender even if their participant entity was omitted.
-  if (isValidProfileUrn(senderUrn)) return { isFromMe: false, senderUrn };
+  if (isValidProfileUrn(senderUrn)) return { isFromMe: false, senderUrn, provenSelf: false };
   // Garbage/unparseable sender: if it matches a known other participant
   // (legacy rows store such URNs), keep it inbound; otherwise treat it as our
-  // own omitted-self echo.
+  // own omitted-self echo. This is a HEURISTIC (provenSelf stays false): the
+  // reply-implies-read rule must never act on it — a misfire here would clear
+  // a genuine unread flag for a real inbound message.
   const conv = await ctx.database.conversations.get(conversationId);
-  if (conv?.participantUrns?.includes(senderUrn)) return { isFromMe: false, senderUrn };
+  if (conv?.participantUrns?.includes(senderUrn)) return { isFromMe: false, senderUrn, provenSelf: false };
   debugLog('info', `[RT] Unresolved sender treated as self for conv ${conversationId.substring(0, 20)}...`);
-  return { isFromMe: true, senderUrn: memberUrn };
+  return { isFromMe: true, senderUrn: memberUrn, provenSelf: false };
 }
 
 async function handleIncludedMessage(
@@ -1281,6 +1300,9 @@ async function handleIncludedMessage(
   }
 
   const messages: Message[] = [];
+  // Ids whose sender PROVABLY resolved to the member URN (not the
+  // unresolved-sender heuristic) — the only messages allowed to imply read.
+  const provenSelfIds = new Set<string>();
   const conversationIds = new Set<string>();
 
   for (const entity of included) {
@@ -1334,6 +1356,7 @@ async function handleIncludedMessage(
       ? `${member.firstName?.text || ''} ${member.lastName?.text || ''}`.trim()
       : '';
 
+    if (self.provenSelf) provenSelfIds.add(entity.entityUrn);
     messages.push({
       id: entity.entityUrn,
       conversationId,
@@ -1368,7 +1391,13 @@ async function handleIncludedMessage(
   for (const convId of conversationIds) {
     const convMessages = messages.filter((m) => m.conversationId === convId);
     newInboundByConv.set(convId, await findNewInboundMessages(ctx, convId, convMessages));
-    newOutboundByConv.set(convId, await findNewOutboundMessages(ctx, convId, convMessages));
+    // Only PROVEN self messages may imply "read" — resolveSelfSender's
+    // unresolved-sender heuristic can misclassify a real inbound as self, and
+    // that must never clear a genuine unread flag.
+    newOutboundByConv.set(
+      convId,
+      await findNewOutboundMessages(ctx, convId, convMessages.filter((m) => provenSelfIds.has(m.id))),
+    );
   }
 
   // Write messages to DB
@@ -1480,7 +1509,11 @@ async function handleSingleMessageEntity(
   // conversation-update path — this legacy shape previously did its own
   // non-transactional read-modify-write with no re-delivery guard.
   const newInbound = await findNewInboundMessages(ctx, conversationId, [message]);
-  const newOutbound = await findNewOutboundMessages(ctx, conversationId, [message]);
+  // Only a PROVEN self message may imply read (see resolveSelfSender) — the
+  // unresolved-sender heuristic must never clear a genuine unread flag.
+  const newOutbound = self.provenSelf
+    ? await findNewOutboundMessages(ctx, conversationId, [message])
+    : [];
   if (isStaleContext(ctx)) return;
   await writeSseMessages(ctx, [message]);
   await cleanupOptimisticMessages(ctx, [message]);

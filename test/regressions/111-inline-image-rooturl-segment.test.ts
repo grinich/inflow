@@ -62,6 +62,40 @@ it('uses a full-URL path segment when rootUrl is empty (messaging media shape)',
   ]);
 });
 
+it('falls back to a sibling artifact fileUrl when the width-picked artifact is bare', () => {
+  // LinkedIn ships partially-populated artifact rows: the ≥800px row may carry
+  // neither fileUrl nor a path segment while a smaller sibling has a working
+  // fileUrl. Consulting only the width-picked artifact dropped the attachment.
+  const messages = normalizeMessages(
+    responseWithImage({
+      rootUrl: '',
+      artifacts: [
+        { width: 200, fileUrl: 'https://cdn.example/small.jpg' },
+        { width: 1200 },
+      ],
+    }),
+    '2-img',
+  );
+  expect(messages[0].attachments).toEqual([
+    { type: 'image', imageUrl: 'https://cdn.example/small.jpg' },
+  ]);
+});
+
+it('does not corrupt a complete rootUrl by appending a relative segment', () => {
+  // Messaging images often ship a COMPLETE rootUrl; blindly concatenating a
+  // relative artifact segment onto it produced a broken URL.
+  const messages = normalizeMessages(
+    responseWithImage({
+      rootUrl: 'https://media.licdn.com/dms/image/v2/WHOLE.jpg',
+      artifacts: [{ width: 800, fileIdentifyingUrlPathSegment: 'seg-800' }],
+    }),
+    '2-img',
+  );
+  expect(messages[0].attachments).toEqual([
+    { type: 'image', imageUrl: 'https://media.licdn.com/dms/image/v2/WHOLE.jpg' },
+  ]);
+});
+
 it('still prefers a whole-URL rootUrl when present without artifacts', () => {
   const messages = normalizeMessages(
     responseWithImage({ rootUrl: 'https://media.licdn.com/whole.jpg' }),

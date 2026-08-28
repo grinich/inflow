@@ -57,6 +57,24 @@ afterEach(async () => {
   }
 });
 
+it('two CONCURRENT presses serialize through a transaction (read+write atomic)', async () => {
+  const snapshot = makeConversation({ id: 'conv-117c', starred: 0 });
+  await testDb.conversations.put(snapshot);
+
+  const { result } = renderHook(() => useOptimisticAction());
+
+  // Fire both presses without awaiting the first — both `get`s would resolve
+  // before either `update` commits if the read-modify-write isn't atomic.
+  await Promise.all([
+    result.current.starConversation(snapshot),
+    result.current.starConversation(snapshot),
+  ]);
+
+  await waitFor(() => expect(bridgeCalls).toHaveLength(2));
+  expect(bridgeCalls).toEqual(['STAR', 'UNSTAR']);
+  expect((await testDb.conversations.get('conv-117c')).starred).toBe(0);
+});
+
 it('two rapid presses with a stale snapshot toggle star on then off', async () => {
   const snapshot = makeConversation({ id: 'conv-117', starred: 0 });
   await testDb.conversations.put(snapshot);

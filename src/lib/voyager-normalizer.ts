@@ -485,19 +485,29 @@ export function extractAttachments(renderContent: any[] | undefined, included?: 
       }
     } else if (item.vectorImage) {
       // Inline image. LinkedIn ships several shapes: a complete rootUrl, an
-      // artifact fileUrl, or rootUrl + fileIdentifyingUrlPathSegment (either a
-      // directory root + segment, or an empty root with the full URL in the
-      // segment — the same shapes extractVideoAttachment and
-      // getParticipantPicture already handle).
+      // artifact fileUrl, an empty root with the full URL in the artifact's
+      // path segment, or a directory root + per-size segment. Artifact rows
+      // are often partially populated, so fall back to any sibling with a
+      // usable fileUrl rather than trusting only the width-picked one — and
+      // never append a relative segment onto a rootUrl that isn't a directory
+      // prefix (that corrupted complete URLs).
       const img = item.vectorImage;
-      let imageUrl = '';
-      const artifact = img.artifacts?.length ? pickArtifact(img.artifacts, 800) ?? img.artifacts[0] : undefined;
-      if (artifact?.fileUrl) {
-        imageUrl = artifact.fileUrl;
-      } else if (artifact?.fileIdentifyingUrlPathSegment) {
-        imageUrl = `${img.rootUrl || ''}${artifact.fileIdentifyingUrlPathSegment}`;
-      } else {
-        imageUrl = img.rootUrl || '';
+      const artifacts: any[] = Array.isArray(img.artifacts) ? img.artifacts : [];
+      const preferred = artifacts.length ? pickArtifact(artifacts, 800) ?? artifacts[0] : undefined;
+      let imageUrl: string = preferred?.fileUrl || artifacts.find((a) => a?.fileUrl)?.fileUrl || '';
+      if (!imageUrl) {
+        const segment: string =
+          preferred?.fileIdentifyingUrlPathSegment ||
+          artifacts.find((a) => a?.fileIdentifyingUrlPathSegment)?.fileIdentifyingUrlPathSegment ||
+          '';
+        const root: string = img.rootUrl || '';
+        if (segment && /^https?:\/\//i.test(segment)) {
+          imageUrl = segment;
+        } else if (segment && root.endsWith('/')) {
+          imageUrl = `${root}${segment}`;
+        } else {
+          imageUrl = root;
+        }
       }
       if (imageUrl) {
         attachments.push({ type: 'image', imageUrl });

@@ -23,7 +23,7 @@ import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
 import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
-import { applyPendingReceipts } from './realtime/pending-receipts';
+import { applyPendingReceipts, consumePendingReceipts } from './realtime/pending-receipts';
 import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
 import { repairConversationParticipants } from './sync/repair-participants';
 import { reconcileRecalledMessages } from './sync/reconcile-messages';
@@ -121,13 +121,17 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         // Re-fetched rows lack SSE-only fields (seenAt/reactions/editedAt) —
         // carry them over from the existing rows inside one transaction so a
         // concurrent SSE write can't land between the read and the put.
-        // Consume receipts that arrived before these rows existed.
-        applyPendingReceipts(live);
+        // Receipts that arrived before these rows existed: apply AFTER the
+        // preserve step (so a newer stored seenAt wins) and consume only once
+        // the write commits.
+        let appliedReceipts: string[] = [];
         await db.transaction('rw', db.messages, async () => {
           const existingRows = await db.messages.bulkGet(live.map((m) => m.id));
           preserveSseFields(live, existingRows);
+          appliedReceipts = applyPendingReceipts(live);
           await db.messages.bulkPut(live);
         });
+        consumePendingReceipts(appliedReceipts);
         if (live.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
         prefetchSharedPosts(live).catch(() => {});
         // Drop stored copies of messages this page no longer returned live
@@ -146,8 +150,9 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
             if (m.senderUrn === memberUrn) m.isFromMe = true;
           }
           // Write immediately — UI updates via useLiveQuery after each page
-          applyPendingReceipts(messages);
+          const appliedReceipts = applyPendingReceipts(messages);
           await db.messages.bulkPut(messages);
+          consumePendingReceipts(appliedReceipts);
           if (messages.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
           prefetchSharedPosts(messages).catch(() => {});
           if (page === 0) {

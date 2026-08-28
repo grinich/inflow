@@ -90,3 +90,24 @@ it('rolls back the optimistic archive when the send fails', async () => {
   // And the archive bridge call never fired.
   expect(bridgeCalls.some((m) => m.type === 'ARCHIVE')).toBe(false);
 });
+
+it('a failed send on an ALREADY-archived thread leaves it archived (not vanished)', async () => {
+  // The rollback must restore the archived flag it saw, not hardcode
+  // archived: 0 — {archived: 0, category: 'ARCHIVE'} matches NO tab query and
+  // the conversation disappears from the entire UI until a sync heals it.
+  const { result } = renderHook(() => useOptimisticAction());
+  await testDb.conversations.put(makeConversation({
+    id: 'conv-115b',
+    category: 'ARCHIVE',
+    archived: 1,
+  }));
+
+  const done = result.current.sendAndArchive('conv-115b', 'reply from the archive');
+  await waitFor(() => expect(bridgeCalls.some((m) => m.type === 'SEND_MESSAGE' && m.conversationId === 'conv-115b')).toBe(true));
+  bridgeResolvers[bridgeCalls.findIndex((m) => m.type === 'SEND_MESSAGE' && m.conversationId === 'conv-115b')]({ success: false });
+  await done;
+
+  const conv = await testDb.conversations.get('conv-115b');
+  expect(conv.archived).toBe(1);
+  expect(conv.category).toBe('ARCHIVE');
+});
