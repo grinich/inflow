@@ -14,6 +14,16 @@ All notable changes to inflow are documented here. This project follows
   the first visit, and can be installed as a standalone desktop app (dock
   icon and its own window) via Chrome's *Install inflow* menu item. The old
   extension URL keeps working.
+- **Unread count on the dock icon** — when inflow is installed as a desktop
+  app, the dock icon shows the number of unread Focused conversations (the
+  same count as the toolbar badge); the browser-tab title shows it too, like
+  `(3) inƒlow`.
+- **Compose from the dock** — right-click the installed app's dock icon →
+  *Compose new message* opens inflow with the new-message composer ready.
+- **Native-feeling window** — the installed app draws edge-to-edge into the
+  title bar (window-controls overlay) instead of showing a browser strip.
+- **Smoother first run** — installing the extension now opens the inbox
+  immediately instead of leaving you to find the toolbar icon.
 
 ## [0.5.2] - 2026-08-25
 

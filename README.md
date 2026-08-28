@@ -51,7 +51,9 @@ Then **Load unpacked** the `dist/chrome-mv3` folder at `chrome://extensions`
 ### After loading (either option)
 
 1. Sign into LinkedIn in any tab.
-2. Click the inflow icon in the toolbar (pin it for easy access).
+2. Open [inflow.im/app](https://inflow.im/app), or click the inflow icon in
+   the toolbar (pin it for easy access). From inflow.im/app you can also
+   install inflow as a standalone desktop app (Chrome menu → *Install inflow*).
 
 inflow notifies you in-app when a new release is out — see [Updating](#updating).
 

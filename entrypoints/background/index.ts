@@ -10,7 +10,7 @@ import { clearSuppression } from './realtime/mark-read-suppression';
 import { clearSendQueue } from './send-queue';
 import { countUnreadFocused } from '@/lib/inbox-filters';
 import { openAppTab, reloadWebAppShellTabs } from './open-app-tab';
-import { setupExternalMessageRouter } from './external-messages';
+import { setupExternalMessageRouter, setupExternalPortRouter, broadcastUnreadCount } from './external-messages';
 import { setupUpdateChecker } from './update-check';
 
 /** Count unread Focused-tab conversations and update the toolbar badge.
@@ -21,6 +21,8 @@ async function updateBadge() {
     const count = await countUnreadFocused(db);
     chrome.action.setBadgeText({ text: count > 0 ? String(count) : '' });
     chrome.action.setBadgeBackgroundColor({ color: '#2563EB' });
+    // Mirror the same count to connected web shells (dock badge + tab title).
+    broadcastUnreadCount(count);
   } catch {
     // silently ignore — DB may not be ready yet
   }
@@ -32,6 +34,7 @@ export default defineBackground(() => {
   debugLog('info', 'Background service worker started');
   setupMessageRouter();
   setupExternalMessageRouter();
+  setupExternalPortRouter();
 
   // Check GitHub Releases for a newer version (independent of account/DB state).
   setupUpdateChecker();
@@ -128,11 +131,15 @@ export default defineBackground(() => {
     openAppTab({ conversationId: notificationId });
   });
 
+  // Fresh install: hand off straight to the inbox (the AuthGate walks a
+  // signed-out user through connecting LinkedIn).
   // After an extension update/reload: web-shell tabs (inflow.im/app) are left
   // holding a dead chrome-extension:// iframe — reload them so they re-embed
   // the new version, then open/focus the app tab as before.
   chrome.runtime.onInstalled.addListener((details) => {
-    if (details.reason === 'update') {
+    if (details.reason === 'install') {
+      openAppTab();
+    } else if (details.reason === 'update') {
       reloadWebAppShellTabs().finally(() => openAppTab());
     }
   });

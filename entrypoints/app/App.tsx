@@ -23,6 +23,7 @@ import { useResizableSidebar } from '@/hooks/useResizableSidebar';
 import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useUIStore } from '@/store/ui-store';
+import { consumeComposeParam } from '@/lib/launch-params';
 
 export function App() {
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -43,6 +44,12 @@ export function App() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragCounter = useRef(0);
+
+  // Launched with ?compose (the installed app's dock-menu shortcut) — open
+  // the new-message composer once; the param is consumed so reloads don't.
+  useEffect(() => {
+    if (consumeComposeParam()) useUIStore.getState().setComposeNewActive(true);
+  }, []);
 
   // Full-window drag-and-drop for file attachments
   useEffect(() => {

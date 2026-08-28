@@ -4,7 +4,14 @@
  * PING is answered, only for https://inflow.im, and only synchronously — the
  * internal RPC bridge (messages.ts) must never be reachable from a web page.
  */
-import { setupExternalMessageRouter } from '../../entrypoints/background/external-messages';
+import {
+  setupExternalMessageRouter,
+  setupExternalPortRouter,
+  broadcastUnreadCount,
+} from '../../entrypoints/background/external-messages';
+
+vi.mock('@/lib/inbox-filters', () => ({ countUnreadFocused: vi.fn().mockResolvedValue(3) }));
+vi.mock('@/db/database', () => ({ db: {} }));
 
 type ExternalListener = (
   message: any,
@@ -65,5 +72,97 @@ describe('setupExternalMessageRouter', () => {
     const listener = installedListener();
     const result = listener({ type: 'PING' }, { origin: 'https://inflow.im' }, vi.fn());
     expect(result).toBeFalsy();
+  });
+});
+
+function makePort(origin: string | undefined, name = 'unread-count') {
+  const disconnectListeners: Array<() => void> = [];
+  return {
+    name,
+    sender: origin ? { origin } : {},
+    postMessage: vi.fn(),
+    disconnect: vi.fn(),
+    onDisconnect: {
+      addListener: vi.fn((fn: () => void) => disconnectListeners.push(fn)),
+    },
+    fireDisconnect: () => disconnectListeners.forEach((fn) => fn()),
+  };
+}
+
+function installedConnectListener(): (port: any) => void {
+  setupExternalPortRouter();
+  const calls = vi.mocked(chrome.runtime.onConnectExternal.addListener).mock.calls;
+  expect(calls.length).toBe(1);
+  return calls[0][0] as (port: any) => void;
+}
+
+describe('setupExternalPortRouter (unread-count port for the web shell)', () => {
+  it('accepts the unread-count port from inflow.im and pushes the current count', async () => {
+    const onConnect = installedConnectListener();
+    const port = makePort('https://inflow.im');
+
+    onConnect(port);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(port.disconnect).not.toHaveBeenCalled();
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'UNREAD_COUNT', count: 3 });
+  });
+
+  it('disconnects ports from any other origin', () => {
+    const onConnect = installedConnectListener();
+    const evil = makePort('https://evil.example');
+    const noOrigin = makePort(undefined);
+
+    onConnect(evil);
+    onConnect(noOrigin);
+
+    expect(evil.disconnect).toHaveBeenCalled();
+    expect(noOrigin.disconnect).toHaveBeenCalled();
+    broadcastUnreadCount(7);
+    expect(evil.postMessage).not.toHaveBeenCalled();
+    expect(noOrigin.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('disconnects ports with any other name', () => {
+    const onConnect = installedConnectListener();
+    const port = makePort('https://inflow.im', 'some-other-port');
+
+    onConnect(port);
+
+    expect(port.disconnect).toHaveBeenCalled();
+    broadcastUnreadCount(7);
+    expect(port.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts count updates to connected ports, and stops after disconnect', async () => {
+    const onConnect = installedConnectListener();
+    const port = makePort('https://inflow.im');
+    onConnect(port);
+    await new Promise((r) => setTimeout(r, 0));
+    port.postMessage.mockClear();
+
+    broadcastUnreadCount(5);
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'UNREAD_COUNT', count: 5 });
+
+    port.fireDisconnect();
+    port.postMessage.mockClear();
+    broadcastUnreadCount(9);
+    expect(port.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('drops a port whose postMessage throws instead of crashing the broadcast', async () => {
+    const onConnect = installedConnectListener();
+    const dead = makePort('https://inflow.im');
+    const alive = makePort('https://inflow.im');
+    onConnect(dead);
+    onConnect(alive);
+    await new Promise((r) => setTimeout(r, 0));
+    dead.postMessage.mockImplementation(() => {
+      throw new Error('Attempting to use a disconnected port object');
+    });
+    alive.postMessage.mockClear();
+
+    expect(() => broadcastUnreadCount(2)).not.toThrow();
+    expect(alive.postMessage).toHaveBeenCalledWith({ type: 'UNREAD_COUNT', count: 2 });
   });
 });

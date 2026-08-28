@@ -18,8 +18,23 @@
 /* App-shell-only rules. Shared foundation lives in base.css. */
 html,body{height:100%;overflow:hidden}
 
-/* The embedded app owns the whole viewport. */
-#app{position:fixed;inset:0;width:100%;height:100%;border:0}
+/* Window-controls overlay (installed app only): the window buttons float over
+   the top of the viewport, so a slim draggable titlebar strip claims that
+   space and the app starts below it. In a normal tab the env() vars are
+   undefined → 0px → the strip is invisible and the app fills the viewport. */
+.titlebar{
+  position:fixed;top:0;left:0;right:0;
+  height:env(titlebar-area-height,0px);
+  -webkit-app-region:drag;app-region:drag;
+  display:flex;align-items:center;justify-content:center;
+  background:#ffffff; /* match the app's --surface tokens */
+  overflow:hidden;
+}
+@media (prefers-color-scheme:dark){.titlebar{background:#09090b}}
+.titlebar .mark{font-size:.8125rem;pointer-events:none}
+
+/* The embedded app owns everything below the (usually zero-height) titlebar. */
+#app{position:fixed;left:0;right:0;bottom:0;top:env(titlebar-area-height,0px);width:100%;border:0}
 
 /* Install CTA — only revealed once the extension probe comes up empty. */
 .cta{
@@ -34,6 +49,8 @@ html,body{height:100%;overflow:hidden}
 </style>
 </head>
 <body>
+
+<div class="titlebar" aria-hidden="true"><span class="mark"><i>in</i>flow</span></div>
 
 <div class="cta" id="cta" hidden>
   <svg class="cta-mark" viewBox="0 0 16 16" aria-hidden="true">
@@ -89,6 +106,16 @@ html,body{height:100%;overflow:hidden}
   params.delete('ext');
   var passthrough = params.toString() ? '?' + params.toString() : '';
 
+  // One-shot params (the dock-menu Compose shortcut) are forwarded to the app
+  // but scrubbed from this page's own URL, so a manual reload doesn't replay
+  // them. ?demo stays: dropping it would silently exit demo mode on reload.
+  if (params.has('compose')) {
+    var clean = new URL(location.href);
+    clean.searchParams.delete('compose');
+    clean.searchParams.delete('ext');
+    try { history.replaceState(null, '', clean.toString()); } catch (_) {}
+  }
+
   var candidates =
     ext === 'dev' ? [DEV_ID] :
     ext && /^[a-p]{32}$/.test(ext) ? [ext] :
@@ -133,6 +160,39 @@ html,body{height:100%;overflow:hidden}
     });
   }
 
+  // Long-lived port to the extension: it pushes the unread Focused count on
+  // the same cadence as the toolbar badge. Mirrored onto the dock icon when
+  // this page is installed as an app (Badging API) and into the tab title.
+  var BASE_TITLE = document.title;
+
+  function applyUnreadCount(count) {
+    document.title = count > 0 ? '(' + count + ') ' + BASE_TITLE : BASE_TITLE;
+    if ('setAppBadge' in navigator) {
+      var op = count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge();
+      if (op && op.catch) op.catch(function () {});
+    }
+  }
+
+  function connectUnreadPort(id) {
+    var port;
+    try {
+      port = chrome.runtime.connect(id, { name: 'unread-count' });
+    } catch (_) {
+      return;
+    }
+    port.onMessage.addListener(function (msg) {
+      if (msg && msg.type === 'UNREAD_COUNT') {
+        applyUnreadCount(typeof msg.count === 'number' ? msg.count : 0);
+      }
+    });
+    // The service worker restarting (idle, update) drops the port — reconnect,
+    // which also wakes the worker back up.
+    port.onDisconnect.addListener(function () {
+      void chrome.runtime.lastError;
+      setTimeout(function () { connectUnreadPort(id); }, 5000);
+    });
+  }
+
   function embed(id) {
     if (frame) return;
     cta.hidden = true;
@@ -148,6 +208,7 @@ html,body{height:100%;overflow:hidden}
     frame.addEventListener('load', function () { frame.focus(); });
     document.body.appendChild(frame);
     frame.focus();
+    connectUnreadPort(id);
   }
 
   window.addEventListener('focus', function () {
