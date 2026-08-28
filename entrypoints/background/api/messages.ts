@@ -9,6 +9,14 @@ import type { BridgeAttachment } from '@/types/bridge';
 
 const MESSAGE_PAGE_SIZE = 20;
 
+/**
+ * Bound for the attachment-upload PUT. Generous (uploads legitimately outlast
+ * VOYAGER_TIMEOUT_MS), but finite: sends are serialized per conversation via
+ * enqueueSend, so a PUT hung on a dead connection would otherwise block every
+ * later send to that conversation until the service worker restarts.
+ */
+const UPLOAD_TIMEOUT_MS = 120_000;
+
 /** Try to extract a user-visible error message from LinkedIn's JSON error response. */
 function tryParseLinkedInError(body: string, status: number): string | null {
   try {
@@ -158,6 +166,7 @@ async function uploadFile(attachment: BridgeAttachment): Promise<string> {
       ...extraHeaders,
     },
     body: bytes,
+    signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
   });
 
   if (!uploadRes.ok) {
