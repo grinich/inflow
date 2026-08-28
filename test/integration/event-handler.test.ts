@@ -661,6 +661,44 @@ describe('event-handler', () => {
       await new Promise((r) => setTimeout(r, 10));
 
       expect(chrome.notifications.create).not.toHaveBeenCalled();
+      // The suppression check must see the app tab whichever URL it lives at:
+      // the web shell (inflow.im/app) or the raw extension page.
+      expect(chrome.tabs.query).toHaveBeenCalledWith({
+        url: ['chrome-extension://test-extension-id/app.html*', 'https://inflow.im/app*'],
+        active: true,
+        lastFocusedWindow: true,
+      });
+    });
+
+    it('suppresses native notification when the web-shell tab (inflow.im/app) is focused', async () => {
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+
+      await testDb.conversations.put(makeConversation({ id: 'conv-web-focused' }));
+
+      vi.mocked(chrome.tabs.query).mockResolvedValue([
+        { id: 1, windowId: 1, active: true, url: 'https://inflow.im/app' } as any,
+      ]);
+
+      vi.mocked(chrome.notifications.create).mockClear();
+
+      const { eventType, data } = buildMessengerMessageEvent([
+        {
+          entityUrn: 'urn:li:msg_message:SUPPRESSED_WEB',
+          conversationUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,conv-web-focused)',
+          senderProfileId: 'ALICE',
+          senderFirstName: 'Alice',
+          senderLastName: 'Jones',
+          body: 'This should not trigger a native notification either',
+          deliveredAt: 12000,
+        },
+      ]);
+
+      await handleRealtimeEvent(eventType, data);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(chrome.notifications.create).not.toHaveBeenCalled();
     });
 
     it('creates minimal conversation when conv does not exist in DB', async () => {

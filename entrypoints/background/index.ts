@@ -9,7 +9,8 @@ import { invalidateCookieRule } from './api/client';
 import { clearSuppression } from './realtime/mark-read-suppression';
 import { clearSendQueue } from './send-queue';
 import { countUnreadFocused } from '@/lib/inbox-filters';
-import { openAppTab } from './open-app-tab';
+import { openAppTab, reloadWebAppShellTabs } from './open-app-tab';
+import { setupExternalMessageRouter } from './external-messages';
 import { setupUpdateChecker } from './update-check';
 
 /** Count unread Focused-tab conversations and update the toolbar badge.
@@ -30,6 +31,7 @@ import { markDbReady } from './db-ready';
 export default defineBackground(() => {
   debugLog('info', 'Background service worker started');
   setupMessageRouter();
+  setupExternalMessageRouter();
 
   // Check GitHub Releases for a newer version (independent of account/DB state).
   setupUpdateChecker();
@@ -126,10 +128,12 @@ export default defineBackground(() => {
     openAppTab({ conversationId: notificationId });
   });
 
-  // Re-open the app tab after extension reload in dev mode
+  // After an extension update/reload: web-shell tabs (inflow.im/app) are left
+  // holding a dead chrome-extension:// iframe — reload them so they re-embed
+  // the new version, then open/focus the app tab as before.
   chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'update') {
-      openAppTab();
+      reloadWebAppShellTabs().finally(() => openAppTab());
     }
   });
 });

@@ -24,6 +24,7 @@ import { shouldSuppressConversationUpdate, isMutationSuppressed } from './mark-r
 import { hasPendingAction } from '../sync/pending-guard';
 import { extractConversationId } from '@/lib/conversation-urn';
 import { buildNotificationIcon } from '@/lib/notification-icon';
+import { appTabUrlPatterns } from '../app-urls';
 
 interface RealtimeContext {
   database: typeof db;
@@ -259,8 +260,7 @@ function showNativeNotification(msg: {
   conversationId: string;
 }): void {
   (async () => {
-    const appUrl = chrome.runtime.getURL('app.html');
-    const activeTabs = await chrome.tabs.query({ url: appUrl, active: true, lastFocusedWindow: true });
+    const activeTabs = await chrome.tabs.query({ url: appTabUrlPatterns(), active: true, lastFocusedWindow: true });
     if (activeTabs.length > 0) {
       // An active tab isn't enough — `lastFocusedWindow` matches even when
       // Chrome itself is not the frontmost app (e.g. after Cmd-Tab away with

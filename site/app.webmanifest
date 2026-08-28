@@ -1,0 +1,16 @@
+{
+  "name": "inflow — a better inbox for LinkedIn",
+  "short_name": "inflow",
+  "description": "A keyboard-driven inbox for your LinkedIn messages. Local-first, not affiliated with LinkedIn.",
+  "id": "/app",
+  "start_url": "/app",
+  "scope": "/app",
+  "display": "standalone",
+  "background_color": "#fbfbfc",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "launch_handler": { "client_mode": "navigate-existing" }
+}

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>inƒlow — LinkedIn Messages</title>
+<meta name="description" content="Your keyboard-driven LinkedIn inbox. Runs locally via the inflow Chrome extension.">
+<meta name="color-scheme" content="light dark">
+<!-- Match the app's --surface tokens (entrypoints/app/global.css) so the
+     installed-PWA title bar follows the app's light/dark background. -->
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#09090b">
+<link rel="manifest" href="/app.webmanifest">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="stylesheet" href="/base.css">
+<style>
+/* App-shell-only rules. Shared foundation lives in base.css. */
+html,body{height:100%;overflow:hidden}
+
+/* The embedded app owns the whole viewport. */
+#app{position:fixed;inset:0;width:100%;height:100%;border:0}
+
+/* Install CTA — only revealed once the extension probe comes up empty. */
+.cta{
+  height:100%;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;text-align:center;gap:22px;padding:var(--pad);
+}
+.cta[hidden]{display:none}
+.cta-mark{width:64px;height:64px;border-radius:14px;box-shadow:var(--shadow-sm)}
+.cta h1{max-width:24ch}
+.cta .lede{max-width:30rem}
+.cta-fine{display:flex;flex-direction:column;gap:10px;margin-top:14px;max-width:34rem}
+</style>
+</head>
+<body>
+
+<div class="cta" id="cta" hidden>
+  <svg class="cta-mark" viewBox="0 0 16 16" aria-hidden="true">
+    <rect width="16" height="16" rx="3.4" fill="#2b5ce6"/>
+    <path d="M3.4 5.6h9.2v5.4a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6z" fill="#fff"/>
+    <path d="M3.4 5.6 8 9.1l4.6-3.5a.6.6 0 0 0-.5-.3H3.9a.6.6 0 0 0-.5.3z" fill="#2b5ce6"/>
+    <path d="M3.4 5.6 8 9.1l4.6-3.5" fill="none" stroke="#fff" stroke-width="1.1" stroke-linejoin="round"/>
+  </svg>
+  <h1 class="h2">This page becomes your LinkedIn inbox.</h1>
+  <p class="lede">inflow runs entirely on your machine as a Chrome extension.
+    Install it, come back here, and your messages load right on this page.</p>
+  <div class="hero-cta">
+    <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">Add to Chrome — it's free</a>
+    <a class="btn btn-ghost" href="/">Learn more</a>
+  </div>
+  <div class="cta-fine">
+    <p class="fine">Already installed? Your extension may just need its automatic update
+      (Chrome applies them within a day or two). Until then, click the
+      <span class="mark"><i>in</i>flow</span> icon in your toolbar to open your inbox.</p>
+    <p class="fine" id="cta-non-chromium" hidden>This browser can't run Chrome extensions —
+      inflow needs a Chromium-based browser such as Chrome, Edge, Arc, or Brave.</p>
+  </div>
+</div>
+
+<noscript>
+  <div class="cta">
+    <h1 class="h2">inflow needs JavaScript</h1>
+    <p class="lede">Enable JavaScript, or install the extension from the
+      <a href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">Chrome Web Store</a>
+      and open it from the toolbar icon.</p>
+  </div>
+</noscript>
+
+<script>
+(function () {
+  'use strict';
+
+  // Store build first: it auto-updates, and it's what almost everyone runs.
+  // The pinned dev/sideload ID is the fallback (see wxt.config.ts UNPACKED_KEY).
+  var STORE_ID = 'ndehgbgifkapdigmefglpgacpagoclge';
+  var DEV_ID = 'fngobhjkhkdnnijgegkcjoadmddkehgh';
+  var PROBE_TIMEOUT_MS = 1500;
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/app-sw.js', { scope: '/app' }).catch(function () {});
+  }
+
+  // ?ext=dev (or ?ext=<id>) pins the probe to one build; it's shell-only, so
+  // strip it from what gets forwarded to the app. Everything else (?demo,
+  // future deep links) passes through to the iframe untouched.
+  var params = new URLSearchParams(location.search);
+  var ext = params.get('ext');
+  params.delete('ext');
+  var passthrough = params.toString() ? '?' + params.toString() : '';
+
+  var candidates =
+    ext === 'dev' ? [DEV_ID] :
+    ext && /^[a-p]{32}$/.test(ext) ? [ext] :
+    [STORE_ID, DEV_ID];
+
+  var cta = document.getElementById('cta');
+  var frame = null;
+
+  function probe(id) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (!settled) { settled = true; resolve(null); }
+      }, PROBE_TIMEOUT_MS);
+      try {
+        chrome.runtime.sendMessage(id, { type: 'PING' }, function (resp) {
+          // Reading lastError marks the "no receiver" case as handled so it
+          // doesn't log to the console; an absent extension resolves null.
+          void chrome.runtime.lastError;
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(resp && resp.ok ? id : null);
+        });
+      } catch (_) {
+        clearTimeout(timer);
+        if (!settled) { settled = true; resolve(null); }
+      }
+    });
+  }
+
+  function findExtension() {
+    // chrome.runtime only exists on pages some installed extension lists in
+    // externally_connectable — its absence means "not installed" (or not a
+    // Chromium browser at all).
+    if (!(window.chrome && chrome.runtime && chrome.runtime.sendMessage)) {
+      return Promise.resolve(null);
+    }
+    return Promise.all(candidates.map(probe)).then(function (ids) {
+      for (var i = 0; i < ids.length; i++) if (ids[i]) return ids[i];
+      return null;
+    });
+  }
+
+  function embed(id) {
+    if (frame) return;
+    cta.hidden = true;
+    frame = document.createElement('iframe');
+    frame.id = 'app';
+    frame.src = 'chrome-extension://' + id + '/app.html' + passthrough;
+    // The app copies text and plays videos (with native-controls fullscreen);
+    // cross-origin frames need those capabilities delegated explicitly.
+    frame.setAttribute('allow', 'clipboard-write; fullscreen; autoplay; picture-in-picture');
+    frame.setAttribute('allowfullscreen', '');
+    // The app is keyboard-driven and key events go to the focused frame, so
+    // hand it focus on load and every time this window regains focus.
+    frame.addEventListener('load', function () { frame.focus(); });
+    document.body.appendChild(frame);
+    frame.focus();
+  }
+
+  window.addEventListener('focus', function () {
+    if (frame) frame.focus();
+  });
+
+  var reprobing = false;
+  function reprobe() {
+    if (frame || reprobing) return;
+    reprobing = true;
+    findExtension().then(function (id) {
+      reprobing = false;
+      if (id) embed(id);
+    });
+  }
+
+  findExtension().then(function (id) {
+    if (id) {
+      embed(id);
+      return;
+    }
+    cta.hidden = false;
+    if (!window.chrome) {
+      document.getElementById('cta-non-chromium').hidden = false;
+    }
+    // Coming back from the Web Store (or after the extension's auto-update)
+    // should upgrade this page in place — no manual reload.
+    window.addEventListener('focus', reprobe);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) reprobe();
+    });
+  });
+})();
+</script>
+</body>
+</html>

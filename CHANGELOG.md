@@ -4,6 +4,17 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **The app now lives at [inflow.im/app](https://inflow.im/app)** — a real,
+  memorable URL instead of `chrome-extension://…/app.html`. The page embeds
+  the extension full-screen (same local database, same everything), shows an
+  install page when the extension isn't there yet, keeps working offline after
+  the first visit, and can be installed as a standalone desktop app (dock
+  icon and its own window) via Chrome's *Install inflow* menu item. The old
+  extension URL keeps working.
+
 ## [0.5.2] - 2026-08-25
 
 ### Added

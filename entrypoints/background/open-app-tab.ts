@@ -1,5 +1,6 @@
 import { debugLog } from '@/lib/debug-log';
 import { setPendingNavigation } from '@/lib/pending-navigation';
+import { WEB_APP_URL, appTabUrlPatterns } from './app-urls';
 
 /**
  * Chrome rejects tab mutations with this message while the user is dragging a
@@ -33,18 +34,22 @@ export async function openAppTab(
     }
   }
 
-  const appUrl = chrome.runtime.getURL('app.html');
+  // The canonical URL is the web shell; the raw extension page is the fallback
+  // when the shell can't be reached (first open while offline — after one
+  // online visit the shell's service worker serves it from cache).
+  const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+  const createUrl = online ? WEB_APP_URL : chrome.runtime.getURL('app.html');
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const tabs = await chrome.tabs.query({ url: appUrl });
+      const tabs = await chrome.tabs.query({ url: appTabUrlPatterns() });
       if (tabs.length > 0 && tabs[0].id != null) {
         await chrome.tabs.update(tabs[0].id, { active: true });
         if (tabs[0].windowId != null) {
           await chrome.windows.update(tabs[0].windowId, { focused: true });
         }
       } else {
-        await chrome.tabs.create({ url: appUrl });
+        await chrome.tabs.create({ url: createUrl });
       }
       return;
     } catch (err: any) {
@@ -56,5 +61,24 @@ export async function openAppTab(
       debugLog('warn', `[TABS] openAppTab failed (attempt ${attempt}): ${message}`);
       return;
     }
+  }
+}
+
+/**
+ * Reload every open web-shell tab (inflow.im/app). An extension update or
+ * reload kills all chrome-extension:// frames, leaving shells with a dead
+ * iframe — a reload makes them re-probe and embed the new version.
+ * Never rejects.
+ */
+export async function reloadWebAppShellTabs(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({ url: WEB_APP_URL + '*' });
+    await Promise.all(
+      tabs.map((tab) =>
+        tab.id != null ? chrome.tabs.reload(tab.id).catch(() => {}) : Promise.resolve()
+      )
+    );
+  } catch (err) {
+    debugLog('warn', `[TABS] failed to reload web shell tabs: ${err}`);
   }
 }

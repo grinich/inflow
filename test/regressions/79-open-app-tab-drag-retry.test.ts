@@ -44,7 +44,7 @@ describe('openAppTab under a tab drag', () => {
 
   it('focuses an existing app tab, awaiting (and retrying) the update calls', async () => {
     vi.mocked(chrome.tabs.query).mockResolvedValue([
-      { id: 7, windowId: 3, url: 'chrome-extension://test-extension-id/app.html' } as any,
+      { id: 7, windowId: 3, url: 'https://inflow.im/app' } as any,
     ]);
     vi.mocked(chrome.tabs.update)
       .mockRejectedValueOnce(DRAG_ERROR)

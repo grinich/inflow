@@ -43,6 +43,20 @@ describe('store build manifest', () => {
     expect(store).toEqual(unpackedWithoutKey);
   });
 
+  // The web shell at inflow.im/app embeds app.html and probes for the
+  // extension over externally_connectable. Both keys are a security boundary:
+  // widening the matches lets arbitrary sites embed the app (UI redressing)
+  // or probe for the extension's presence. Keep them pinned to inflow.im.
+  it('exposes app.html to inflow.im only, and external messaging to inflow.im only', async () => {
+    for (const storeBuild of [false, true]) {
+      const manifest = manifestOf(await loadConfig(storeBuild));
+      expect(manifest.web_accessible_resources).toEqual([
+        { resources: ['app.html'], matches: ['https://inflow.im/*'] },
+      ]);
+      expect(manifest.externally_connectable).toEqual({ matches: ['https://inflow.im/*'] });
+    }
+  });
+
   it('names the store artifact distinctly so it cannot be mistaken for the release zip', async () => {
     const store = await loadConfig(true);
     const normal = await loadConfig(false);

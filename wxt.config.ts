@@ -56,6 +56,19 @@ export default defineConfig({
       '48': 'icon-48.png',
       '128': 'icon-128.png',
     },
+    // The web shell at inflow.im/app embeds app.html in a full-viewport iframe
+    // (extension-origin frames escape storage partitioning, so the embedded app
+    // keeps the same IndexedDB and chrome.* access as a directly-opened tab).
+    // Only the top-level document needs to be web-accessible — its subresources
+    // are same-origin extension loads. Keep the matches pinned to inflow.im:
+    // widening them lets other sites embed the app (UI redressing) or probe
+    // for the extension. No `use_dynamic_url` — the shell needs a stable URL.
+    web_accessible_resources: [
+      { resources: ['app.html'], matches: ['https://inflow.im/*'] },
+    ],
+    // Lets the shell discover the installed extension ID via a PING message
+    // (see entrypoints/background/external-messages.ts — nothing else answers).
+    externally_connectable: { matches: ['https://inflow.im/*'] },
   },
   vite: () => ({
     plugins: [tailwindcss()],
