@@ -141,7 +141,14 @@ export function useReplySuggestions({
       if (!controller.signal.aborted) setIsLoading(false);
     });
 
-    return () => controller.abort(); // abort the in-flight request on unmount / dep change
+    return () => {
+      // Abort the in-flight request on unmount / dep change — and clear the
+      // spinner: the aborted promise's handlers deliberately skip
+      // setIsLoading(false), and if the next effect run is blocked (e.g. the
+      // last message is now our own), nothing else would ever clear it.
+      controller.abort();
+      setIsLoading(false);
+    };
   }, [conversationId, messages.length, aiSession.available, enabled, body]);
 
   const clear = useCallback(() => {

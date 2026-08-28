@@ -359,7 +359,10 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       if (e.key === 'r' && !e.shiftKey && !e.metaKey && !e.ctrlKey && store.selectedConversationId) {
         e.preventDefault();
         if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
-        act.markRead(store.selectedConversationId);
+        // Pass mergedIds like every other markRead call site — the display-merged
+        // twin isn't in the list, so nothing else can ever clear its unread flag.
+        const selected = convs.find((c) => c.id === store.selectedConversationId);
+        act.markRead(store.selectedConversationId, selected?.mergedIds);
         store.setComposeActive(true);
         setTimeout(() => composeRef.current?.focus(), 0);
         return;

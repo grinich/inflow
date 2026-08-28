@@ -298,6 +298,14 @@ export function useConversations() {
       lastSeenRef.current = { tab: inboxTab, value: conversations };
       if (conversations !== undefined) lastResultsRef.current.set(inboxTab, conversations);
     }
+  } else {
+    // Keep the identity tracker current while searching too — but never store
+    // search results as a tab's own content. setInboxTab clears the query and
+    // switches the tab in ONE update; with a tracker frozen at the pre-search
+    // value, the first post-switch render compared the still-pending SEARCH
+    // results against it, read "not stale", and showed the old tab's search
+    // leftovers as the new tab's content.
+    lastSeenRef.current = { tab: inboxTab, value: conversations };
   }
 
   return {
