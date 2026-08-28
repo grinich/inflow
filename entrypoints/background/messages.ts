@@ -23,6 +23,7 @@ import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
 import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
+import { applyPendingReceipts } from './realtime/pending-receipts';
 import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
 import { repairConversationParticipants } from './sync/repair-participants';
 import { reconcileRecalledMessages } from './sync/reconcile-messages';
@@ -120,6 +121,8 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         // Re-fetched rows lack SSE-only fields (seenAt/reactions/editedAt) —
         // carry them over from the existing rows inside one transaction so a
         // concurrent SSE write can't land between the read and the put.
+        // Consume receipts that arrived before these rows existed.
+        applyPendingReceipts(live);
         await db.transaction('rw', db.messages, async () => {
           const existingRows = await db.messages.bulkGet(live.map((m) => m.id));
           preserveSseFields(live, existingRows);
@@ -143,6 +146,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
             if (m.senderUrn === memberUrn) m.isFromMe = true;
           }
           // Write immediately — UI updates via useLiveQuery after each page
+          applyPendingReceipts(messages);
           await db.messages.bulkPut(messages);
           if (messages.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
           prefetchSharedPosts(messages).catch(() => {});

@@ -13,8 +13,9 @@
 
 import { getMemberUrn } from '../auth/session';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, extractAttachments, extractBodyMentions, needsParticipantRepair, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
+import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, extractAttachments, extractBodyMentions, messagePreviewText, needsParticipantRepair, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
 import { withoutRecalled, preserveSseFields } from '@/lib/message-dedup';
+import { stashUnmatchedReceipt, applyPendingReceipts } from './pending-receipts';
 import { repairConversationParticipants } from '../sync/repair-participants';
 import { reconcileRecalledMessages } from '../sync/reconcile-messages';
 import { debugLog } from '@/lib/debug-log';
@@ -97,6 +98,8 @@ function findNewOutboundMessages(ctx: RealtimeContext, convId: string, msgs: Mes
  * (e.g. a SeenReceipt) can't land in between and get clobbered.
  */
 async function writeSseMessages(ctx: RealtimeContext, messages: Message[]): Promise<void> {
+  // A receipt may have arrived before this row existed — consume it now.
+  applyPendingReceipts(messages);
   await ctx.database.transaction('rw', ctx.database.messages, async () => {
     if (isStaleContext(ctx)) return;
     const existing = await ctx.database.messages.bulkGet(messages.map((m) => m.id));
@@ -170,7 +173,7 @@ async function applyInboundMessageToConversation(
       // deliveredAt and should update the preview text). An edit echo of an
       // OLDER message must not rewind the preview under a newer timestamp.
       if (hasNewInbound || latest.createdAt >= conv.lastActivityAt) {
-        updates.lastMessage = latest.body || 'New message';
+        updates.lastMessage = messagePreviewText(latest);
       }
       if (!isMutationSuppressed(convId) && !pending && conv.category !== 'SPAM' && hasNewInbound) {
         // Mark unread unless our own newer reply in the same batch (a catch-up
@@ -221,7 +224,7 @@ async function applyInboundMessageToConversation(
       participantUrns: haveEventParts ? eventParticipants!.participantUrns : sender ? [sender.senderUrn] : [],
       participantNames: haveEventParts ? eventParticipants!.participantNames : sender ? [sender.senderName] : [],
       participantPictures: haveEventParts ? eventParticipants!.participantPictures : sender ? [sender.senderPicture] : [],
-      lastMessage: latest.body || 'New message',
+      lastMessage: messagePreviewText(latest),
       lastActivityAt: latest.createdAt,
       read: senders.length > 0 ? 0 : 1,
       archived: 0,
@@ -1150,6 +1153,7 @@ async function _doFetchLatest(
   // backfill paths apply; without it every echo-triggered refetch wiped them.
   // Read + put in one transaction so a concurrent SSE write can't land in
   // between and get overwritten with stale preserved values.
+  applyPendingReceipts(messages);
   await ctx.database.transaction('rw', ctx.database.messages, async () => {
     if (isStaleContext(ctx)) return;
     const existingRows = await ctx.database.messages.bulkGet(messages.map((m) => m.id));
@@ -1188,7 +1192,7 @@ async function _doFetchLatest(
       lastActivityAt: Math.max(latest.createdAt, existing.lastActivityAt),
     };
     if (hasNewInbound || latest.createdAt >= existing.lastActivityAt) {
-      updates.lastMessage = latest.body || 'New message';
+      updates.lastMessage = messagePreviewText(latest);
     }
     if (hasNewInbound && !isMutationSuppressed(conversationId) && existing.category !== 'SPAM') {
       // Always mark as unread for genuinely new messages, even during
@@ -1585,6 +1589,12 @@ async function handleReadReceipt(ctx: RealtimeContext, data: any): Promise<void>
     if (existing && (!existing.seenAt || seenAt > existing.seenAt)) {
       await ctx.database.messages.update(msgRef, { seenAt });
       debugLog('info', `[RT] Read receipt: ${msgRef} seen at ${seenAt}`);
+    } else if (!existing) {
+      // The row doesn't exist yet (our message is only stored under an
+      // SSE-format id, or the receipt raced the message write). Buffer the
+      // receipt; the write paths consume it when the row is created.
+      stashUnmatchedReceipt(msgRef, seenAt);
+      debugLog('info', `[RT] Read receipt buffered for ${msgRef} (no row yet)`);
     }
   }
 }
