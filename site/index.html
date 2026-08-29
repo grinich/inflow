@@ -529,6 +529,12 @@ kbd,.kbd{
   </defs>
 </svg>
 
+<!-- The logo's #top jump targets this zero-height anchor at the very start
+     of the document, landing at scroll position 0. It used to sit on <main>,
+     which stopped ~62px down, tucked under the sticky nav. (It can't live
+     inside the sticky header: a stuck element is always in view, so the
+     browser would have nothing to scroll.) -->
+<span id="top"></span>
 <header class="nav" id="nav">
   <div class="wrap nav-in">
     <a class="mark" href="#top"><i>in</i>ƒlow</a>
@@ -544,7 +550,7 @@ kbd,.kbd{
   </div>
 </header>
 
-<main id="top">
+<main>
 
   <!-- ============ HERO ============ -->
   <section class="sec hero">
