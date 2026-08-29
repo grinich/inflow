@@ -54,6 +54,7 @@ html,body{height:100%;overflow:hidden}
 }
 .install-chip .chip-x{color:var(--ink-3);padding:4px 6px}
 .install-chip .chip-x:hover{color:var(--ink)}
+.notify-chip{bottom:58px}
 
 /* Install CTA — only revealed once the extension probe comes up empty. */
 .cta{
@@ -216,10 +217,36 @@ html,body{height:100%;overflow:hidden}
   if (navigator.permissions && navigator.permissions.query) {
     navigator.permissions.query({ name: 'notifications' }).then(function (status) {
       status.onchange = function () {
-        if (currentPort) {
-          try { currentPort.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
-        }
+        reportCanNotify();
+        updateNotifyChip();
       };
+    }).catch(function () {});
+  }
+
+  /** Tell the extension whether this shell can show notifications right now. */
+  function reportCanNotify() {
+    if (!currentPort) return;
+    try { currentPort.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
+  }
+
+  /**
+   * Ask for notification permission. The "asked" latch is written only once the
+   * user actually DECIDES: dismissing the prompt (Esc, or the X) leaves
+   * permission 'default', and latching on that would disable inflow's own
+   * notifications for good — every alert would fall back to one attributed to
+   * Chrome, with nothing inside the app able to ask again.
+   */
+  function askForNotifications() {
+    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    var req;
+    try { req = Notification.requestPermission(); } catch (_) { return; }
+    if (!req || !req.then) return; // ancient callback-only signature
+    req.then(function (outcome) {
+      if (outcome && outcome !== 'default') {
+        try { localStorage.setItem('inflow-notif-asked', '1'); } catch (_) {}
+      }
+      reportCanNotify();
+      updateNotifyChip();
     }).catch(function () {});
   }
 
@@ -279,18 +306,50 @@ html,body{height:100%;overflow:hidden}
   // First launch of the installed app asks for notification permission right
   // away — the native-app convention — once ever, and independent of the
   // extension probe. The outcome reaches the extension via the permission
-  // watcher above and the port's HELLO. Browser tabs never prompt.
-  if (IS_APP_WINDOW && 'Notification' in window && Notification.permission === 'default') {
+  // watcher above and the port's HELLO. Browser tabs never prompt on their
+  // own — they get the chip below instead.
+  if (IS_APP_WINDOW) {
     var notifAsked = false;
     try { notifAsked = localStorage.getItem('inflow-notif-asked') === '1'; } catch (_) {}
-    if (!notifAsked) {
-      try { localStorage.setItem('inflow-notif-asked', '1'); } catch (_) {}
-      Notification.requestPermission().then(function () {
-        if (currentPort) {
-          try { currentPort.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
-        }
-      });
-    }
+    if (!notifAsked) askForNotifications();
+  }
+
+  // Whenever permission is still undecided the app says so in-page, so the
+  // feature is reachable from every state the auto-ask can't cover: a browser
+  // tab (which never prompts), a prompt the user dismissed, and an install
+  // carrying the latch from an earlier build. Clicking is the user gesture
+  // browsers want before a permission prompt.
+  var notifyChip = null;
+  function updateNotifyChip() {
+    var undecided = 'Notification' in window && Notification.permission === 'default';
+    if (undecided) showNotifyChip(); else hideNotifyChip();
+  }
+  function showNotifyChip() {
+    if (notifyChip || !frame) return; // only nudge when the app is actually usable
+    var dismissed = false;
+    try { dismissed = localStorage.getItem('inflow-notify-nudge-dismissed') === '1'; } catch (_) {}
+    if (dismissed) return;
+    notifyChip = document.createElement('div');
+    notifyChip.className = 'install-chip notify-chip';
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.textContent = 'Turn on inƒlow notifications';
+    go.addEventListener('click', function () { askForNotifications(); });
+    var x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'chip-x';
+    x.setAttribute('aria-label', 'Dismiss');
+    x.textContent = '✕';
+    x.addEventListener('click', function () {
+      try { localStorage.setItem('inflow-notify-nudge-dismissed', '1'); } catch (_) {}
+      hideNotifyChip();
+    });
+    notifyChip.appendChild(go);
+    notifyChip.appendChild(x);
+    document.body.appendChild(notifyChip);
+  }
+  function hideNotifyChip() {
+    if (notifyChip) { notifyChip.remove(); notifyChip = null; }
   }
 
   // Notifications shown from THIS page are attributed to the installed
@@ -388,6 +447,8 @@ html,body{height:100%;overflow:hidden}
       try { nudgeDismissed = localStorage.getItem('inflow-install-nudge-dismissed') === '1'; } catch (_) {}
       if (!nudgeDismissed) showInstallChip();
     }
+
+    updateNotifyChip();
 
     // Some extensions' content scripts sweep away cross-extension iframes
     // they can't script (observed with automation tooling; ad/privacy

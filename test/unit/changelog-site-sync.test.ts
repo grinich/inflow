@@ -94,6 +94,23 @@ describe('changelog site build', () => {
       );
     });
 
+    it('renders images, and does not mistake one for a link', () => {
+      // `![alt](src)` also matches the link pattern; without image handling
+      // first it renders as a literal "!" followed by a link to the PNG.
+      expect(inline('![inflow](https://inflow.im/icons/app-icon-192.png)')).toBe(
+        '<img class="rel-img" src="https://inflow.im/icons/app-icon-192.png" ' +
+        'alt="inflow" loading="lazy">',
+      );
+      expect(inline('![](https://inflow.im/a.png)')).toContain('alt=""');
+      expect(inline('![x](https://inflow.im/a.png)')).not.toContain('<a href');
+    });
+
+    it('escapes quotes in image attributes so alt text cannot break out', () => {
+      const html = inline('![a" onerror="alert(1)](https://inflow.im/a.png)') as string;
+      expect(html).not.toContain('onerror="');
+      expect(html).toContain('&quot;');
+    });
+
     it('leaves code span contents alone', () => {
       // Without protection, the ** inside would become <strong>.
       expect(inline('use `a**b` here')).toBe('use <code>a**b</code> here');

@@ -50,6 +50,7 @@
 }
 .rel-body{display:flex;flex-direction:column;gap:24px;max-width:42rem}
 .rel-intro{margin:0;color:var(--ink-2);line-height:1.6}
+.rel-img{display:block;width:96px;height:auto;border-radius:20px}
 .rel-group{display:flex;flex-direction:column;gap:10px}
 .rel-tag{
   font-size:.6875rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
@@ -131,9 +132,62 @@
     <!-- CHANGELOG:START -->
     <article class="rel">
       <div class="rel-meta">
+        <h2 class="rel-ver">0.6.0</h2>
+        <time class="rel-date" datetime="2026-08-28">28 August 2026</time>
+        <span class="rel-latest">Latest</span>
+      </div>
+      <div class="rel-body">
+        <p class="rel-intro"><img class="rel-img" src="https://inflow.im/icons/app-icon-192.png" alt="The inƒlow app icon" loading="lazy"></p>
+        <p class="rel-intro"><strong>inflow becomes an app.</strong> It now lives at a real URL — <a href="https://inflow.im/app">inflow.im/app</a> — and installs as a standalone desktop app with its own dock icon, unread badge, and native notifications. It also lands on Microsoft Edge. Underneath, 30 bugs found by a systematic audit of the composer, optimistic actions, caching, and realtime layers, each locked in by a regression test (the suite grew to 1,003 tests).</p>
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>The app now lives at <a href="https://inflow.im/app">inflow.im/app</a></strong> — a real, memorable URL instead of <code>chrome-extension://…/app.html</code>. The page embeds the extension full-screen (same local database, same everything), shows an install page when the extension isn't there yet, keeps working offline after the first visit, and can be installed as a standalone desktop app (dock icon and its own window) via Chrome's <em>Install inflow</em> menu item. The old extension URL keeps working.</li>
+            <li><strong>Unread count on the dock icon</strong> — when inflow is installed as a desktop app, the dock icon shows the number of unread Focused conversations (the same count as the toolbar badge); the browser-tab title shows it too, like <code>(3) inƒlow</code>.</li>
+            <li><strong>Compose from the dock</strong> — right-click the installed app's dock icon → <em>Compose new message</em> opens inflow with the new-message composer ready.</li>
+            <li><strong>Native-feeling window</strong> — the installed app draws edge-to-edge into the title bar (window-controls overlay) instead of showing a browser strip.</li>
+            <li><strong>Smoother first run</strong> — installing the extension now opens the inbox immediately instead of leaving you to find the toolbar icon.</li>
+            <li><strong>Notifications carry the inflow identity in the installed app</strong> — when the desktop app window is open (with notification permission granted), new-message alerts come from inƒlow with its own icon instead of being attributed to Chrome; clicking one focuses the app and opens the conversation. Without an app window they fall back to the extension's notifications as before.</li>
+            <li><strong>inflow.im goes straight to your inbox</strong> — with the extension installed, visiting the homepage redirects to <a href="https://inflow.im/app">inflow.im/app</a>; <a href="https://inflow.im/home">inflow.im/home</a> always shows the homepage, which notices the install: the header button becomes <em>Open inƒlow →</em> and the install buttons give way to a green <em>Installed for Chrome</em> check that also opens the app. The inƒlow mark in the app's sidebar links back to the homepage.</li>
+            <li><strong>inflow is coming to Microsoft Edge</strong> — the extension is submitted to the Edge Add-ons store, and Edge installs update themselves from there like Chrome Web Store installs do (no "move to the store" prompt).</li>
+            <li><strong>In-page install prompt</strong> — the app page now offers a one-click <em>Install inƒlow as an app</em> chip when Chrome reports it installable, instead of leaving you to find the omnibox menu item.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Conversations in Other can move back to Focused</strong> — the command palette, the thread list's right-click menu, the thread header's dropdown, and the <code>O</code> shortcut all showed only "Move to Other", even for conversations already there. Each now flips contextually to "Move to Focused" (and <code>O</code> toggles); archived and spam threads keep their existing routes back.</li>
+            <li><strong>Notifications from the installed app work again</strong> — the app asked for notification permission once and recorded the ask <em>before</em> you answered, so dismissing the prompt (rather than choosing Allow or Block) left permission undecided and permanently unaskable: every alert quietly fell back to one attributed to Chrome. The ask is now recorded only once you decide, and whenever permission is still undecided the app offers a <em>Turn on inƒlow notifications</em> button — so a browser tab, a dismissed prompt, and an install carrying the old flag can all still turn them on.</li>
+            <li><strong>@-mentions in messages are now links</strong> — a mentioned name used to render as plain text; it now links to the person's or company's LinkedIn profile.</li>
+            <li><strong>Replying from LinkedIn web marks the thread read here too</strong> — reading and replying elsewhere used to leave the conversation stuck unread in inflow.</li>
+            <li><strong>Read receipts no longer go missing</strong> — a ✓✓ that arrived before its message did was silently dropped, and realtime updates could wipe stored receipts, reactions, and edit markers off messages that already had them.</li>
+            <li><strong>Attachment-only messages get a real preview</strong> — an image or file with no text showed "New message" in the list instead of "Sent an image".</li>
+            <li><strong>Drafts stop disappearing</strong> — navigating past a conversation faster than its draft loaded deleted that draft, a slow load could overwrite text typed while it was in flight, and adding or removing a recipient wiped a new message's draft and attachments outright.</li>
+            <li><strong>Failed actions undo themselves correctly</strong> — a failed reaction, edit, archive, or star could revert a <em>different</em>, successful change made moments later; a failed send-and-archive left the conversation archived with no way back; and a failed archive could make a thread vanish from every tab at once.</li>
+            <li><strong>A stalled network no longer logs you out</strong> — a slow LinkedIn response was read as "signed out" and flashed the login screen. A hung attachment upload could also block every later send in that conversation until the extension restarted; it is now bounded.</li>
+            <li><strong>Inline images render again</strong> — images delivered in one of LinkedIn's URL shapes were dropped entirely, leaving an empty bubble.</li>
+            <li><strong>AI replies got cheaper and smarter</strong> — autocomplete fired a request on nearly every keystroke (~55 per reply); it now waits for a real pause, keeps the end of your draft rather than the beginning when asking for a completion, and stops predicting when you switch conversations.</li>
+            <li><strong>Typing <code>3:1</code> no longer opens the emoji picker</strong> and turns Enter into an emoji insert instead of a send.</li>
+            <li><strong>Storage stops growing without bound</strong> — cached profile photos and shared posts were never evicted.</li>
+            <li><strong>A big inbox stops stuttering while addressing a message</strong> — the recipient picker rescanned every profile and conversation on each typing pause.</li>
+            <li>Fixed the reply shortcut leaving a merged conversation's hidden twin unread, a reply-suggestions spinner that could never stop, switching tabs mid-search showing the old tab's results, a long list rendering zero rows after it shrank, a search term next to a filter never matching, archived threads popping back into Focused, a corrupted sync setting silently meaning "sync everything", and closing a thread still marking it read.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-removed">Security</h3>
+          <ul>
+            <li><strong>Nothing can frame inflow.im</strong> — the site now sends <code>frame-ancestors 'none'</code> and <code>X-Frame-Options: DENY</code>, since the /app shell holds your real inbox.</li>
+            <li><strong>Fixed a service worker cache bug that broke the installed app</strong> — any in-scope URL (such as the web manifest) could poison the shell's cache, breaking the app window and Chrome's install check.</li>
+            <li>Prompt-building now strips nested tags repeatedly, so message text cannot reassemble a tag and break out of the untrusted-data block sent to the model.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
         <h2 class="rel-ver">0.5.2</h2>
         <time class="rel-date" datetime="2026-08-25">25 August 2026</time>
-        <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
         <section class="rel-group">
