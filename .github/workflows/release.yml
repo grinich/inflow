@@ -31,25 +31,14 @@ jobs:
       # Builds the extension and produces dist/inflow-<version>-chrome.zip
       - run: npm run zip
 
-      # Build the release body: this version's CHANGELOG section, then a standard
+      # Build the release body: this version's CHANGELOG section (unwrapped —
+      # GitHub renders release notes with hard line breaks on, so the
+      # markdown's column wrapping would show as real breaks) plus the standard
       # "How to update" section. generate_release_notes appends the commit list.
       - name: Build release notes
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          awk -v ver="$VERSION" '
-            /^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
-          cat >> release-notes.md <<'HOWTO'
-
-          ## How to update
-
-          Installed from the [Chrome Web Store](https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge)? Chrome updates inflow on its own — there is nothing to do. This release is submitted to the store automatically; it goes live once review clears.
-
-          Still running a manually loaded copy? Move to the store listing above to get automatic updates from here on. The store build is a separate extension to Chrome, so it starts with an empty local database and re-syncs your conversations from LinkedIn.
-
-          To stay on a manual install: download the `.zip` asset below, unzip it, then reload the inflow card at `chrome://extensions` (or `git pull && npm install && npm run build` from a clone).
-          HOWTO
+          node scripts/release-notes.mjs "$VERSION" > release-notes.md
           echo "Built release notes for v$VERSION"
 
       - name: Create GitHub Release
