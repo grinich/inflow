@@ -14,15 +14,18 @@
 // in-scope navigation to '/app').
 const CACHE = 'inflow-app-shell-v3';
 
-// No maskable icon on purpose: Chrome prefers it for the macOS dock and
-// applies its own mask to the full-bleed art, which looked badly cropped —
-// the plain icons carry the full artwork with its own margins.
+// The maskable icon is the art at NATURAL proportions with corners filled in
+// the tile's own dark color — Chrome masks it for the macOS dock (like any
+// native icon). Without one, Chrome mounts the padded icon on a white tile
+// (halo); a zoom-cropped one renders the envelope oversized. Both were tried
+// and rejected.
 const PRECACHE = [
   '/app',
   '/app.webmanifest',
   '/base.css',
   '/icons/app-icon-192.png',
   '/icons/app-icon-512.png',
+  '/icons/app-icon-512-fullbleed.png',
 ];
 
 self.addEventListener('install', (event) => {
