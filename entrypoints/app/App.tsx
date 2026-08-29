@@ -23,7 +23,7 @@ import { useResizableSidebar } from '@/hooks/useResizableSidebar';
 import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useUIStore } from '@/store/ui-store';
-import { consumeComposeParam } from '@/lib/launch-params';
+import { consumeComposeParam, isEmbeddedInShell } from '@/lib/launch-params';
 
 export function App() {
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -49,6 +49,14 @@ export function App() {
   // the new-message composer once; the param is consumed so reloads don't.
   useEffect(() => {
     if (consumeComposeParam()) useUIStore.getState().setComposeNewActive(true);
+  }, []);
+
+  // Inside the inflow.im/app shell, pull keyboard focus into this frame on
+  // boot — the shell's outside-in focus() alone is flaky on first load,
+  // leaving shortcuts dead until a click. (The shell retries from its side
+  // too; this is the inside half.)
+  useEffect(() => {
+    if (isEmbeddedInShell()) window.focus();
   }, []);
 
   // Full-window drag-and-drop for file attachments

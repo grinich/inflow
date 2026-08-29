@@ -2,6 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "trailingSlash": false,
+  "rewrites": [
+    { "source": "/home", "destination": "/" }
+  ],
   "headers": [
     {
       "source": "/avatars/(.*)",

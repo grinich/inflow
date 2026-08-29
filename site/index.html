@@ -10,6 +10,50 @@
 <meta property="og:description" content="A keyboard-driven inbox for your LinkedIn messages. Local-first, open source, no server.">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8C%A8%3C/text%3E%3C/svg%3E">
+<link rel="canonical" href="https://inflow.im/">
+<script>
+/* Installed users land straight in their inbox: probe for the extension
+   (same PING the /app shell uses) and bounce / to /app. Visiting /home
+   always renders this page (vercel.json rewrites it here) — the escape
+   hatch for reading the site with inflow installed.
+
+   chrome.runtime only exists on this origin when a probe-capable inflow is
+   installed, so visitors without it render instantly with no probe delay;
+   when it exists, the page is held invisible briefly to avoid a homepage
+   flash before the redirect. */
+(function () {
+  if (location.pathname === '/home') return;
+  if (!(window.chrome && chrome.runtime && chrome.runtime.sendMessage)) return;
+
+  var css = document.documentElement.style;
+  css.visibility = 'hidden';
+  var settled = false;
+  function settle(id) {
+    if (settled) return;
+    settled = true;
+    if (id) location.replace('/app');
+    else css.visibility = '';
+  }
+  setTimeout(function () { settle(null); }, 1500);
+
+  function probe(id) {
+    return new Promise(function (resolve) {
+      try {
+        chrome.runtime.sendMessage(id, { type: 'PING' }, function (resp) {
+          void chrome.runtime.lastError;
+          resolve(resp && resp.ok ? id : null);
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+  Promise.all([
+    probe('ndehgbgifkapdigmefglpgacpagoclge'),
+    probe('fngobhjkhkdnnijgegkcjoadmddkehgh')
+  ]).then(function (ids) { settle(ids[0] || ids[1]); });
+})();
+</script>
 <link rel="stylesheet" href="/base.css">
 <style>
 /* Landing-page-only rules. Shared foundation lives in base.css. */

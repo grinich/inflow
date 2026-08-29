@@ -4,7 +4,7 @@
  * "Compose" shortcut). Consuming it must strip it from the URL so a reload
  * doesn't re-open the composer, while leaving other params (?demo) alone.
  */
-import { consumeComposeParam } from '@/lib/launch-params';
+import { consumeComposeParam, isEmbeddedInShell } from '@/lib/launch-params';
 
 function setSearch(search: string) {
   window.history.replaceState(null, '', `/app.html${search}`);
@@ -35,5 +35,26 @@ describe('consumeComposeParam', () => {
     setSearch('?compose=1');
     expect(consumeComposeParam()).toBe(true);
     expect(consumeComposeParam()).toBe(false);
+  });
+});
+
+describe('isEmbeddedInShell', () => {
+  it('is false when the app is the top-level page', () => {
+    expect(isEmbeddedInShell()).toBe(false);
+  });
+
+  it('is true when self and top differ (framed)', () => {
+    expect(isEmbeddedInShell(window, {} as Window)).toBe(true);
+  });
+
+  it('is true when touching top throws (cross-origin frame)', () => {
+    const hostile = new Proxy({} as Window, {
+      get() {
+        throw new Error('Blocked a frame from accessing a cross-origin frame.');
+      },
+    });
+    // The comparison itself doesn't throw, but any equality path that reads
+    // through a poisoned top must land on "framed".
+    expect(isEmbeddedInShell(window, hostile)).toBe(true);
   });
 });

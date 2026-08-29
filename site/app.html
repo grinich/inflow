@@ -210,6 +210,19 @@ html,body{height:100%;overflow:hidden}
     frame.addEventListener('load', function () { frame.focus(); });
     document.body.appendChild(frame);
     frame.focus();
+    // First-load focus is flaky: the focus() above can land before the inner
+    // document exists, and the load-event one can lose a race with Chrome's
+    // post-navigation focus fixup — leaving keystrokes dead until a click.
+    // Retry until the frame is genuinely the active element. (The app also
+    // pulls focus inward on boot; this is the outside half.)
+    var focusTries = 0;
+    var focusTimer = setInterval(function () {
+      if (document.activeElement === frame || ++focusTries > 20) {
+        clearInterval(focusTimer);
+        return;
+      }
+      frame.focus();
+    }, 150);
     connectUnreadPort(id);
 
     // Some extensions' content scripts sweep away cross-extension iframes

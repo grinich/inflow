@@ -5,6 +5,22 @@
  */
 
 /**
+ * True when the app runs inside a frame (the inflow.im/app shell) rather
+ * than as the top-level extension tab. Cross-origin `top` access throwing
+ * is itself proof of being framed.
+ */
+export function isEmbeddedInShell(
+  self: Window = window.self,
+  top: Window | null = window.top
+): boolean {
+  try {
+    return self !== top;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * True when the URL carries `?compose`. Consuming strips the param (frame-
  * local history.replaceState) so a reload doesn't re-open the composer.
  */

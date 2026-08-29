@@ -24,6 +24,9 @@ All notable changes to inflow are documented here. This project follows
   title bar (window-controls overlay) instead of showing a browser strip.
 - **Smoother first run** — installing the extension now opens the inbox
   immediately instead of leaving you to find the toolbar icon.
+- **inflow.im goes straight to your inbox** — with the extension installed,
+  visiting the homepage redirects to [inflow.im/app](https://inflow.im/app);
+  [inflow.im/home](https://inflow.im/home) always shows the homepage.
 
 ## [0.5.2] - 2026-08-25
 
