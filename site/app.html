@@ -164,6 +164,14 @@ html,body{height:100%;overflow:hidden}
     });
   }
 
+  // In an installed-app window the OS title bar renders "<app name> - <page
+  // title>", so the long tab title would show up twice over. Collapse it to
+  // the bare mark there; browser tabs keep the descriptive title.
+  var IS_APP_WINDOW = matchMedia(
+    '(display-mode: standalone), (display-mode: window-controls-overlay)'
+  ).matches;
+  if (IS_APP_WINDOW) document.title = 'inƒlow';
+
   // Long-lived port to the extension: it pushes the unread Focused count on
   // the same cadence as the toolbar badge. Mirrored onto the dock icon when
   // this page is installed as an app (Badging API) and into the tab title.

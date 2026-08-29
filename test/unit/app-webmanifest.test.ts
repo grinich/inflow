@@ -12,8 +12,10 @@ const manifest = JSON.parse(readFileSync(join(SITE, 'app.webmanifest'), 'utf8'))
 
 describe('app.webmanifest', () => {
   it('meets Chrome desktop install criteria', () => {
-    expect(manifest.name).toContain('inflow');
-    expect(manifest.short_name).toBe('inflow');
+    // The name is the installed window's title-bar prefix — keep it the bare
+    // mark, not a tagline (the OS shows "<name> - <page title>").
+    expect(manifest.name).toBe('inƒlow');
+    expect(manifest.short_name).toBe('inƒlow');
     expect(manifest.id).toBe('/app');
     expect(manifest.start_url).toBe('/app');
     expect(manifest.scope).toBe('/app');
