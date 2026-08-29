@@ -43,10 +43,15 @@ export async function openAppTab(
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const tabs = await chrome.tabs.query({ url: appTabUrlPatterns() });
-      if (tabs.length > 0 && tabs[0].id != null) {
-        await chrome.tabs.update(tabs[0].id, { active: true });
-        if (tabs[0].windowId != null) {
-          await chrome.windows.update(tabs[0].windowId, { focused: true });
+      // The web shell first: it's where the installed desktop app lives, so
+      // focusing it raises that app. A stray raw extension tab would strand
+      // the click in the browser even with the app open. (tabs.query returns
+      // window order, not pattern order — the shell isn't reliably first.)
+      const target = tabs.find((tab) => tab.url?.startsWith(WEB_APP_URL)) ?? tabs[0];
+      if (target?.id != null) {
+        await chrome.tabs.update(target.id, { active: true });
+        if (target.windowId != null) {
+          await chrome.windows.update(target.windowId, { focused: true });
         }
       } else {
         await chrome.tabs.create({ url: createUrl });

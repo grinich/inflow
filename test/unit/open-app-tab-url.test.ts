@@ -57,6 +57,36 @@ describe('openAppTab URL selection', () => {
     expect(chrome.windows.update).toHaveBeenCalledWith(3, { focused: true });
   });
 
+  it('prefers the web shell over a raw extension tab (that is where the installed app is)', async () => {
+    // tabs.query returns window order, not pattern order, so a stray
+    // extension tab can come first — focusing it would strand a notification
+    // click in the browser with the desktop app sitting open behind it.
+    vi.mocked(chrome.tabs.query).mockResolvedValue([
+      { id: 4, windowId: 1, url: 'chrome-extension://test-extension-id/app.html' } as any,
+      { id: 9, windowId: 6, url: 'https://inflow.im/app' } as any,
+    ]);
+    vi.mocked(chrome.tabs.update).mockResolvedValue({} as any);
+    vi.mocked(chrome.windows.update).mockResolvedValue({} as any);
+
+    await openAppTab();
+
+    expect(chrome.tabs.update).toHaveBeenCalledWith(9, { active: true });
+    expect(chrome.windows.update).toHaveBeenCalledWith(6, { focused: true });
+  });
+
+  it('still focuses a raw extension tab when that is all there is', async () => {
+    vi.mocked(chrome.tabs.query).mockResolvedValue([
+      { id: 4, windowId: 1, url: 'chrome-extension://test-extension-id/app.html' } as any,
+    ]);
+    vi.mocked(chrome.tabs.update).mockResolvedValue({} as any);
+    vi.mocked(chrome.windows.update).mockResolvedValue({} as any);
+
+    await openAppTab();
+
+    expect(chrome.tabs.create).not.toHaveBeenCalled();
+    expect(chrome.tabs.update).toHaveBeenCalledWith(4, { active: true });
+  });
+
   it('falls back to the extension URL when offline', async () => {
     vi.stubGlobal('navigator', { onLine: false });
     await openAppTab();

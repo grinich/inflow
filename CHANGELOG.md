@@ -4,6 +4,19 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **Clicking a notification opens the desktop app, and the alert carries the
+  inƒlow icon** — alerts were shown by the app *page*, which macOS attributes
+  to Chrome (Chrome's name and icon on every notification) and whose click
+  couldn't bring a background window forward, so clicking one appeared to do
+  nothing. They now come from the app's service worker: macOS shows them as
+  inƒlow, clicking raises the installed app and opens the conversation, and a
+  notification clicked after the app was closed launches it straight into that
+  conversation. Clicking one of the extension's own fallback notifications
+  also prefers the installed app over a stray extension tab.
+
 ## [0.6.0] - 2026-08-28
 
 ![The inƒlow app icon](https://inflow.im/icons/app-icon-192.png)

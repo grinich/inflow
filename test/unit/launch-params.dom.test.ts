@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 /**
- * ?compose is a one-shot launch param (the installed app's dock-menu
- * "Compose" shortcut). Consuming it must strip it from the URL so a reload
- * doesn't re-open the composer, while leaving other params (?demo) alone.
+ * ?compose (the installed app's dock-menu "Compose" shortcut) and ?c= (the
+ * conversation a clicked notification launched the app for) are one-shot
+ * launch params. Consuming one must strip it from the URL so a reload
+ * doesn't replay it, while leaving other params (?demo) alone.
  */
-import { consumeComposeParam, isEmbeddedInShell } from '@/lib/launch-params';
+import {
+  consumeComposeParam,
+  consumeConversationParam,
+  isEmbeddedInShell,
+} from '@/lib/launch-params';
 
 function setSearch(search: string) {
   window.history.replaceState(null, '', `/app.html${search}`);
@@ -35,6 +40,39 @@ describe('consumeComposeParam', () => {
     setSearch('?compose=1');
     expect(consumeComposeParam()).toBe(true);
     expect(consumeComposeParam()).toBe(false);
+  });
+});
+
+describe('consumeConversationParam', () => {
+  it('returns null and leaves the URL alone when c is absent', () => {
+    setSearch('?demo');
+    expect(consumeConversationParam()).toBeNull();
+    expect(window.location.search).toBe('?demo');
+  });
+
+  it('returns the conversation id and strips c from the URL', () => {
+    setSearch('?c=2-abc%3D%3D');
+    expect(consumeConversationParam()).toBe('2-abc==');
+    expect(window.location.search).toBe('');
+  });
+
+  it('preserves other params while stripping c', () => {
+    setSearch('?demo&c=conv-1');
+    expect(consumeConversationParam()).toBe('conv-1');
+    const params = new URLSearchParams(window.location.search);
+    expect(params.has('demo')).toBe(true);
+    expect(params.has('c')).toBe(false);
+  });
+
+  it('is one-shot: a reload must not re-navigate', () => {
+    setSearch('?c=conv-1');
+    expect(consumeConversationParam()).toBe('conv-1');
+    expect(consumeConversationParam()).toBeNull();
+  });
+
+  it('ignores an empty ?c=', () => {
+    setSearch('?c=');
+    expect(consumeConversationParam()).toBeNull();
   });
 });
 

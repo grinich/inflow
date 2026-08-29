@@ -23,7 +23,7 @@ import { useResizableSidebar } from '@/hooks/useResizableSidebar';
 import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useUIStore } from '@/store/ui-store';
-import { consumeComposeParam, isEmbeddedInShell } from '@/lib/launch-params';
+import { consumeComposeParam, consumeConversationParam, isEmbeddedInShell } from '@/lib/launch-params';
 import { onShellOpenConversation } from '@/lib/shell-messages';
 import { navigateToConversation } from '@/lib/navigate-to-conversation';
 
@@ -61,9 +61,16 @@ export function App() {
     if (isEmbeddedInShell()) window.focus();
   }, []);
 
-  // The shell shows origin-attributed notifications (installed-app icon);
-  // clicking one posts OPEN_CONVERSATION into this frame.
+  // The shell's service worker shows notifications with the installed app's
+  // identity; clicking one posts OPEN_CONVERSATION into this frame.
   useEffect(() => onShellOpenConversation(navigateToConversation), []);
+
+  // Launched with ?c=<id> — the same click, but with no app window open to
+  // focus, so the worker opened one pointed at the conversation.
+  useEffect(() => {
+    const conversationId = consumeConversationParam();
+    if (conversationId) navigateToConversation(conversationId);
+  }, []);
 
   // Full-window drag-and-drop for file attachments
   useEffect(() => {

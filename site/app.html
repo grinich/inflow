@@ -117,8 +117,32 @@ html,body{height:100%;overflow:hidden}
   var DEV_ID = 'fngobhjkhkdnnijgegkcjoadmddkehgh';
   var PROBE_TIMEOUT_MS = 1500;
 
+  // The worker backs the shell's offline cache AND its notifications: only
+  // a service-worker notification is attributed to the installed app, and
+  // only its click handler can raise the app window (see app-sw.js).
+  var swRegistration = null;
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/app-sw.js', { scope: '/app' }).catch(function () {});
+    var sw = navigator.serviceWorker;
+    try {
+      sw.register('/app-sw.js', { scope: '/app' }).catch(function () {});
+    } catch (_) {}
+    // `ready` — not register() — is what guarantees an ACTIVE worker, which
+    // showNotification requires; register() resolves while it's still
+    // installing. Both are feature-detected: an older or blocked worker just
+    // means notifications fall back to the page's own.
+    if (sw.ready && sw.ready.then) {
+      sw.ready.then(function (reg) { swRegistration = reg; }).catch(function () {});
+    }
+    if (sw.addEventListener) {
+      // A notification click landed on this already-open window: the worker
+      // focused it and handed back the conversation to open.
+      sw.addEventListener('message', function (event) {
+        var data = event.data;
+        if (data && data.type === 'OPEN_CONVERSATION' && typeof data.conversationId === 'string') {
+          openConversationInApp(data.conversationId);
+        }
+      });
+    }
   }
 
   // ?ext=dev (or ?ext=<id>) pins the probe to one build; it's shell-only, so
@@ -129,13 +153,15 @@ html,body{height:100%;overflow:hidden}
   params.delete('ext');
   var passthrough = params.toString() ? '?' + params.toString() : '';
 
-  // One-shot params (the dock-menu Compose shortcut) are forwarded to the app
-  // but scrubbed from this page's own URL, so a manual reload doesn't replay
-  // them. ?demo stays (dropping it would silently exit demo mode on reload),
-  // and ?ext stays (it pins the probe across reloads).
-  if (params.has('compose')) {
+  // One-shot params — the dock-menu Compose shortcut, and ?c=<conversation>
+  // from a notification click with no window to focus — are forwarded to the
+  // app but scrubbed from this page's own URL, so a manual reload doesn't
+  // replay them. ?demo stays (dropping it would silently exit demo mode on
+  // reload), and ?ext stays (it pins the probe across reloads).
+  var oneShot = ['compose', 'c'].filter(function (k) { return params.has(k); });
+  if (oneShot.length) {
     var clean = new URL(location.href);
-    clean.searchParams.delete('compose');
+    oneShot.forEach(function (k) { clean.searchParams.delete(k); });
     try { history.replaceState(null, '', clean.toString()); } catch (_) {}
   }
 
@@ -352,33 +378,76 @@ html,body{height:100%;overflow:hidden}
     if (notifyChip) { notifyChip.remove(); notifyChip = null; }
   }
 
-  // Notifications shown from THIS page are attributed to the installed
-  // inƒlow app (name + icon) on macOS — unlike the extension's, which the
-  // OS pins on Chrome. The extension routes message alerts here whenever a
-  // shell with permission is connected, and falls back to its own otherwise.
-  function showShellNotification(id, msg) {
+  // The extension routes message alerts here whenever a shell with
+  // permission is connected, and falls back to its own (Chrome-attributed)
+  // notifications otherwise.
+  //
+  // They are shown by the SERVICE WORKER, not by this page: only a
+  // service-worker notification carries the installed app's name and icon
+  // instead of Chrome's, only its click handler can raise the app window
+  // from the background, and only it outlives the window it was shown from.
+  // The page notification below is the fallback for a shell whose worker
+  // never became active — it looks right, but its click can't raise a
+  // backgrounded window.
+  var APP_ICON = '/icons/app-icon-192.png';
+
+  function showShellNotification(msg) {
     if (!canNotify()) return;
+    var title = msg.title || 'inƒlow';
+    var options = {
+      body: msg.body || '',
+      tag: msg.conversationId || 'inflow', // replaces per-conversation, dedupes across shells
+      icon: msg.icon || APP_ICON,
+      badge: APP_ICON,
+      data: { conversationId: msg.conversationId || '' },
+    };
+    if (swRegistration && swRegistration.showNotification) {
+      try {
+        var shown = swRegistration.showNotification(title, options);
+        if (shown && shown.catch) {
+          shown.catch(function () { showPageNotification(title, options); });
+        }
+        return;
+      } catch (_) {}
+    }
+    showPageNotification(title, options);
+  }
+
+  function showPageNotification(title, options) {
     try {
-      var n = new Notification(msg.title || 'inƒlow', {
-        body: msg.body || '',
-        tag: msg.conversationId || 'inflow', // replaces per-conversation, dedupes across shells
-        icon: msg.icon || '/icons/app-icon-192.png',
-      });
+      var n = new Notification(title, options);
       n.onclick = function () {
         try {
           window.focus();
-          // contentWindow is null if the frame was swept and the reattach
-          // cap is spent — a detached frame must not break the click.
-          if (frame && frame.contentWindow && msg.conversationId) {
-            frame.contentWindow.postMessage(
-              { type: 'OPEN_CONVERSATION', conversationId: msg.conversationId },
-              'chrome-extension://' + id
-            );
-            frame.focus();
-          }
+          openConversationInApp(options.data.conversationId);
         } catch (_) {}
         n.close();
       };
+    } catch (_) {}
+  }
+
+  // Hand a conversation to the app frame — the inside half of a notification
+  // click. The frame may not exist yet (a click that opened this window lands
+  // here before the extension probe finishes); hold the id and let embed()
+  // pass it in as a launch param, which beats racing a postMessage against a
+  // frame that is still booting.
+  var extensionId = null;
+  var pendingConversation = null;
+
+  function openConversationInApp(conversationId) {
+    if (!conversationId) return;
+    // contentWindow is null if the frame was swept and the reattach cap is
+    // spent — a detached frame must not break the click.
+    if (!extensionId || !frame || !frame.contentWindow) {
+      pendingConversation = conversationId;
+      return;
+    }
+    try {
+      frame.contentWindow.postMessage(
+        { type: 'OPEN_CONVERSATION', conversationId: conversationId },
+        'chrome-extension://' + extensionId
+      );
+      frame.focus();
     } catch (_) {}
   }
 
@@ -404,25 +473,50 @@ html,body{height:100%;overflow:hidden}
       if (msg.type === 'UNREAD_COUNT') {
         applyUnreadCount(typeof msg.count === 'number' ? msg.count : 0);
       } else if (msg.type === 'SHOW_NOTIFICATION') {
-        showShellNotification(id, msg);
+        showShellNotification(msg);
       }
     });
     try { port.postMessage({ type: 'HELLO', canNotify: canNotify() }); } catch (_) { return; }
   }
 
+  /**
+   * The app frame's URL: this page's forwarded query string, plus the
+   * conversation a notification click is waiting on (set() so it wins over a
+   * stale ?c= already in the query string).
+   */
+  function frameSrc(id) {
+    var qs = new URLSearchParams(passthrough.slice(1));
+    if (pendingConversation) {
+      qs.set('c', pendingConversation);
+      pendingConversation = null;
+    }
+    var query = qs.toString();
+    return 'chrome-extension://' + id + '/app.html' + (query ? '?' + query : '');
+  }
+
   function embed(id) {
     if (frame) return;
+    extensionId = id;
     cta.hidden = true;
     frame = document.createElement('iframe');
     frame.id = 'app';
-    frame.src = 'chrome-extension://' + id + '/app.html' + passthrough;
+    frame.src = frameSrc(id);
     // The app copies text and plays videos (with native-controls fullscreen);
     // cross-origin frames need those capabilities delegated explicitly.
     frame.setAttribute('allow', 'clipboard-write; fullscreen; autoplay; picture-in-picture');
     frame.setAttribute('allowfullscreen', '');
     // The app is keyboard-driven and key events go to the focused frame, so
     // hand it focus on load and every time this window regains focus.
-    frame.addEventListener('load', function () { frame.focus(); });
+    frame.addEventListener('load', function () {
+      frame.focus();
+      // A click that arrived while the frame was detached (swept and
+      // reattached) — the reload is its chance to be delivered.
+      if (pendingConversation) {
+        var waiting = pendingConversation;
+        pendingConversation = null;
+        openConversationInApp(waiting);
+      }
+    });
     document.body.appendChild(frame);
     frame.focus();
     // First-load focus is flaky: the focus() above can land before the inner
