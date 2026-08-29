@@ -29,11 +29,20 @@ export function ShortcutOverlay() {
       }`}
     >
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-edge px-4 py-1.5">
+      <div className="flex items-center gap-2 border-b border-edge px-4 py-1.5">
+        <button
+          onClick={() => setOpen(false)}
+          className="flex cursor-pointer items-center rounded p-0.5 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"
+          aria-label="Close shortcuts"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
         <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">Shortcuts</h2>
-        <span className="text-xs text-fg-muted">
-          Press <kbd className="mx-0.5 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] ring-1 ring-ring">Esc</kbd> or{' '}
-          <kbd className="mx-0.5 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] ring-1 ring-ring">?</kbd> to close
+        <span className="ml-1 text-xs text-fg-muted">
+          Press <kbd className="mx-0.5 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] ring-1 ring-ring">?</kbd> to close
         </span>
         {version && (
           <span className="ml-auto text-[10px] font-medium tracking-wider text-fg-faint">
