@@ -24,4 +24,12 @@ describe('site vercel.json', () => {
     expect(sources).toContain('/icons/(.*)');
     expect(sources).toContain('/app.webmanifest');
   });
+
+  it('forbids framing site pages (the /app shell holds the user\'s real inbox)', () => {
+    const all = (config.headers ?? []).find((h: { source: string }) => h.source === '/(.*)');
+    expect(all).toBeDefined();
+    const keys = Object.fromEntries(all.headers.map((h: { key: string; value: string }) => [h.key, h.value]));
+    expect(keys['X-Frame-Options']).toBe('DENY');
+    expect(keys['Content-Security-Policy']).toContain("frame-ancestors 'none'");
+  });
 });

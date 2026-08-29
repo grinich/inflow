@@ -9,15 +9,18 @@
  * Scope is /app only; the marketing pages stay uncached.
  */
 
-const CACHE = 'inflow-app-shell-v1';
+// v3: purges v2 caches, whose '/app' key could be poisoned by a direct
+// navigation to /app.webmanifest (the pre-fix fetch handler keyed every
+// in-scope navigation to '/app').
+const CACHE = 'inflow-app-shell-v3';
 
 const PRECACHE = [
   '/app',
   '/app.webmanifest',
   '/base.css',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
-  '/icons/icon-512-maskable.png',
+  '/icons/app-icon-192.png',
+  '/icons/app-icon-512.png',
+  '/icons/app-icon-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -43,25 +46,32 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navigations are cached under the bare '/app' key so query-string variants
-  // (?demo, deep links) hit the same cached shell.
-  const isNavigation = req.mode === 'navigate';
-  if (!isNavigation && !PRECACHE.includes(url.pathname)) return;
+  // SW scope is a raw path PREFIX ('/app' also controls /apple and
+  // /app.webmanifest), so gate navigations on the exact shell path: anything
+  // else must reach the network (Vercel's 404, the real manifest, …) — and
+  // must never be cache.put under the '/app' key, which would poison the
+  // shell. Query-string variants (?demo, deep links) share the '/app' key.
+  const isShellNav = req.mode === 'navigate' && url.pathname === '/app';
+  if (!isShellNav && !PRECACHE.includes(url.pathname)) return;
+  const key = isShellNav ? '/app' : url.pathname;
 
-  const key = isNavigation ? '/app' : url.pathname;
-  event.respondWith(staleWhileRevalidate(req, key));
-});
-
-function staleWhileRevalidate(request, cacheKey) {
-  return caches.open(CACHE).then((cache) =>
-    cache.match(cacheKey).then((cached) => {
-      const refresh = fetch(request)
-        .then((response) => {
-          if (response && response.ok) cache.put(cacheKey, response.clone());
-          return response;
-        })
-        .catch(() => cached || Response.error());
-      return cached || refresh;
+  // Stale-while-revalidate, with the revalidation held open via waitUntil —
+  // otherwise the worker may be torn down as soon as the cached response is
+  // returned and the cache stays stale indefinitely.
+  const refresh = caches.open(CACHE).then((cache) =>
+    fetch(req).then((response) => {
+      if (response && response.ok) {
+        return cache.put(key, response.clone()).then(() => response);
+      }
+      return response;
     })
   );
-}
+  event.waitUntil(refresh.catch(() => {}));
+  event.respondWith(
+    caches
+      .open(CACHE)
+      .then((cache) => cache.match(key))
+      .then((cached) => cached || refresh)
+      .catch(() => fetch(req))
+  );
+});

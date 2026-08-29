@@ -25,6 +25,7 @@ import { hasPendingAction } from '../sync/pending-guard';
 import { extractConversationId } from '@/lib/conversation-urn';
 import { buildNotificationIcon } from '@/lib/notification-icon';
 import { appTabUrlPatterns } from '../app-urls';
+import { notifyViaShell } from '../external-messages';
 
 interface RealtimeContext {
   database: typeof db;
@@ -260,14 +261,15 @@ function showNativeNotification(msg: {
   conversationId: string;
 }): void {
   (async () => {
-    const activeTabs = await chrome.tabs.query({ url: appTabUrlPatterns(), active: true, lastFocusedWindow: true });
-    if (activeTabs.length > 0) {
-      // An active tab isn't enough — `lastFocusedWindow` matches even when
-      // Chrome itself is not the frontmost app (e.g. after Cmd-Tab away with
-      // inflow left as the active tab). Only suppress when that window truly
-      // has OS focus; otherwise the user isn't looking at the toast.
-      const win = await chrome.windows.getLastFocused().catch(() => null);
-      if (win?.focused) return; // in-app toast will show instead
+    // The app can live in a normal tab or in an installed-app window. Check
+    // each active app tab's OWN window for OS focus: `lastFocusedWindow` and
+    // getLastFocused() exclude windows of type 'app' by default, which made
+    // the installed PWA — frontmost, user staring at it — double-alert.
+    const activeTabs = await chrome.tabs.query({ url: appTabUrlPatterns(), active: true });
+    for (const tab of activeTabs) {
+      if (tab.windowId == null) continue;
+      const win = await chrome.windows.get(tab.windowId).catch(() => null);
+      if (win?.focused) return; // user is looking at the app — in-app toast shows
     }
 
     // Spam stays quiet: a new message in a SPAM thread doesn't mark it unread
@@ -275,6 +277,20 @@ function showNativeNotification(msg: {
     // shouldn't ping the OS either.
     const conv = await db.conversations.get(msg.conversationId);
     if (conv?.category === 'SPAM') return;
+
+    // Prefer a connected web shell with Notification permission: its
+    // notifications come from the inflow.im origin, so macOS attributes them
+    // to the installed inƒlow app (name + icon) instead of to Chrome.
+    if (
+      notifyViaShell({
+        conversationId: msg.conversationId,
+        title: msg.senderName,
+        body: msg.body || 'New message',
+        icon: msg.senderPicture,
+      })
+    ) {
+      return;
+    }
 
     // Remote avatar URLs don't render in MV3 notifications — composite the
     // avatar with the inflow badge into a data URL, falling back to the app

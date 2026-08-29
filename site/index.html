@@ -53,8 +53,6 @@
   }
 
   function settle(id) {
-    if (settled) return;
-    settled = true;
     if (onHome) {
       if (!id) return;
       if (document.readyState === 'loading') {
@@ -62,27 +60,42 @@
       } else {
         upgradeCtas();
       }
-    } else if (id) {
-      location.replace('/app');
-    } else {
-      css.visibility = '';
+      return;
     }
+    if (id && !settled) {
+      // A slow MV3 cold start may answer after the reveal below — still
+      // redirect rather than stranding an installed user on the homepage.
+      settled = true;
+      location.replace('/app');
+      return;
+    }
+    if (!id) css.visibility = '';
   }
 
   if (!onHome) {
     css.visibility = 'hidden';
-    setTimeout(function () { settle(null); }, 1500);
+    // Failsafe: reveal the page rather than holding it blank — but don't
+    // latch; a late probe answer still redirects via settle() above.
+    setTimeout(function () { css.visibility = ''; }, 1500);
   }
 
   function probe(id) {
     return new Promise(function (resolve) {
+      var done = false;
+      var timer = setTimeout(function () {
+        if (!done) { done = true; resolve(null); }
+      }, 1500);
       try {
         chrome.runtime.sendMessage(id, { type: 'PING' }, function (resp) {
           void chrome.runtime.lastError;
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
           resolve(resp && resp.ok ? id : null);
         });
       } catch (_) {
-        resolve(null);
+        clearTimeout(timer);
+        if (!done) { done = true; resolve(null); }
       }
     });
   }

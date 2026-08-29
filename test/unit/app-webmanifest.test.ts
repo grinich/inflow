@@ -5,6 +5,7 @@
  * Compose shortcut, and that every referenced icon actually ships.
  */
 import { readFileSync, existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const SITE = join(__dirname, '..', '..', 'site');
@@ -42,7 +43,12 @@ describe('app.webmanifest', () => {
     expect(shortcut.url).toContain('compose=1');
   });
 
-  it('every referenced icon file ships with the site', () => {
+  it('every referenced icon file ships with the site AND is tracked by git', () => {
+    // existsSync alone once passed while the icons were untracked — Vercel
+    // deploys from git on push, so an untracked icon 404s in production.
+    const tracked = execSync('git ls-files site/icons', { cwd: join(SITE, '..') })
+      .toString()
+      .split('\n');
     const refs = [
       ...manifest.icons.map((i: { src: string }) => i.src),
       ...manifest.shortcuts.flatMap((s: { icons?: Array<{ src: string }> }) =>
@@ -51,6 +57,7 @@ describe('app.webmanifest', () => {
     ];
     for (const src of refs) {
       expect(existsSync(join(SITE, src)), `missing ${src}`).toBe(true);
+      expect(tracked, `untracked ${src}`).toContain(`site${src}`);
     }
   });
 });

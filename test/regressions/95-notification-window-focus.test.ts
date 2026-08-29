@@ -5,7 +5,7 @@
  * app with inflow left active meant new messages produced no OS notification,
  * only an in-app toast in a window the user wasn't looking at.
  *
- * Fix: suppression additionally requires chrome.windows.getLastFocused() to
+ * Fix: suppression additionally requires the app tab's own window (chrome.windows.get) to
  * report focused: true.
  */
 import Dexie from 'dexie';
@@ -103,8 +103,8 @@ function flush(ms = 25) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** The app tab, active in the last-focused window. */
-const ACTIVE_APP_TAB = [{ id: 1, active: true }] as any;
+/** The app tab, active in its window (id 3) — which may or may not have OS focus. */
+const ACTIVE_APP_TAB = [{ id: 1, windowId: 3, active: true }] as any;
 
 beforeEach(async () => {
   testDb = new Dexie(`TestDB_95_${Date.now()}_${Math.random()}`);
@@ -124,7 +124,7 @@ afterEach(async () => {
 describe('native notification suppression requires real window focus', () => {
   it('suppresses when the inflow tab is active AND its window has OS focus', async () => {
     vi.mocked(chrome.tabs.query).mockResolvedValue(ACTIVE_APP_TAB);
-    vi.mocked(chrome.windows.getLastFocused).mockResolvedValue({ focused: true } as any);
+    vi.mocked(chrome.windows.get).mockResolvedValue({ focused: true } as any);
 
     const ev = buildMessageEvent({ entityUrn: 'urn:li:msg_message:F1', convId: 'conv-focus', body: 'hi', deliveredAt: 6000 });
     await handleRealtimeEvent(ev.eventType, ev.data);
@@ -135,7 +135,7 @@ describe('native notification suppression requires real window focus', () => {
 
   it('notifies when the inflow tab is active but Chrome is not the frontmost app', async () => {
     vi.mocked(chrome.tabs.query).mockResolvedValue(ACTIVE_APP_TAB);
-    vi.mocked(chrome.windows.getLastFocused).mockResolvedValue({ focused: false } as any);
+    vi.mocked(chrome.windows.get).mockResolvedValue({ focused: false } as any);
 
     const ev = buildMessageEvent({ entityUrn: 'urn:li:msg_message:F2', convId: 'conv-focus', body: 'hello?', deliveredAt: 7000 });
     await handleRealtimeEvent(ev.eventType, ev.data);
@@ -148,9 +148,9 @@ describe('native notification suppression requires real window focus', () => {
     });
   });
 
-  it('still notifies when getLastFocused rejects (best-effort suppression)', async () => {
+  it('still notifies when the window lookup rejects (best-effort suppression)', async () => {
     vi.mocked(chrome.tabs.query).mockResolvedValue(ACTIVE_APP_TAB);
-    vi.mocked(chrome.windows.getLastFocused).mockRejectedValue(new Error('no window'));
+    vi.mocked(chrome.windows.get).mockRejectedValue(new Error('no window'));
 
     const ev = buildMessageEvent({ entityUrn: 'urn:li:msg_message:F3', convId: 'conv-focus', body: 'anyone?', deliveredAt: 8000 });
     await handleRealtimeEvent(ev.eventType, ev.data);

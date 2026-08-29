@@ -85,6 +85,7 @@ function createChromeMock() {
     },
     windows: {
       update: vi.fn(),
+      get: vi.fn().mockResolvedValue({ focused: true }),
       getLastFocused: vi.fn().mockResolvedValue({ focused: true }),
     },
     notifications: {

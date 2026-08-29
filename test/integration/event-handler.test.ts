@@ -662,11 +662,11 @@ describe('event-handler', () => {
 
       expect(chrome.notifications.create).not.toHaveBeenCalled();
       // The suppression check must see the app tab whichever URL it lives at:
-      // the web shell (inflow.im/app) or the raw extension page.
+      // the web shell (inflow.im/app) or the raw extension page. No
+      // lastFocusedWindow filter — it would exclude installed-app windows.
       expect(chrome.tabs.query).toHaveBeenCalledWith({
         url: ['chrome-extension://test-extension-id/app.html*', 'https://inflow.im/app*'],
         active: true,
-        lastFocusedWindow: true,
       });
     });
 
@@ -699,6 +699,66 @@ describe('event-handler', () => {
       await new Promise((r) => setTimeout(r, 10));
 
       expect(chrome.notifications.create).not.toHaveBeenCalled();
+    });
+
+    it('routes the notification through a connected shell with permission, not chrome.notifications', async () => {
+      const { handleRealtimeEvent } = await import(
+        '../../entrypoints/background/realtime/event-handler'
+      );
+      const { setupExternalPortRouter } = await import(
+        '../../entrypoints/background/external-messages'
+      );
+
+      await testDb.conversations.put(makeConversation({ id: 'conv-shell' }));
+
+      setupExternalPortRouter();
+      const connectCalls = vi.mocked(chrome.runtime.onConnectExternal.addListener).mock.calls;
+      const onConnect = connectCalls[connectCalls.length - 1][0] as (port: any) => void;
+      const disconnectListeners: Array<() => void> = [];
+      const messageListeners: Array<(m: any) => void> = [];
+      const port = {
+        name: 'unread-count',
+        sender: { origin: 'https://inflow.im' },
+        postMessage: vi.fn(),
+        disconnect: vi.fn(),
+        onDisconnect: { addListener: (fn: () => void) => disconnectListeners.push(fn) },
+        onMessage: { addListener: (fn: (m: any) => void) => messageListeners.push(fn) },
+      };
+      onConnect(port);
+      messageListeners.forEach((fn) => fn({ type: 'HELLO', canNotify: true }));
+
+      vi.mocked(chrome.notifications.create).mockClear();
+
+      const { eventType, data } = buildMessengerMessageEvent([
+        {
+          entityUrn: 'urn:li:msg_message:VIA_SHELL',
+          conversationUrn: 'urn:li:msg_conversation:(urn:li:fsd_profile:SELF,conv-shell)',
+          senderProfileId: 'ALICE',
+          senderFirstName: 'Alice',
+          senderLastName: 'Jones',
+          body: 'Shown by the installed app, not the extension',
+          deliveredAt: 12000,
+        },
+      ]);
+
+      try {
+        await handleRealtimeEvent(eventType, data);
+        await new Promise((r) => setTimeout(r, 10));
+
+        expect(chrome.notifications.create).not.toHaveBeenCalled();
+        expect(port.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'SHOW_NOTIFICATION',
+            conversationId: 'conv-shell',
+            title: 'Alice Jones',
+            body: 'Shown by the installed app, not the extension',
+          })
+        );
+      } finally {
+        // The port registry is module-level state — disconnect so later
+        // tests keep exercising the chrome.notifications fallback path.
+        disconnectListeners.forEach((fn) => fn());
+      }
     });
 
     it('creates minimal conversation when conv does not exist in DB', async () => {

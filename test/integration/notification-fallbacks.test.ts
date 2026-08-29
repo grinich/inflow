@@ -186,7 +186,7 @@ describe('empty message body falls back to a placeholder', () => {
 describe('unfocused window does not suppress the shell path', () => {
   it('active app tab + window without OS focus → notification still goes out via the shell', async () => {
     vi.mocked(chrome.tabs.query).mockResolvedValue([{ id: 1, active: true } as any]);
-    vi.mocked(chrome.windows.getLastFocused).mockResolvedValue({ focused: false } as any);
+    vi.mocked(chrome.windows.get).mockResolvedValue({ focused: false } as any);
 
     const shell = connectNotifyingShell();
     try {

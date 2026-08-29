@@ -23,7 +23,9 @@ html,body{height:100%;overflow:hidden}
    space and the app starts below it. In a normal tab the env() vars are
    undefined → 0px → the strip is invisible and the app fills the viewport. */
 .titlebar{
-  position:fixed;top:0;left:0;right:0;
+  position:fixed;top:0;
+  left:env(titlebar-area-x,0px);
+  width:env(titlebar-area-width,100%);
   height:env(titlebar-area-height,0px);
   -webkit-app-region:drag;app-region:drag;
   display:flex;align-items:center;justify-content:center;
@@ -41,7 +43,8 @@ html,body{height:100%;overflow:hidden}
 /* Install CTA — only revealed once the extension probe comes up empty. */
 .cta{
   height:100%;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;text-align:center;gap:22px;padding:var(--pad);
+  justify-content:safe center;text-align:center;gap:22px;padding:var(--pad);
+  overflow-y:auto; /* short windows must still reach the button */
 }
 .cta[hidden]{display:none}
 .cta-mark{width:64px;height:64px;border-radius:14px;box-shadow:var(--shadow-sm)}
@@ -112,11 +115,11 @@ html,body{height:100%;overflow:hidden}
 
   // One-shot params (the dock-menu Compose shortcut) are forwarded to the app
   // but scrubbed from this page's own URL, so a manual reload doesn't replay
-  // them. ?demo stays: dropping it would silently exit demo mode on reload.
+  // them. ?demo stays (dropping it would silently exit demo mode on reload),
+  // and ?ext stays (it pins the probe across reloads).
   if (params.has('compose')) {
     var clean = new URL(location.href);
     clean.searchParams.delete('compose');
-    clean.searchParams.delete('ext');
     try { history.replaceState(null, '', clean.toString()); } catch (_) {}
   }
 
@@ -189,6 +192,31 @@ html,body{height:100%;overflow:hidden}
     return 'Notification' in window && Notification.permission === 'granted';
   }
 
+  // The port currently connected to the extension (see connectUnreadPort).
+  var currentPort = null;
+
+  // Permission can be granted or revoked from site settings mid-session —
+  // without this watcher the extension would keep routing notifications to a
+  // shell that silently drops them (or never use one that could now show them).
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'notifications' }).then(function (status) {
+      status.onchange = function () {
+        if (currentPort) {
+          try { currentPort.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
+        }
+      };
+    }).catch(function () {});
+  }
+
+  // A wrong number is worse than none: the badge can't update once the last
+  // shell closes, so clear it on the way out (reconnect re-broadcasts it).
+  window.addEventListener('pagehide', function () {
+    if ('clearAppBadge' in navigator) {
+      var op = navigator.clearAppBadge();
+      if (op && op.catch) op.catch(function () {});
+    }
+  });
+
   // Notifications shown from THIS page are attributed to the installed
   // inƒlow app (name + icon) on macOS — unlike the extension's, which the
   // OS pins on Chrome. The extension routes message alerts here whenever a
@@ -202,14 +230,18 @@ html,body{height:100%;overflow:hidden}
         icon: msg.icon || '/icons/app-icon-192.png',
       });
       n.onclick = function () {
-        window.focus();
-        if (frame && msg.conversationId) {
-          frame.contentWindow.postMessage(
-            { type: 'OPEN_CONVERSATION', conversationId: msg.conversationId },
-            'chrome-extension://' + id
-          );
-          frame.focus();
-        }
+        try {
+          window.focus();
+          // contentWindow is null if the frame was swept and the reattach
+          // cap is spent — a detached frame must not break the click.
+          if (frame && frame.contentWindow && msg.conversationId) {
+            frame.contentWindow.postMessage(
+              { type: 'OPEN_CONVERSATION', conversationId: msg.conversationId },
+              'chrome-extension://' + id
+            );
+            frame.focus();
+          }
+        } catch (_) {}
         n.close();
       };
     } catch (_) {}
@@ -222,14 +254,16 @@ html,body{height:100%;overflow:hidden}
     } catch (_) {
       return;
     }
-    port.postMessage({ type: 'HELLO', canNotify: canNotify() });
-    // Installed-app windows ask for notification permission once, so alerts
-    // can carry the app's own identity. Browser tabs never prompt.
-    if (IS_APP_WINDOW && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then(function () {
-        try { port.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
-      });
-    }
+    currentPort = port;
+    // Listeners BEFORE the first postMessage: a port that dies instantly
+    // (extension mid-update) must still schedule the reconnect. The service
+    // worker restarting (idle, update) also lands here — reconnecting wakes
+    // it back up.
+    port.onDisconnect.addListener(function () {
+      void chrome.runtime.lastError;
+      if (currentPort === port) currentPort = null;
+      setTimeout(function () { connectUnreadPort(id); }, 5000);
+    });
     port.onMessage.addListener(function (msg) {
       if (!msg) return;
       if (msg.type === 'UNREAD_COUNT') {
@@ -238,12 +272,18 @@ html,body{height:100%;overflow:hidden}
         showShellNotification(id, msg);
       }
     });
-    // The service worker restarting (idle, update) drops the port — reconnect,
-    // which also wakes the worker back up.
-    port.onDisconnect.addListener(function () {
-      void chrome.runtime.lastError;
-      setTimeout(function () { connectUnreadPort(id); }, 5000);
-    });
+    try { port.postMessage({ type: 'HELLO', canNotify: canNotify() }); } catch (_) { return; }
+    // Installed-app windows ask for notification permission once EVER (a
+    // dismissed prompt reports 'default' forever, and re-asking on every
+    // reconnect would nag). Browser tabs never prompt.
+    var asked = false;
+    try { asked = localStorage.getItem('inflow-notif-asked') === '1'; } catch (_) {}
+    if (IS_APP_WINDOW && !asked && 'Notification' in window && Notification.permission === 'default') {
+      try { localStorage.setItem('inflow-notif-asked', '1'); } catch (_) {}
+      Notification.requestPermission().then(function () {
+        try { port.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
+      });
+    }
   }
 
   function embed(id) {
@@ -280,14 +320,33 @@ html,body{height:100%;overflow:hidden}
     // they can't script (observed with automation tooling; ad/privacy
     // blockers can do it too). Re-attach when that happens — reparenting
     // reloads the frame, which beats a silently blank page. Bounded so a
-    // persistent remover can't cause an infinite tug-of-war.
+    // persistent remover can't cause an infinite tug-of-war; when the cap
+    // is spent, say so instead of leaving a blank page.
     var reattachesLeft = 3;
     new MutationObserver(function () {
-      if (frame && !document.body.contains(frame) && reattachesLeft-- > 0) {
+      if (!frame || document.body.contains(frame)) return;
+      if (reattachesLeft-- > 0) {
         document.body.appendChild(frame);
         frame.focus();
+      } else {
+        showFrameLostNotice();
       }
     }).observe(document.body, { childList: true });
+  }
+
+  var frameLostShown = false;
+  function showFrameLostNotice() {
+    if (frameLostShown) return;
+    frameLostShown = true;
+    var d = document.createElement('div');
+    d.className = 'cta';
+    d.innerHTML =
+      '<h1 class="h2">Something keeps removing the app.</h1>' +
+      '<p class="lede">Another extension on this page is repeatedly removing the embedded inbox ' +
+      '(ad or privacy blockers sometimes do this). Reloading usually fixes it — if it keeps ' +
+      'happening, allow inflow.im in that extension.</p>' +
+      '<div class="hero-cta"><a class="btn btn-primary" href="/app">Reload inflow</a></div>';
+    document.body.appendChild(d);
   }
 
   window.addEventListener('focus', function () {
@@ -313,6 +372,9 @@ html,body{height:100%;overflow:hidden}
     if (!window.chrome) {
       document.getElementById('cta-non-chromium').hidden = false;
     }
+    // A cold MV3 service worker can miss the probe window — one delayed
+    // retry upgrades the page for users who already have the extension.
+    setTimeout(reprobe, 3000);
     // Coming back from the Web Store (or after the extension's auto-update)
     // should upgrade this page in place — no manual reload.
     window.addEventListener('focus', reprobe);
