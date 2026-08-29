@@ -47,9 +47,10 @@ All notable changes to inflow are documented here. This project follows
 
 **inflow becomes an app.** It now lives at a real URL — [inflow.im/app](https://inflow.im/app) — and installs as a standalone desktop app with its own dock icon, unread badge, and native notifications. It also lands on Microsoft Edge. Underneath, 30 bugs found by a systematic audit of the composer, optimistic actions, caching, and realtime layers, each locked in by a regression test (the suite grew to 1,003 tests).
 
-![inƒlow running as a desktop app in dark mode — conversation list on the left, thread on the right](https://inflow.im/img/0.6.0-desktop-app-dark.png)
-
-![The same window in light mode](https://inflow.im/img/0.6.0-desktop-app-light.png)
+<p>
+<img src="https://inflow.im/img/0.6.0-desktop-app-dark.png" width="49%" alt="inƒlow running as a desktop app in dark mode — conversation list on the left, thread on the right">
+<img src="https://inflow.im/img/0.6.0-desktop-app-light.png" width="49%" alt="The same window in light mode">
+</p>
 
 ### Added
 - **The app now lives at [inflow.im/app](https://inflow.im/app)** — a real,

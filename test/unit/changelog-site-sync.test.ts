@@ -177,6 +177,34 @@ describe('changelog site build', () => {
     expect(html.indexOf('First child')).toBeGreaterThan(html.indexOf('<strong>Parent</strong>'));
   });
 
+  it('passes a raw HTML block through, but still escapes prose', () => {
+    // Side-by-side images have to render in two renderers: GitHub stacks
+    // markdown images and strips class attributes, so width attributes on raw
+    // HTML are the only thing both it and the site honour.
+    const releases = parseReleases(`# Changelog
+
+## [1.0.0] - 2026-01-01
+
+An intro line.
+
+<p>
+<img src="https://inflow.im/img/a.png" width="49%" alt="A">
+<img src="https://inflow.im/img/b.png" width="49%" alt="B">
+</p>
+
+### Added
+- Thing with a <script> in the prose.
+`);
+    const html = renderReleases(releases) as string;
+
+    expect(html).toContain('<img src="https://inflow.im/img/a.png" width="49%"');
+    expect(html).toContain('<img src="https://inflow.im/img/b.png" width="49%"');
+    // Not wrapped in the intro paragraph, and not escaped.
+    expect(html).not.toContain('&lt;img');
+    // Prose is still escaped — passthrough is for blocks that OPEN with a tag.
+    expect(html).toContain('&lt;script&gt;');
+  });
+
   it('carries a release intro paragraph and an IMPORTANT callout', () => {
     const releases = parseReleases(`# Changelog
 

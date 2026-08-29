@@ -104,7 +104,13 @@ function parseReleases(markdown) {
 
   const flushParagraph = () => {
     if (paragraph.length && release) {
-      release.intro.push({ type: 'p', text: paragraph.join(' ').trim() });
+      const text = paragraph.join(' ').trim();
+      // A block that opens with a tag is raw HTML, emitted verbatim. It exists
+      // because some layouts have to survive BOTH renderers: GitHub stacks
+      // markdown images and strips class attributes, so a side-by-side pair
+      // can only be expressed as HTML with width attributes. CHANGELOG.md is
+      // repo-authored, so passthrough here is not an injection surface.
+      release.intro.push({ type: text.startsWith('<') ? 'html' : 'p', text });
     }
     paragraph = [];
   };
@@ -227,6 +233,10 @@ function renderReleases(releases) {
 
     const body = [];
     for (const block of rel.intro) {
+      if (block.type === 'html') {
+        body.push(`        ${block.text}`);
+        continue;
+      }
       const cls = block.type === 'callout' ? 'rel-callout' : 'rel-intro';
       body.push(`        <p class="${cls}">${inline(block.text)}</p>`);
     }
