@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Changelog — inflow</title>
+<title>Changelog — inƒlow</title>
 <meta name="description" content="Every release of inflow, newest first.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8C%A8%3C/text%3E%3C/svg%3E">
@@ -137,7 +137,7 @@
     <p class="eyebrow">Releases</p>
     <h1 class="display">Changelog</h1>
     <p class="lede">
-      Every version of inflow, newest first. Installed from the Chrome Web Store, updates
+      Every version of inƒlow, newest first. Installed from the Chrome Web Store, updates
       arrive on their own — there is nothing to download.
     </p>
   </div>
@@ -152,18 +152,18 @@
       </div>
       <div class="rel-body">
         <p class="rel-intro"><img class="rel-img" src="https://inflow.im/icons/app-icon-192.png" alt="The inƒlow app icon" loading="lazy"></p>
-        <p class="rel-intro"><strong>inflow becomes an app.</strong> It now lives at a real URL — <a href="https://inflow.im/app">inflow.im/app</a> — and installs as a standalone desktop app with its own dock icon, unread badge, and native notifications. It also lands on Microsoft Edge. Underneath, 30 bugs found by a systematic audit of the composer, optimistic actions, caching, and realtime layers, each locked in by a regression test (the suite grew to 1,003 tests).</p>
+        <p class="rel-intro"><strong>inƒlow becomes an app.</strong> It now lives at a real URL — <a href="https://inflow.im/app">inflow.im/app</a> — and installs as a standalone desktop app with its own dock icon, unread badge, and native notifications. It also lands on Microsoft Edge. Underneath, 30 bugs found by a systematic audit of the composer, optimistic actions, caching, and realtime layers, each locked in by a regression test (the suite grew to 1,003 tests).</p>
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>
-            <li><strong>The app now lives at <a href="https://inflow.im/app">inflow.im/app</a></strong> — a real, memorable URL instead of <code>chrome-extension://…/app.html</code>. The page embeds the extension full-screen (same local database, same everything), shows an install page when the extension isn't there yet, keeps working offline after the first visit, and can be installed as a standalone desktop app (dock icon and its own window) via Chrome's <em>Install inflow</em> menu item. The old extension URL keeps working.</li>
-            <li><strong>Unread count on the dock icon</strong> — when inflow is installed as a desktop app, the dock icon shows the number of unread Focused conversations (the same count as the toolbar badge); the browser-tab title shows it too, like <code>(3) inƒlow</code>.</li>
-            <li><strong>Compose from the dock</strong> — right-click the installed app's dock icon → <em>Compose new message</em> opens inflow with the new-message composer ready.</li>
+            <li><strong>The app now lives at <a href="https://inflow.im/app">inflow.im/app</a></strong> — a real, memorable URL instead of <code>chrome-extension://…/app.html</code>. The page embeds the extension full-screen (same local database, same everything), shows an install page when the extension isn't there yet, keeps working offline after the first visit, and can be installed as a standalone desktop app (dock icon and its own window) via Chrome's <em>Install inƒlow</em> menu item. The old extension URL keeps working.</li>
+            <li><strong>Unread count on the dock icon</strong> — when inƒlow is installed as a desktop app, the dock icon shows the number of unread Focused conversations (the same count as the toolbar badge); the browser-tab title shows it too, like <code>(3) inƒlow</code>.</li>
+            <li><strong>Compose from the dock</strong> — right-click the installed app's dock icon → <em>Compose new message</em> opens inƒlow with the new-message composer ready.</li>
             <li><strong>Native-feeling window</strong> — the installed app draws edge-to-edge into the title bar (window-controls overlay) instead of showing a browser strip.</li>
             <li><strong>Smoother first run</strong> — installing the extension now opens the inbox immediately instead of leaving you to find the toolbar icon.</li>
-            <li><strong>Notifications carry the inflow identity in the installed app</strong> — when the desktop app window is open (with notification permission granted), new-message alerts come from inƒlow with its own icon instead of being attributed to Chrome; clicking one focuses the app and opens the conversation. Without an app window they fall back to the extension's notifications as before.</li>
+            <li><strong>Notifications carry the inƒlow identity in the installed app</strong> — when the desktop app window is open (with notification permission granted), new-message alerts come from inƒlow with its own icon instead of being attributed to Chrome; clicking one focuses the app and opens the conversation. Without an app window they fall back to the extension's notifications as before.</li>
             <li><strong>inflow.im goes straight to your inbox</strong> — with the extension installed, visiting the homepage redirects to <a href="https://inflow.im/app">inflow.im/app</a>; <a href="https://inflow.im/home">inflow.im/home</a> always shows the homepage, which notices the install: the header button becomes <em>Open inƒlow →</em> and the install buttons give way to a green <em>Installed for Chrome</em> check that also opens the app. The inƒlow mark in the app's sidebar links back to the homepage.</li>
-            <li><strong>inflow is coming to Microsoft Edge</strong> — the extension is submitted to the Edge Add-ons store, and Edge installs update themselves from there like Chrome Web Store installs do (no "move to the store" prompt).</li>
+            <li><strong>inƒlow is coming to Microsoft Edge</strong> — the extension is submitted to the Edge Add-ons store, and Edge installs update themselves from there like Chrome Web Store installs do (no "move to the store" prompt).</li>
             <li><strong>In-page install prompt</strong> — the app page now offers a one-click <em>Install inƒlow as an app</em> chip when Chrome reports it installable, instead of leaving you to find the omnibox menu item.</li>
           </ul>
         </section>
@@ -173,7 +173,7 @@
             <li><strong>Conversations in Other can move back to Focused</strong> — the command palette, the thread list's right-click menu, the thread header's dropdown, and the <code>O</code> shortcut all showed only "Move to Other", even for conversations already there. Each now flips contextually to "Move to Focused" (and <code>O</code> toggles); archived and spam threads keep their existing routes back.</li>
             <li><strong>Notifications from the installed app work again</strong> — the app asked for notification permission once and recorded the ask <em>before</em> you answered, so dismissing the prompt (rather than choosing Allow or Block) left permission undecided and permanently unaskable: every alert quietly fell back to one attributed to Chrome. The ask is now recorded only once you decide, and whenever permission is still undecided the app offers a <em>Turn on inƒlow notifications</em> button — so a browser tab, a dismissed prompt, and an install carrying the old flag can all still turn them on.</li>
             <li><strong>@-mentions in messages are now links</strong> — a mentioned name used to render as plain text; it now links to the person's or company's LinkedIn profile.</li>
-            <li><strong>Replying from LinkedIn web marks the thread read here too</strong> — reading and replying elsewhere used to leave the conversation stuck unread in inflow.</li>
+            <li><strong>Replying from LinkedIn web marks the thread read here too</strong> — reading and replying elsewhere used to leave the conversation stuck unread in inƒlow.</li>
             <li><strong>Read receipts no longer go missing</strong> — a ✓✓ that arrived before its message did was silently dropped, and realtime updates could wipe stored receipts, reactions, and edit markers off messages that already had them.</li>
             <li><strong>Attachment-only messages get a real preview</strong> — an image or file with no text showed "New message" in the list instead of "Sent an image".</li>
             <li><strong>Drafts stop disappearing</strong> — navigating past a conversation faster than its draft loaded deleted that draft, a slow load could overwrite text typed while it was in flight, and adding or removing a recipient wiped a new message's draft and attachments outright.</li>
@@ -207,7 +207,7 @@
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>
-            <li><strong>inflow badge on notification icons</strong> — native message notifications now show the inflow logo badged in the corner of the sender's avatar, so it's clear at a glance which app the alert came from. (The large icon next to a notification is always Chrome's own logo — the OS puts it there for every extension.)</li>
+            <li><strong>inƒlow badge on notification icons</strong> — native message notifications now show the inƒlow logo badged in the corner of the sender's avatar, so it's clear at a glance which app the alert came from. (The large icon next to a notification is always Chrome's own logo — the OS puts it there for every extension.)</li>
           </ul>
         </section>
       </div>
@@ -243,7 +243,7 @@
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>
-            <li><strong>inflow is on the Chrome Web Store</strong> — installs from the store update themselves; releases are submitted automatically when a version tag is pushed. See <a href="docs/chrome-web-store-release.md">docs/chrome-web-store-release.md</a>.</li>
+            <li><strong>inƒlow is on the Chrome Web Store</strong> — installs from the store update themselves; releases are submitted automatically when a version tag is pushed. See <a href="docs/chrome-web-store-release.md">docs/chrome-web-store-release.md</a>.</li>
             <li><strong>inflow.im</strong> — the changelog and privacy policy now have proper pages on the site instead of linking into GitHub.</li>
           </ul>
         </section>
@@ -274,7 +274,7 @@
           <h3 class="rel-tag t-fixed">Fixed</h3>
           <ul>
             <li><strong>Thread pane layout at narrow widths</strong> — the contact name no longer overflows into the header buttons, header buttons no longer wrap or clip, and message bubbles are no longer squeezed by the invisible hover-actions strip (which also no longer intercepts clicks while hidden).</li>
-            <li><strong>Missed notifications after switching apps</strong> — notifications were wrongly suppressed when inflow was the active tab but Chrome wasn't the frontmost app. Suppression now requires the window to actually have OS focus.</li>
+            <li><strong>Missed notifications after switching apps</strong> — notifications were wrongly suppressed when inƒlow was the active tab but Chrome wasn't the frontmost app. Suppression now requires the window to actually have OS focus.</li>
             <li><strong>Composer stays focused after sending a message.</strong></li>
             <li><strong>Rate limits and network blips no longer pile up as errors</strong> in chrome://extensions — transient failures (timeouts, dropped connections, HTTP 429/5xx) log as warnings and recover on their own.</li>
           </ul>
@@ -299,7 +299,7 @@
           <ul>
             <li><strong>Notification clicks now open the right conversation</strong> — clicking a native message notification (or the in-app toast) opens the app focused on that specific thread instead of just raising the window.</li>
             <li><strong>Mark-as-read now reliably syncs to LinkedIn</strong> — outbound read/unread requests are checked against the response body, so a silently-rejected batch update surfaces as an error instead of appearing to succeed.</li>
-            <li><strong>Read/unread toggled on LinkedIn now reflects in inflow</strong> — a thread marked read or unread on another device is reconciled from the authoritative server flag for any conversation, not just the top of the focused inbox. Optimistic local state is preserved while a mutation is in flight.</li>
+            <li><strong>Read/unread toggled on LinkedIn now reflects in inƒlow</strong> — a thread marked read or unread on another device is reconciled from the authoritative server flag for any conversation, not just the top of the focused inbox. Optimistic local state is preserved while a mutation is in flight.</li>
           </ul>
         </section>
         <section class="rel-group">
@@ -342,7 +342,7 @@
         <section class="rel-group">
           <h3 class="rel-tag t-fixed">Fixed</h3>
           <ul>
-            <li><strong>Blank app on load</strong> — opening inflow could intermittently show an empty conversation list until a (lucky) reload. The first render raced the local database opening; queries that lost the race never recovered. They now reconnect the moment the database is ready.</li>
+            <li><strong>Blank app on load</strong> — opening inƒlow could intermittently show an empty conversation list until a (lucky) reload. The first render raced the local database opening; queries that lost the race never recovered. They now reconnect the moment the database is ready.</li>
           </ul>
         </section>
         <section class="rel-group">
@@ -375,13 +375,13 @@
         <time class="rel-date" datetime="2026-07-05">5 July 2026</time>
       </div>
       <div class="rel-body">
-        <p class="rel-intro">A deep sync-consistency release: a systematic audit of everything flowing between LinkedIn and inflow, with 31 fixes — each locked in by a regression test (the suite grew to 656 tests).</p>
+        <p class="rel-intro">A deep sync-consistency release: a systematic audit of everything flowing between LinkedIn and inƒlow, with 31 fixes — each locked in by a regression test (the suite grew to 656 tests).</p>
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>
-            <li><strong>Cross-device star sync</strong> — starring or unstarring a conversation on the LinkedIn website or your phone now updates inflow live, in both directions.</li>
-            <li><strong>Unsend sync</strong> — when someone unsends a message, it disappears from inflow immediately instead of lingering until the next refetch. Previously-stored copies of recalled messages are cleaned up too.</li>
-            <li><strong>Deletion sync</strong> — conversations you delete on the LinkedIn website (or another device) are now removed from inflow instead of living there forever. Conservative by design: a conversation must be absent from two consecutive full syncs before it's removed.</li>
+            <li><strong>Cross-device star sync</strong> — starring or unstarring a conversation on the LinkedIn website or your phone now updates inƒlow live, in both directions.</li>
+            <li><strong>Unsend sync</strong> — when someone unsends a message, it disappears from inƒlow immediately instead of lingering until the next refetch. Previously-stored copies of recalled messages are cleaned up too.</li>
+            <li><strong>Deletion sync</strong> — conversations you delete on the LinkedIn website (or another device) are now removed from inƒlow instead of living there forever. Conservative by design: a conversation must be absent from two consecutive full syncs before it's removed.</li>
           </ul>
         </section>
         <section class="rel-group">
@@ -466,11 +466,11 @@
       </div>
       <div class="rel-body">
         <p class="rel-intro">First public GitHub release, with in-app update notifications.</p>
-        <p class="rel-callout"><strong>Existing users: this is a one-time fresh start.</strong> This build pins a stable extension ID so all future updates preserve your data. Moving from an older build changes the extension's identity once, so inflow will open empty — re-enter your Gemini key (if you use AI features) and let it re-sync. This only happens this once; every release after this keeps your data.</p>
+        <p class="rel-callout"><strong>Existing users: this is a one-time fresh start.</strong> This build pins a stable extension ID so all future updates preserve your data. Moving from an older build changes the extension's identity once, so inƒlow will open empty — re-enter your Gemini key (if you use AI features) and let it re-sync. This only happens this once; every release after this keeps your data.</p>
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>
-            <li><strong>Update notifications</strong> — inflow now checks GitHub for new releases and shows a banner with a link to the release notes when an update is available.</li>
+            <li><strong>Update notifications</strong> — inƒlow now checks GitHub for new releases and shows a banner with a link to the release notes when an update is available.</li>
             <li><strong>GitHub Releases</strong> — each version ships a downloadable <code>inflow-&lt;version&gt;-chrome.zip</code>.</li>
             <li><strong>Stable extension ID</strong> — updates (zip download or rebuild) now preserve your conversations and settings regardless of where the extension folder lives.</li>
             <li>New envelope app icon.</li>
@@ -480,7 +480,7 @@
           <h3 class="rel-tag t-fixed">Fixed</h3>
           <ul>
             <li>New conversations started from another device (e.g. your phone) no longer show the participant as "Unknown".</li>
-            <li>A conversation read on another device now reflects as read in inflow, even while the realtime connection is active.</li>
+            <li>A conversation read on another device now reflects as read in inƒlow, even while the realtime connection is active.</li>
           </ul>
         </section>
       </div>
@@ -511,7 +511,7 @@
       </nav>
     </div>
     <p class="fine">
-      inflow is an independent project and is <strong>not affiliated with, endorsed by, or associated
+      inƒlow is an independent project and is <strong>not affiliated with, endorsed by, or associated
       with LinkedIn or Microsoft</strong>. It reads and sends messages through LinkedIn's undocumented
       internal APIs using your existing browser session, which may be inconsistent with LinkedIn's
       <a href="https://www.linkedin.com/legal/user-agreement">User Agreement</a> and could put your

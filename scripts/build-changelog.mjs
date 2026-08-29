@@ -44,8 +44,22 @@ function attr(s) {
 }
 
 /**
+ * The brand is written "inƒlow" on the site. CHANGELOG.md stays plain ASCII —
+ * it is also read in a terminal, in git, and in the GitHub release notes — so
+ * the mark is applied here, at render time.
+ *
+ * Only the standalone word is branded. A domain (inflow.im), a URL path
+ * (github.com/grinich/inflow), and an identifier (inflow-notif-asked) must all
+ * survive verbatim, or they stop working.
+ */
+export function brandify(text) {
+  return text.replace(/(?<![/\w.-])inflow(?![\w-]|\.im)/g, 'inƒlow');
+}
+
+/**
  * Inline markdown -> HTML. Code spans are lifted out first so their contents
- * can't be re-processed as emphasis, a link, or an @mention.
+ * can't be re-processed as emphasis, a link, or an @mention — which also keeps
+ * the brand mark out of anything written as code.
  */
 function inline(md) {
   const code = [];
@@ -54,6 +68,7 @@ function inline(md) {
     return `\u0000${code.length - 1}\u0000`;
   });
 
+  s = brandify(s);
   s = escapeHtml(s);
   // Images before links — `![alt](src)` also matches the link pattern, and would
   // otherwise render as a literal "!" followed by a link to the image file.

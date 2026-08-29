@@ -5,6 +5,7 @@
 import {
   build,
   formatDate,
+  brandify,
   inline,
   parseReleases,
   renderReleases,
@@ -94,12 +95,38 @@ describe('changelog site build', () => {
       );
     });
 
+    it('writes the brand mark, but never inside a URL or an identifier', () => {
+      // CHANGELOG.md stays plain ASCII (terminal, git, GitHub release notes);
+      // the mark is applied when rendering the site.
+      expect(brandify('inflow becomes an app')).toBe('inƒlow becomes an app');
+      expect(brandify("inflow's own notifications")).toBe("inƒlow's own notifications");
+
+      // These must survive verbatim or they stop working.
+      expect(brandify('https://inflow.im/app')).toBe('https://inflow.im/app');
+      expect(brandify('github.com/grinich/inflow/issues')).toBe('github.com/grinich/inflow/issues');
+      expect(brandify('inflow-notif-asked')).toBe('inflow-notif-asked');
+      expect(brandify('inflow.im')).toBe('inflow.im');
+    });
+
+    it('leaves the brand mark out of code spans', () => {
+      // A reader copies code verbatim; ƒ would break it.
+      expect(inline('run `inflow --help`')).toBe('run <code>inflow --help</code>');
+    });
+
+    it('brands the prose around a link without touching its href', () => {
+      const html = inline('inflow lives at [inflow.im/app](https://inflow.im/app)') as string;
+      expect(html).toContain('inƒlow lives at');
+      expect(html).toContain('href="https://inflow.im/app"');
+      expect(html).toContain('>inflow.im/app</a>');
+    });
+
     it('renders images, and does not mistake one for a link', () => {
       // `![alt](src)` also matches the link pattern; without image handling
       // first it renders as a literal "!" followed by a link to the PNG.
+      // alt is assistive copy, so it carries the brand mark; the src must not.
       expect(inline('![inflow](https://inflow.im/icons/app-icon-192.png)')).toBe(
         '<img class="rel-img" src="https://inflow.im/icons/app-icon-192.png" ' +
-        'alt="inflow" loading="lazy">',
+        'alt="inƒlow" loading="lazy">',
       );
       expect(inline('![](https://inflow.im/a.png)')).toContain('alt=""');
       expect(inline('![x](https://inflow.im/a.png)')).not.toContain('<a href');
