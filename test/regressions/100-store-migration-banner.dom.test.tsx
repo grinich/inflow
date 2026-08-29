@@ -11,7 +11,13 @@ import '../dom-setup';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
-import { isStoreInstall, STORE_EXTENSION_ID, STORE_URL } from '@/lib/store-install';
+import {
+  isStoreInstall,
+  storeUrlFor,
+  STORE_EXTENSION_ID,
+  EDGE_STORE_EXTENSION_ID,
+  STORE_URL,
+} from '@/lib/store-install';
 import { resetChromeMock } from '../mocks/chrome';
 
 beforeEach(() => {
@@ -32,6 +38,23 @@ describe('store-install detection', () => {
 
   it('points at the real listing', () => {
     expect(STORE_URL).toContain(STORE_EXTENSION_ID);
+  });
+
+  it('recognises the Edge Add-ons extension ID once one exists', () => {
+    if (!EDGE_STORE_EXTENSION_ID) {
+      // Placeholder until the first Edge submission — the empty string must
+      // never count as a store install (chrome.runtime.id can't be '').
+      expect(isStoreInstall('')).toBe(false);
+      return;
+    }
+    expect(isStoreInstall(EDGE_STORE_EXTENSION_ID)).toBe(true);
+    expect(storeUrlFor(EDGE_STORE_EXTENSION_ID)).toContain('microsoftedge.microsoft.com');
+  });
+
+  it('resolves the listing URL per install, defaulting to the Chrome Web Store', () => {
+    expect(storeUrlFor(STORE_EXTENSION_ID)).toBe(STORE_URL);
+    expect(storeUrlFor('fngobhjkhkdnnijgegkcjoadmddkehgh')).toBe(STORE_URL);
+    expect(storeUrlFor(undefined)).toBe(STORE_URL);
   });
 });
 

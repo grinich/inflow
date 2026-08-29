@@ -86,10 +86,14 @@
       }
     });
   }
+  // CWS store build, then dev/sideload. Once the Edge Add-ons listing exists,
+  // add its extension ID here too (docs/edge-add-ons-release.md).
   Promise.all([
     probe('ndehgbgifkapdigmefglpgacpagoclge'),
     probe('fngobhjkhkdnnijgegkcjoadmddkehgh')
-  ]).then(function (ids) { settle(ids[0] || ids[1]); });
+  ]).then(function (ids) {
+    settle(ids.filter(Boolean)[0] || null);
+  });
 })();
 </script>
 <link rel="stylesheet" href="/base.css">

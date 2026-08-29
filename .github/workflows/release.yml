@@ -150,3 +150,114 @@ jobs:
               exit 1
               ;;
           esac
+
+  # Publishes the same tag to Microsoft Edge Add-ons. Separate job for the same
+  # reason as chrome-web-store. While the Partner Center credentials aren't
+  # configured, the job SKIPS instead of failing, so releases keep working
+  # before the Edge listing exists. Credentials come from Partner Center's
+  # Publish API page — see docs/edge-add-ons-release.md.
+  #   EDGE_PRODUCT_ID · EDGE_CLIENT_ID · EDGE_API_KEY
+  edge-add-ons:
+    name: Publish to Edge Add-ons
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The same key-less build the Chrome Web Store gets — the manifest is
+      # browser-agnostic, so one artifact serves both stores.
+      - run: npm run zip:store
+
+      - name: Upload and publish
+        env:
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${EDGE_PRODUCT_ID:-}" ] || [ -z "${EDGE_CLIENT_ID:-}" ] || [ -z "${EDGE_API_KEY:-}" ]; then
+            echo "Edge Add-ons secrets not configured — skipping (see docs/edge-add-ons-release.md)."
+            echo "### Edge Add-ons: skipped (secrets not configured)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          ZIP=$(ls dist/inflow-*-chrome-store.zip)
+          echo "Publishing $ZIP to product $EDGE_PRODUCT_ID"
+
+          API="https://api.addons.microsoftedge.microsoft.com/v1/products/$EDGE_PRODUCT_ID"
+          operation_id() { grep -i '^location:' | awk '{print $2}' | tr -d '\r'; }
+
+          # Upload the package into the draft submission. Accepted uploads
+          # return 202 with the operation ID in the Location header.
+          OP=$(curl -sS -D - -o /dev/null -X POST \
+            -H "Authorization: ApiKey $EDGE_API_KEY" \
+            -H "X-ClientID: $EDGE_CLIENT_ID" \
+            -H "Content-Type: application/zip" \
+            --data-binary "@$ZIP" \
+            "$API/submissions/draft/package" | operation_id)
+
+          if [ -z "$OP" ]; then
+            echo "::error::Package upload was not accepted (no operation ID; check the API key expiry in Partner Center)."
+            exit 1
+          fi
+
+          STATUS=""
+          for _ in $(seq 1 30); do
+            sleep 10
+            STATUS=$(curl -sS \
+              -H "Authorization: ApiKey $EDGE_API_KEY" \
+              -H "X-ClientID: $EDGE_CLIENT_ID" \
+              "$API/submissions/draft/package/operations/$OP" | jq -r '.status // empty')
+            echo "Upload operation: $STATUS"
+            [ "$STATUS" = "Succeeded" ] && break
+            if [ "$STATUS" = "Failed" ]; then
+              echo "::error::Package processing failed (often: version not higher than the listed one)."
+              exit 1
+            fi
+          done
+          if [ "$STATUS" != "Succeeded" ]; then
+            echo "::error::Package processing timed out."
+            exit 1
+          fi
+
+          # Publish the draft — this creates the submission Microsoft reviews.
+          PUBOP=$(curl -sS -D - -o /dev/null -X POST \
+            -H "Authorization: ApiKey $EDGE_API_KEY" \
+            -H "X-ClientID: $EDGE_CLIENT_ID" \
+            -H "Content-Length: 0" \
+            "$API/submissions" | operation_id)
+
+          if [ -z "$PUBOP" ]; then
+            echo "::error::Publish was not accepted (an in-progress submission may already exist in Partner Center)."
+            exit 1
+          fi
+
+          STATUS=""
+          for _ in $(seq 1 12); do
+            sleep 10
+            STATUS=$(curl -sS \
+              -H "Authorization: ApiKey $EDGE_API_KEY" \
+              -H "X-ClientID: $EDGE_CLIENT_ID" \
+              "$API/submissions/operations/$PUBOP" | jq -r '.status // empty')
+            echo "Publish operation: $STATUS"
+            [ "$STATUS" = "Succeeded" ] && break
+            if [ "$STATUS" = "Failed" ]; then
+              echo "::error::Submission failed — check Partner Center for the reason."
+              exit 1
+            fi
+          done
+          if [ "$STATUS" != "Succeeded" ]; then
+            echo "::error::Submission did not settle in time — check Partner Center."
+            exit 1
+          fi
+
+          echo "Submitted for review."
+          echo "### Edge Add-ons: submitted for review" >> "$GITHUB_STEP_SUMMARY"
