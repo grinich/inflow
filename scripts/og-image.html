@@ -1,0 +1,156 @@
+<!doctype html>
+<!--
+  Source for site/og.png — the link preview card (Open Graph / X).
+
+  Rendered at exactly 1200x630 by scripts/build-og.mjs. Edit this file, re-run
+  `npm run og`, and commit the PNG. Kept out of site/ on purpose: it is a build
+  input, not a page.
+
+  Colours are the site's dark-theme tokens, and the wordmark follows .mark from
+  base.css (600 weight, -.03em, "in" in the mark blue).
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --ground:#08090b;
+    --panel:#121317;
+    --ink:#f5f6f8;
+    --ink-2:#a2a8b3;
+    --ink-3:#6c727c;
+    --line:#24262c;
+    --mark:#58a6ff;
+    --accent:#3b82f6;
+    --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,"JetBrains Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1200px;height:630px}
+  body{
+    background:var(--ground);
+    font-family:var(--sans);
+    color:var(--ink);
+    display:flex;
+    overflow:hidden;
+    position:relative;
+  }
+
+  /* A cool wash behind the artwork, so the card is not a flat black slab. */
+  .glow{
+    position:absolute;top:-280px;right:-200px;width:900px;height:900px;
+    background:radial-gradient(circle,rgba(59,130,246,.20) 0%,rgba(59,130,246,.06) 42%,transparent 68%);
+    pointer-events:none;
+  }
+  .grid{
+    position:absolute;inset:0;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:64px 64px;
+    opacity:.30;
+    mask-image:radial-gradient(ellipse 80% 70% at 30% 45%,#000 30%,transparent 75%);
+    -webkit-mask-image:radial-gradient(ellipse 80% 70% at 30% 45%,#000 30%,transparent 75%);
+  }
+
+  .left{
+    position:relative;
+    width:632px;
+    padding:74px 0 74px 72px;
+    display:flex;flex-direction:column;justify-content:center;
+  }
+
+  .brandline{display:flex;align-items:center;gap:20px;margin-bottom:34px}
+  .icon{width:88px;height:88px;border-radius:20px;display:block}
+  .wordmark{
+    font-size:60px;font-weight:600;letter-spacing:-.03em;line-height:1;
+  }
+  .wordmark i{font-style:normal;color:var(--mark)}
+
+  h1{
+    font-size:46px;line-height:1.14;letter-spacing:-.032em;font-weight:600;
+    margin-bottom:26px;
+    text-wrap:balance;
+  }
+  h1 .dim{color:var(--ink-2)}
+
+  .meta{
+    display:flex;align-items:center;gap:12px;
+    font-family:var(--mono);font-size:17px;letter-spacing:.02em;color:var(--ink-3);
+  }
+  .dot{width:4px;height:4px;border-radius:50%;background:var(--ink-3);flex:none}
+
+  /* Right: a suggestion of the inbox, cropped by the card edge. */
+  .right{position:relative;flex:1;display:flex;align-items:center}
+  .panel{
+    position:absolute;left:0;top:calc(50% - 132px);width:496px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:10px 0;
+    box-shadow:0 30px 80px rgba(0,0,0,.55);
+  }
+  .row{display:flex;align-items:center;gap:13px;padding:12px 18px}
+  .row + .row{border-top:1px solid rgba(255,255,255,.045)}
+  .row.sel{background:rgba(59,130,246,.13);box-shadow:inset 2px 0 0 var(--accent)}
+  .av{width:34px;height:34px;border-radius:50%;flex:none}
+  .lines{flex:1;min-width:0}
+  .l1{height:9px;border-radius:5px;background:rgba(245,246,248,.82);margin-bottom:8px}
+  .l2{height:8px;border-radius:5px;background:rgba(245,246,248,.20)}
+  .unread{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+  .key{
+    flex:none;font-family:var(--mono);font-size:12px;color:var(--ink-2);
+    border:1px solid var(--line);border-radius:5px;padding:3px 7px;
+    background:rgba(255,255,255,.03);
+  }
+  /* Keycaps carry the point of the product, so they are sized to read at
+     feed scale rather than as decoration. */
+  .key{font-size:13px;min-width:26px;text-align:center}
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="grid"></div>
+
+  <div class="left">
+    <div class="brandline">
+      <img class="icon" src="../site/icons/app-icon-512.png" alt="">
+      <div class="wordmark"><i>in</i>ƒlow</div>
+    </div>
+    <h1>A keyboard-driven inbox<br>for your <span class="dim">LinkedIn messages.</span></h1>
+    <div class="meta">
+      <span>Local-first</span><span class="dot"></span>
+      <span>Open source</span><span class="dot"></span>
+      <span>No server</span>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="panel">
+      <div class="row sel">
+        <span class="unread"></span>
+        <img class="av" src="../site/avatars/w25.jpg" alt="">
+        <div class="lines"><div class="l1" style="width:47%"></div><div class="l2" style="width:82%"></div></div>
+        <span class="key">↵</span>
+      </div>
+      <div class="row">
+        <span class="unread"></span>
+        <img class="av" src="../site/avatars/m29.jpg" alt="">
+        <div class="lines"><div class="l1" style="width:38%"></div><div class="l2" style="width:68%"></div></div>
+        <span class="key">E</span>
+      </div>
+      <div class="row">
+        <span class="unread" style="background:transparent"></span>
+        <img class="av" src="../site/avatars/w17.jpg" alt="">
+        <div class="lines"><div class="l1" style="width:43%;background:rgba(245,246,248,.45)"></div><div class="l2" style="width:74%"></div></div>
+        <span class="key">J</span>
+      </div>
+      <div class="row">
+        <span class="unread" style="background:transparent"></span>
+        <img class="av" src="../site/avatars/m45.jpg" alt="">
+        <div class="lines"><div class="l1" style="width:35%;background:rgba(245,246,248,.45)"></div><div class="l2" style="width:60%"></div></div>
+        <span class="key">K</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
