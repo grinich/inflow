@@ -33,13 +33,16 @@ export function setupExternalMessageRouter(): void {
 
 const UNREAD_PORT_NAME = 'unread-count';
 
-const unreadPorts = new Set<chrome.runtime.Port>();
+/** Connected shells, with whether each may show origin notifications. */
+const shellPorts = new Map<chrome.runtime.Port, { canNotify: boolean }>();
 
 /**
  * Accept long-lived ports from the shell. Only the `unread-count` port from
  * inflow.im is allowed; anything else is disconnected immediately. A fresh
  * port gets the current count right away, then updates ride the same 5s
- * badge cadence as the toolbar (see updateBadge in index.ts).
+ * badge cadence as the toolbar (see updateBadge in index.ts). The shell
+ * reports its Notification permission over the port (HELLO / CAN_NOTIFY),
+ * which gates notifyViaShell below.
  */
 export function setupExternalPortRouter(): void {
   chrome.runtime.onConnectExternal.addListener((port) => {
@@ -47,26 +50,60 @@ export function setupExternalPortRouter(): void {
       port.disconnect();
       return;
     }
-    unreadPorts.add(port);
-    port.onDisconnect.addListener(() => unreadPorts.delete(port));
+    shellPorts.set(port, { canNotify: false });
+    port.onDisconnect.addListener(() => shellPorts.delete(port));
+    port.onMessage.addListener((message: any) => {
+      const meta = shellPorts.get(port);
+      if (!meta) return;
+      if (message?.type === 'HELLO' || message?.type === 'CAN_NOTIFY') {
+        meta.canNotify = message.canNotify === true;
+      }
+    });
 
     countUnreadFocused(db)
-      .then((count) => postUnreadCount(port, count))
+      .then((count) => postToShell(port, { type: 'UNREAD_COUNT', count }))
       .catch(() => {}); // DB may not be ready yet — the next broadcast catches up
   });
 }
 
 /** Push the unread count to every connected shell. Never throws. */
 export function broadcastUnreadCount(count: number): void {
-  for (const port of unreadPorts) {
-    postUnreadCount(port, count);
+  for (const port of shellPorts.keys()) {
+    postToShell(port, { type: 'UNREAD_COUNT', count });
   }
 }
 
-function postUnreadCount(port: chrome.runtime.Port, count: number): void {
+export interface ShellNotification {
+  conversationId: string;
+  title: string;
+  body: string;
+  icon: string;
+}
+
+/**
+ * Route a message notification through connected shells that hold
+ * Notification permission. Notifications posted from the inflow.im origin
+ * are attributed to the installed inƒlow app (its name and icon) instead of
+ * to Chrome, the way extension notifications are. Returns false when no
+ * shell can show it — the caller falls back to chrome.notifications.
+ */
+export function notifyViaShell(notification: ShellNotification): boolean {
+  let shown = false;
+  for (const [port, meta] of shellPorts) {
+    if (!meta.canNotify) continue;
+    if (postToShell(port, { type: 'SHOW_NOTIFICATION', ...notification })) {
+      shown = true;
+    }
+  }
+  return shown;
+}
+
+function postToShell(port: chrome.runtime.Port, message: unknown): boolean {
   try {
-    port.postMessage({ type: 'UNREAD_COUNT', count });
+    port.postMessage(message);
+    return true;
   } catch {
-    unreadPorts.delete(port); // port died without firing onDisconnect
+    shellPorts.delete(port); // port died without firing onDisconnect
+    return false;
   }
 }

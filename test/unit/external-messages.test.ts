@@ -8,6 +8,7 @@ import {
   setupExternalMessageRouter,
   setupExternalPortRouter,
   broadcastUnreadCount,
+  notifyViaShell,
 } from '../../entrypoints/background/external-messages';
 
 vi.mock('@/lib/inbox-filters', () => ({ countUnreadFocused: vi.fn().mockResolvedValue(3) }));
@@ -77,6 +78,7 @@ describe('setupExternalMessageRouter', () => {
 
 function makePort(origin: string | undefined, name = 'unread-count') {
   const disconnectListeners: Array<() => void> = [];
+  const messageListeners: Array<(msg: any) => void> = [];
   return {
     name,
     sender: origin ? { origin } : {},
@@ -85,7 +87,11 @@ function makePort(origin: string | undefined, name = 'unread-count') {
     onDisconnect: {
       addListener: vi.fn((fn: () => void) => disconnectListeners.push(fn)),
     },
+    onMessage: {
+      addListener: vi.fn((fn: (msg: any) => void) => messageListeners.push(fn)),
+    },
     fireDisconnect: () => disconnectListeners.forEach((fn) => fn()),
+    fireMessage: (msg: any) => messageListeners.forEach((fn) => fn(msg)),
   };
 }
 
@@ -148,6 +154,40 @@ describe('setupExternalPortRouter (unread-count port for the web shell)', () => 
     port.postMessage.mockClear();
     broadcastUnreadCount(9);
     expect(port.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('routes notifications only to shells that reported Notification permission', async () => {
+    const onConnect = installedConnectListener();
+    const granted = makePort('https://inflow.im');
+    const silent = makePort('https://inflow.im');
+    onConnect(granted);
+    onConnect(silent);
+    await new Promise((r) => setTimeout(r, 0));
+    granted.postMessage.mockClear();
+    silent.postMessage.mockClear();
+
+    // No shell has permission yet → the caller must fall back.
+    expect(notifyViaShell({ conversationId: 'c1', title: 'T', body: 'B', icon: '' })).toBe(false);
+
+    granted.fireMessage({ type: 'HELLO', canNotify: true });
+    silent.fireMessage({ type: 'HELLO', canNotify: false });
+
+    expect(notifyViaShell({ conversationId: 'c1', title: 'T', body: 'B', icon: 'i' })).toBe(true);
+    expect(granted.postMessage).toHaveBeenCalledWith({
+      type: 'SHOW_NOTIFICATION',
+      conversationId: 'c1',
+      title: 'T',
+      body: 'B',
+      icon: 'i',
+    });
+    expect(silent.postMessage).not.toHaveBeenCalled();
+
+    // Permission can be revoked mid-session (CAN_NOTIFY), and disconnects drop it.
+    granted.fireMessage({ type: 'CAN_NOTIFY', canNotify: false });
+    expect(notifyViaShell({ conversationId: 'c2', title: 'T', body: 'B', icon: '' })).toBe(false);
+
+    granted.fireDisconnect();
+    silent.fireDisconnect();
   });
 
   it('drops a port whose postMessage throws instead of crashing the broadcast', async () => {

@@ -24,6 +24,8 @@ import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useUIStore } from '@/store/ui-store';
 import { consumeComposeParam, isEmbeddedInShell } from '@/lib/launch-params';
+import { onShellOpenConversation } from '@/lib/shell-messages';
+import { navigateToConversation } from '@/lib/navigate-to-conversation';
 
 export function App() {
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -58,6 +60,10 @@ export function App() {
   useEffect(() => {
     if (isEmbeddedInShell()) window.focus();
   }, []);
+
+  // The shell shows origin-attributed notifications (installed-app icon);
+  // clicking one posts OPEN_CONVERSATION into this frame.
+  useEffect(() => onShellOpenConversation(navigateToConversation), []);
 
   // Full-window drag-and-drop for file attachments
   useEffect(() => {
