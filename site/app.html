@@ -118,8 +118,8 @@ html,body{height:100%;overflow:hidden}
   var PROBE_TIMEOUT_MS = 1500;
 
   // The worker backs the shell's offline cache AND its notifications: only
-  // a service-worker notification is attributed to the installed app, and
-  // only its click handler can raise the app window (see app-sw.js).
+  // its click handler can raise the app window from the background, and only
+  // its notifications survive the page closing (see app-sw.js).
   var swRegistration = null;
   if ('serviceWorker' in navigator) {
     var sw = navigator.serviceWorker;
@@ -379,16 +379,16 @@ html,body{height:100%;overflow:hidden}
   }
 
   // The extension routes message alerts here whenever a shell with
-  // permission is connected, and falls back to its own (Chrome-attributed)
-  // notifications otherwise.
+  // permission is connected, and falls back to its own otherwise.
   //
-  // They are shown by the SERVICE WORKER, not by this page: only a
-  // service-worker notification carries the installed app's name and icon
-  // instead of Chrome's, only its click handler can raise the app window
-  // from the background, and only it outlives the window it was shown from.
-  // The page notification below is the fallback for a shell whose worker
-  // never became active — it looks right, but its click can't raise a
-  // backgrounded window.
+  // They are shown by the SERVICE WORKER, not by this page: only its click
+  // handler can raise the app window from the background, and only its
+  // notifications outlive the window they were shown from. The page
+  // notification below is the fallback for a shell whose worker never became
+  // active — it looks the same, but its click can't raise a backgrounded
+  // window. (Whose icon macOS puts on either one is Chrome's call, not ours:
+  // it attributes every PWA notification to Chrome before Chrome 152, and to
+  // the installed app from 152 on.)
   var APP_ICON = '/icons/app-icon-192.png';
 
   function showShellNotification(msg) {

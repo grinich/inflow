@@ -61,8 +61,8 @@ export function App() {
     if (isEmbeddedInShell()) window.focus();
   }, []);
 
-  // The shell's service worker shows notifications with the installed app's
-  // identity; clicking one posts OPEN_CONVERSATION into this frame.
+  // The shell's service worker shows the app's notifications; clicking one
+  // raises the window and posts OPEN_CONVERSATION into this frame.
   useEffect(() => onShellOpenConversation(navigateToConversation), []);
 
   // Launched with ?c=<id> — the same click, but with no app window open to

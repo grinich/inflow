@@ -92,18 +92,22 @@ self.addEventListener('fetch', (event) => {
  *
  * The shell shows its notifications through THIS worker
  * (registration.showNotification) rather than with a page `new Notification`,
- * for three reasons macOS makes plain:
+ * for two reasons:
  *
- *  - Only a service-worker notification is attributed to the *installed* app.
- *    A page's notification is attributed to the browser — Chrome's name and
- *    Chrome's icon — even when the page is the installed app's own window.
  *  - Only a service-worker click handler may raise a window. A page's
  *    `Notification.onclick` calling `window.focus()` is ignored while the
  *    window is in the background, which is exactly when a notification is
- *    clicked.
+ *    clicked — so clicking one did nothing at all.
  *  - A page's notification dies with its page. This one outlives the window,
  *    so it can still be clicked after the app is closed — and then there is
  *    no client to focus, so we open one at the conversation.
+ *
+ * What this does NOT control is whose name and icon macOS puts on the
+ * notification. That is attribution, and it is a Chrome-version thing, not a
+ * page-vs-worker thing: before Chrome 152 every PWA notification is
+ * attributed to Chrome no matter where it was created. From 152 macOS shows
+ * the installed app's own identity (and gives it its own entry in System
+ * Settings › Notifications, with its own permission prompt).
  */
 self.addEventListener('notificationclick', (event) => {
   const data = event.notification.data || {};

@@ -7,15 +7,20 @@ All notable changes to inflow are documented here. This project follows
 ## [Unreleased]
 
 ### Fixed
-- **Clicking a notification opens the desktop app, and the alert carries the
-  inƒlow icon** — alerts were shown by the app *page*, which macOS attributes
-  to Chrome (Chrome's name and icon on every notification) and whose click
-  couldn't bring a background window forward, so clicking one appeared to do
-  nothing. They now come from the app's service worker: macOS shows them as
-  inƒlow, clicking raises the installed app and opens the conversation, and a
-  notification clicked after the app was closed launches it straight into that
-  conversation. Clicking one of the extension's own fallback notifications
-  also prefers the installed app over a stray extension tab.
+- **Clicking a notification opens the desktop app** — alerts were shown by the
+  app *page*, and a page can't bring its own window forward while it's in the
+  background, which is exactly the state you click a notification from. So
+  clicking one did nothing. They now come from the app's service worker:
+  clicking raises the installed app and opens the conversation, and because
+  these notifications outlive the window that showed them, clicking one after
+  you've closed the app launches it straight into that conversation. Clicking
+  one of the extension's own fallback notifications also prefers the installed
+  app over a stray extension tab.
+
+  The *icon* on the notification is Chrome's own call and not something inflow
+  can set: Chrome attributes every PWA notification to itself before Chrome
+  152, and to the installed app — with its own entry in System Settings ›
+  Notifications — from 152 on.
 
 ## [0.6.0] - 2026-08-28
 

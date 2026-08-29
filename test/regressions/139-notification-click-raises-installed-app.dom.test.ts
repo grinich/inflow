@@ -1,17 +1,13 @@
 // @vitest-environment jsdom
 /**
- * Regression 139 — a clicked notification never reached the installed app,
- * and the notification wore Chrome's identity rather than inƒlow's.
+ * Regression 139 — clicking a notification never reached the installed app.
  *
  * site/app.html showed its notifications with a page-level `new Notification`
- * and handled the click with `window.focus()`. Three consequences on macOS:
+ * and handled the click with `window.focus()`. Two consequences on macOS:
  *
- *  - A page notification is attributed to the BROWSER. The app icon on the
- *    notification stayed Chrome's, which is the whole thing routing alerts
- *    through the shell was meant to fix.
  *  - `window.focus()` from a page is ignored while the window is in the
  *    background — precisely the state a notification is clicked from — so the
- *    installed app never came forward.
+ *    installed app never came forward and the click looked dead.
  *  - The notification died with its page, so a click after the app window was
  *    closed did nothing at all.
  *
@@ -20,6 +16,11 @@
  * `client.focus()` may raise a window and `clients.openWindow()` may launch
  * one. These tests execute the real shipped files — site/app.html's script
  * and site/app-sw.js — not copies of their logic.
+ *
+ * NOT covered here, because it is not ours to control: whose name and icon
+ * macOS puts on the notification. Chrome attributes every PWA notification to
+ * itself before Chrome 152 and to the installed app from 152 on, wherever the
+ * notification was created.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -162,8 +163,8 @@ describe('regression 139 — the shell shows notifications from its worker', () 
     expect(options.icon).toBe('https://cdn/a.jpg');
     expect(options.tag).toBe('conv-1'); // replaces per-conversation
 
-    // A page notification is attributed to Chrome and its click can't raise
-    // the app — showing one when the worker is available is the bug.
+    // A page notification's click can't raise a backgrounded app window —
+    // showing one when the worker is available is the bug.
     expect(shell.pageNotifications).toHaveLength(0);
   });
 
