@@ -276,6 +276,23 @@ html,body{height:100%;overflow:hidden}
     }
   });
 
+  // First launch of the installed app asks for notification permission right
+  // away — the native-app convention — once ever, and independent of the
+  // extension probe. The outcome reaches the extension via the permission
+  // watcher above and the port's HELLO. Browser tabs never prompt.
+  if (IS_APP_WINDOW && 'Notification' in window && Notification.permission === 'default') {
+    var notifAsked = false;
+    try { notifAsked = localStorage.getItem('inflow-notif-asked') === '1'; } catch (_) {}
+    if (!notifAsked) {
+      try { localStorage.setItem('inflow-notif-asked', '1'); } catch (_) {}
+      Notification.requestPermission().then(function () {
+        if (currentPort) {
+          try { currentPort.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
+        }
+      });
+    }
+  }
+
   // Notifications shown from THIS page are attributed to the installed
   // inƒlow app (name + icon) on macOS — unlike the extension's, which the
   // OS pins on Chrome. The extension routes message alerts here whenever a
@@ -332,17 +349,6 @@ html,body{height:100%;overflow:hidden}
       }
     });
     try { port.postMessage({ type: 'HELLO', canNotify: canNotify() }); } catch (_) { return; }
-    // Installed-app windows ask for notification permission once EVER (a
-    // dismissed prompt reports 'default' forever, and re-asking on every
-    // reconnect would nag). Browser tabs never prompt.
-    var asked = false;
-    try { asked = localStorage.getItem('inflow-notif-asked') === '1'; } catch (_) {}
-    if (IS_APP_WINDOW && !asked && 'Notification' in window && Notification.permission === 'default') {
-      try { localStorage.setItem('inflow-notif-asked', '1'); } catch (_) {}
-      Notification.requestPermission().then(function () {
-        try { port.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
-      });
-    }
   }
 
   function embed(id) {
