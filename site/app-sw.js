@@ -14,13 +14,15 @@
 // in-scope navigation to '/app').
 const CACHE = 'inflow-app-shell-v3';
 
+// No maskable icon on purpose: Chrome prefers it for the macOS dock and
+// applies its own mask to the full-bleed art, which looked badly cropped —
+// the plain icons carry the full artwork with its own margins.
 const PRECACHE = [
   '/app',
   '/app.webmanifest',
   '/base.css',
   '/icons/app-icon-192.png',
   '/icons/app-icon-512.png',
-  '/icons/app-icon-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {
