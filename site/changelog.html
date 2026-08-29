@@ -48,6 +48,19 @@
   font-size:.6875rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
   color:var(--accent);border:1px solid currentColor;border-radius:999px;padding:2px 9px;
 }
+/* Store state, filled in by the /api/store-status fetch below. Absent until
+   that answers, so the page is complete and correct without it. */
+.rel-store{
+  align-self:flex-start;display:inline-flex;align-items:center;gap:5px;
+  font-size:.75rem;color:var(--ink-3);line-height:1.35;
+}
+.rel-store::before{
+  content:"";width:6px;height:6px;border-radius:50%;
+  background:currentColor;flex:none;
+}
+.rel-store.is-live{color:var(--ok)}
+.rel-store.is-pending{color:var(--ink-3)}
+.rel-store.is-pending::before{background:none;border:1px solid currentColor}
 .rel-body{display:flex;flex-direction:column;gap:24px;max-width:42rem}
 .rel-intro{margin:0;color:var(--ink-2);line-height:1.6}
 .rel-img{display:block;width:96px;height:auto;border-radius:20px}
@@ -516,6 +529,86 @@
   var onScroll = function(){ nav.classList.toggle('scrolled', window.scrollY > 8); };
   onScroll();
   window.addEventListener('scroll', onScroll, { passive: true });
+})();
+</script>
+<script>
+(function () {
+  'use strict';
+  // Marks each release with whether it is actually live in the Chrome Web
+  // Store. Google publishes this only for the CURRENT version, and only on a
+  // page the browser cannot read cross-origin, so /api/store-status fetches
+  // and parses it server-side.
+  //
+  // Purely additive: if the call fails, or Google's page changes shape, no
+  // badge appears and the changelog reads exactly as it does today.
+  var releases = [].slice.call(document.querySelectorAll('.rel'));
+  if (!releases.length || !window.fetch) return;
+
+  function parts(v) {
+    return String(v).split('.').map(function (p) {
+      var n = parseInt(p, 10);
+      return isFinite(n) ? n : 0;
+    });
+  }
+  function cmp(a, b) {
+    var x = parts(a), y = parts(b);
+    for (var i = 0; i < Math.max(x.length, y.length); i++) {
+      var d = (x[i] || 0) - (y[i] || 0);
+      if (d) return d < 0 ? -1 : 1;
+    }
+    return 0;
+  }
+
+  var MONTHS = ['January','February','March','April','May','June','July',
+                'August','September','October','November','December'];
+  function formatDay(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  }
+
+  function badge(cls, text, title) {
+    var el = document.createElement('span');
+    el.className = 'rel-store ' + cls;
+    el.textContent = text;
+    if (title) el.title = title;
+    return el;
+  }
+
+  fetch('/api/store-status', { headers: { accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.ok || !data.chrome || !data.chrome.version) return;
+      var live = data.chrome.version;
+
+      releases.forEach(function (rel) {
+        var verEl = rel.querySelector('.rel-ver');
+        var meta = rel.querySelector('.rel-meta');
+        if (!verEl || !meta) return;
+        var version = verEl.textContent.trim();
+        if (!/^[0-9]/.test(version)) return;
+
+        var order = cmp(version, live);
+        var el = null;
+
+        if (order === 0) {
+          var on = data.chrome.publishedAt && formatDay(data.chrome.publishedAt);
+          el = badge(
+            'is-live',
+            on ? 'In the Chrome Web Store since ' + on : 'In the Chrome Web Store',
+            data.chrome.publishedAt || undefined
+          );
+        } else if (order > 0) {
+          // Newer than what the store serves: submitted, awaiting review.
+          el = badge('is-pending', 'Submitted \u2014 in review');
+        }
+        // Older releases were live once, but Google keeps no history of when,
+        // so they get nothing rather than an invented date.
+
+        if (el) meta.appendChild(el);
+      });
+    })
+    .catch(function () {});
 })();
 </script>
 </body>
