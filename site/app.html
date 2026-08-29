@@ -33,8 +33,10 @@ html,body{height:100%;overflow:hidden}
 @media (prefers-color-scheme:dark){.titlebar{background:#09090b}}
 .titlebar .mark{font-size:.8125rem;pointer-events:none}
 
-/* The embedded app owns everything below the (usually zero-height) titlebar. */
-#app{position:fixed;left:0;right:0;bottom:0;top:env(titlebar-area-height,0px);width:100%;border:0}
+/* The embedded app owns everything below the (usually zero-height) titlebar.
+   Height must be explicit: an iframe is a replaced element, so top+bottom
+   pins don't stretch it — height:auto collapses to the intrinsic 150px. */
+#app{position:fixed;left:0;top:env(titlebar-area-height,0px);width:100%;height:calc(100% - env(titlebar-area-height,0px));border:0}
 
 /* Install CTA — only revealed once the extension probe comes up empty. */
 .cta{
