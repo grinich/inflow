@@ -11,8 +11,8 @@
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#09090b">
 <link rel="manifest" href="/app.webmanifest">
-<link rel="icon" href="/icons/icon-192.png">
-<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="icon" href="/icons/app-icon-192.png">
+<link rel="apple-touch-icon" href="/icons/app-icon-192.png">
 <link rel="stylesheet" href="/base.css">
 <style>
 /* App-shell-only rules. Shared foundation lives in base.css. */
@@ -90,11 +90,11 @@ html,body{height:100%;overflow:hidden}
 (function () {
   'use strict';
 
-  // Store build first: it auto-updates, and it's what almost everyone runs.
-  // The pinned dev/sideload ID is the fallback (see wxt.config.ts UNPACKED_KEY).
-  // Once the Edge Add-ons listing exists, add its extension ID to the
-  // candidates below (docs/edge-add-ons-release.md).
+  // Store builds first: they auto-update, and they're what almost everyone
+  // runs (Chrome Web Store, then Edge Add-ons). The pinned dev/sideload ID
+  // is the fallback (see wxt.config.ts UNPACKED_KEY).
   var STORE_ID = 'ndehgbgifkapdigmefglpgacpagoclge';
+  var EDGE_STORE_ID = 'ojhcjmmdiekppielgogbdheogapbipnk';
   var DEV_ID = 'fngobhjkhkdnnijgegkcjoadmddkehgh';
   var PROBE_TIMEOUT_MS = 1500;
 
@@ -123,7 +123,7 @@ html,body{height:100%;overflow:hidden}
   var candidates =
     ext === 'dev' ? [DEV_ID] :
     ext && /^[a-p]{32}$/.test(ext) ? [ext] :
-    [STORE_ID, DEV_ID];
+    [STORE_ID, EDGE_STORE_ID, DEV_ID];
 
   var cta = document.getElementById('cta');
   var frame = null;
@@ -185,6 +185,36 @@ html,body{height:100%;overflow:hidden}
     }
   }
 
+  function canNotify() {
+    return 'Notification' in window && Notification.permission === 'granted';
+  }
+
+  // Notifications shown from THIS page are attributed to the installed
+  // inƒlow app (name + icon) on macOS — unlike the extension's, which the
+  // OS pins on Chrome. The extension routes message alerts here whenever a
+  // shell with permission is connected, and falls back to its own otherwise.
+  function showShellNotification(id, msg) {
+    if (!canNotify()) return;
+    try {
+      var n = new Notification(msg.title || 'inƒlow', {
+        body: msg.body || '',
+        tag: msg.conversationId || 'inflow', // replaces per-conversation, dedupes across shells
+        icon: msg.icon || '/icons/app-icon-192.png',
+      });
+      n.onclick = function () {
+        window.focus();
+        if (frame && msg.conversationId) {
+          frame.contentWindow.postMessage(
+            { type: 'OPEN_CONVERSATION', conversationId: msg.conversationId },
+            'chrome-extension://' + id
+          );
+          frame.focus();
+        }
+        n.close();
+      };
+    } catch (_) {}
+  }
+
   function connectUnreadPort(id) {
     var port;
     try {
@@ -192,9 +222,20 @@ html,body{height:100%;overflow:hidden}
     } catch (_) {
       return;
     }
+    port.postMessage({ type: 'HELLO', canNotify: canNotify() });
+    // Installed-app windows ask for notification permission once, so alerts
+    // can carry the app's own identity. Browser tabs never prompt.
+    if (IS_APP_WINDOW && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(function () {
+        try { port.postMessage({ type: 'CAN_NOTIFY', canNotify: canNotify() }); } catch (_) {}
+      });
+    }
     port.onMessage.addListener(function (msg) {
-      if (msg && msg.type === 'UNREAD_COUNT') {
+      if (!msg) return;
+      if (msg.type === 'UNREAD_COUNT') {
         applyUnreadCount(typeof msg.count === 'number' ? msg.count : 0);
+      } else if (msg.type === 'SHOW_NOTIFICATION') {
+        showShellNotification(id, msg);
       }
     });
     // The service worker restarting (idle, update) drops the port — reconnect,

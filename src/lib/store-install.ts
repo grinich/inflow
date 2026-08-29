@@ -11,13 +11,8 @@
 /** Extension ID Google assigned to the Chrome Web Store listing. */
 export const STORE_EXTENSION_ID = 'ndehgbgifkapdigmefglpgacpagoclge';
 
-/**
- * Extension ID Microsoft assigns to the Edge Add-ons listing. Empty until the
- * first Edge submission exists — paste the ID from the Partner Center listing
- * here AND into the site probe lists (site/app.html candidates,
- * site/index.html probes). See docs/edge-add-ons-release.md.
- */
-export const EDGE_STORE_EXTENSION_ID = '';
+/** Extension (CRX) ID Microsoft assigned to the Edge Add-ons listing. */
+export const EDGE_STORE_EXTENSION_ID = 'ojhcjmmdiekppielgogbdheogapbipnk';
 
 /** Every store-assigned ID. Store installs auto-update via their store. */
 const STORE_EXTENSION_IDS = new Set(
