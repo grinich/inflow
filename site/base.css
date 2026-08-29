@@ -165,7 +165,10 @@ code.inline{
   letter-spacing:-.008em;transition:color .2s ease;
 }
 .nav-links a:not(.btn):hover{color:var(--ink)}
-@media (max-width:560px){.nav-links .opt{display:none}}
+/* The optional links drop before the nav would wrap. With four of them
+   (Changelog joined the set) the header runs out of room at ~720px, not
+   the 560px that fit three. */
+@media (max-width:720px){.nav-links .opt{display:none}}
 
 /* ---------- buttons ---------- */
 .btn{
