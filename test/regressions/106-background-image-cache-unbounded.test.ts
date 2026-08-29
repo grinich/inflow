@@ -21,6 +21,27 @@ import { mockFetch, resetFetchMock } from '../mocks/fetch';
 
 let testDb: any;
 
+/**
+ * A stand-in for the CDN's image response.
+ *
+ * Not `new Response(new Blob(...))`: this file runs in jsdom, whose Blob has
+ * no .stream(), so undici's Response constructor throws
+ * ("object.stream is not a function") on Node 22 — and because
+ * cacheProfilePhotos swallows fetch errors, the test failed with nothing
+ * cached rather than with the real reason. Building the Response from a
+ * string instead trades one break for another: the undici Blob that
+ * res.blob() then returns is rejected by jsdom's FileReader.
+ *
+ * cacheProfilePhotos only reads `ok` and `blob()`, so hand it a jsdom Blob
+ * directly — the same thing a real browser gives it, and it works on every
+ * Node version.
+ */
+const imageResponse = () =>
+  ({
+    ok: true,
+    blob: async () => new Blob(['img-bytes'], { type: 'image/jpeg' }),
+  }) as unknown as Response;
+
 vi.mock('@/db/database', async (importOriginal) => {
   const original = (await importOriginal()) as any;
   return {
@@ -41,7 +62,7 @@ beforeEach(async () => {
   applySchema(testDb);
   await testDb.open();
   resetFetchMock();
-  mockFetch('cdn.example', async () => new Response(new Blob(['img-bytes'], { type: 'image/jpeg' })));
+  mockFetch('cdn.example', async () => imageResponse());
 });
 
 afterEach(async () => {
@@ -64,9 +85,14 @@ it('background photo caching evicts oldest entries beyond the cap', async () => 
 
   const count = await testDb.imageCache.count();
   expect(count).toBeLessThanOrEqual(IMAGE_CACHE_MAX);
-  // The new entries are cached; the two oldest were evicted.
-  expect(await testDb.imageCache.get('https://cdn.example/new-1.jpg')).toBeTruthy();
-  expect(await testDb.imageCache.get('https://cdn.example/new-2.jpg')).toBeTruthy();
+  // The new entries are cached; the two oldest were evicted. Assert the stored
+  // data URL, not just the row: a broken mock used to leave nothing cached at
+  // all, and `toBeTruthy` on a missing row reported that as an opaque
+  // "expected undefined to be truthy".
+  expect((await testDb.imageCache.get('https://cdn.example/new-1.jpg'))?.dataUrl)
+    .toMatch(/^data:image\/jpeg;base64,/);
+  expect((await testDb.imageCache.get('https://cdn.example/new-2.jpg'))?.dataUrl)
+    .toMatch(/^data:image\/jpeg;base64,/);
   expect(await testDb.imageCache.get('https://cdn.example/old-0.jpg')).toBeUndefined();
   expect(await testDb.imageCache.get('https://cdn.example/old-1.jpg')).toBeUndefined();
 });
