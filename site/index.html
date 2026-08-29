@@ -30,6 +30,7 @@
   var settled = false;
 
   function upgradeCtas() {
+    // The header button becomes the way into the app…
     var btns = document.querySelectorAll('[data-install-cta]');
     for (var i = 0; i < btns.length; i++) {
       var btn = btns[i];
@@ -38,12 +39,17 @@
       var use = btn.querySelector('use');
       if (svg && use) {
         svg.setAttribute('viewBox', '0 0 16 16');
-        use.setAttribute('href', '#inflow-mark-inverse');
+        use.setAttribute('href', '#inflow-envelope');
       }
       for (var n = btn.firstChild; n; n = n.nextSibling) {
-        if (n.nodeType === 3 && /\S/.test(n.textContent)) n.textContent = 'Open inƒlow';
+        if (n.nodeType === 3 && /\S/.test(n.textContent)) n.textContent = 'Open inƒlow →';
       }
     }
+    // …and the in-page install buttons give way to an installed check.
+    var hide = document.querySelectorAll('[data-install-hide]');
+    for (var h = 0; h < hide.length; h++) hide[h].hidden = true;
+    var badges = document.querySelectorAll('[data-installed-badge]');
+    for (var b = 0; b < badges.length; b++) badges[b].hidden = false;
   }
 
   function settle(id) {
@@ -117,6 +123,24 @@
 .hero .display{max-width:18ch}
 .hero .lede{max-width:34rem}
 .hero-cta{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:2px}
+
+/* Shown in place of the install buttons once the extension answers the
+   probe (see the head script). [hidden] must beat the flex display. */
+[hidden]{display:none!important}
+.installed{
+  display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 20px;
+  border-radius:999px;font-size:.9375rem;font-weight:500;letter-spacing:-.012em;
+  color:#15803d;background:rgba(22,163,74,.09);border:1px solid rgba(22,163,74,.28);
+}
+.installed .btn-ico{width:18px;height:18px;flex:none}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .installed{
+    color:#4ade80;background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25);
+  }
+}
+:root[data-theme="dark"] .installed{
+  color:#4ade80;background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25);
+}
 .hero-note{
   font-size:.875rem;letter-spacing:-.008em;
   color:var(--ink-2);margin:0;
@@ -473,13 +497,15 @@ kbd,.kbd{
       <path d="M3.4 5.6 8 9.1l4.6-3.5a.6.6 0 0 0-.5-.3H3.9a.6.6 0 0 0-.5.3z" fill="#2b5ce6"/>
       <path d="M3.4 5.6 8 9.1l4.6-3.5" fill="none" stroke="#fff" stroke-width="1.1" stroke-linejoin="round"/>
     </symbol>
-    <!-- Inverted mark for blue grounds (the "Open inƒlow" buttons): white
-         tile, blue envelope — the standard mark's blue tile vanishes there. -->
-    <symbol id="inflow-mark-inverse" viewBox="0 0 16 16">
-      <rect width="16" height="16" rx="3.4" fill="#fff"/>
-      <path d="M3.4 5.6h9.2v5.4a.6.6 0 0 1-.6.6H4a.6.6 0 0 1-.6-.6z" fill="#2b5ce6"/>
-      <path d="M3.4 5.6 8 9.1l4.6-3.5a.6.6 0 0 0-.5-.3H3.9a.6.6 0 0 0-.5.3z" fill="#fff"/>
-      <path d="M3.4 5.6 8 9.1l4.6-3.5" fill="none" stroke="#2b5ce6" stroke-width="1.1" stroke-linejoin="round"/>
+    <!-- Bare white envelope (open-flap, matching the mark's geometry) for
+         blue grounds — the tiled mark reads as a badge-in-a-button there. -->
+    <symbol id="inflow-envelope" viewBox="0 0 16 16">
+      <path fill="#fff" d="M2.6 3.9h10.8a1 1 0 0 1 .62.22L8 8.6 1.98 4.12A1 1 0 0 1 2.6 3.9z"/>
+      <path fill="#fff" d="M14.5 5.3v5.8a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V5.3l6.2 4.6a.5.5 0 0 0 .6 0z"/>
+    </symbol>
+    <symbol id="check-badge" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="7" fill="#16a34a"/>
+      <path d="M4.9 8.35 7 10.45l4.1-4.5" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="github-mark" viewBox="0 0 16 16">
       <path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8C0 11.54 2.29 14.53 5.47 15.59C5.87 15.66 6.02 15.42 6.02 15.21C6.02 15.02 6.01 14.39 6.01 13.72C4 14.09 3.48 13.23 3.32 12.78C3.23 12.55 2.84 11.84 2.5 11.65C2.22 11.5 1.82 11.13 2.49 11.12C3.12 11.11 3.57 11.7 3.72 11.94C4.44 13.15 5.59 12.81 6.05 12.6C6.12 12.08 6.33 11.73 6.56 11.53C4.78 11.33 2.92 10.64 2.92 7.58C2.92 6.71 3.23 5.99 3.74 5.43C3.66 5.23 3.38 4.41 3.82 3.31C3.82 3.31 4.49 3.1 6.02 4.13C6.66 3.95 7.34 3.86 8.02 3.86C8.7 3.86 9.38 3.95 10.02 4.13C11.55 3.09 12.22 3.31 12.22 3.31C12.66 4.41 12.38 5.23 12.3 5.43C12.81 5.99 13.12 6.7 13.12 7.58C13.12 10.65 11.25 11.33 9.47 11.53C9.76 11.78 10.01 12.26 10.01 13.01C10.01 14.08 10 14.94 10 15.21C10 15.42 10.15 15.67 10.55 15.59C13.71 14.53 16 11.53 16 8C16 3.58 12.42 0 8 0Z"/>
@@ -489,12 +515,11 @@ kbd,.kbd{
 
 <header class="nav" id="nav">
   <div class="wrap nav-in">
-    <a class="mark" href="#top"><i>in</i>flow</a>
+    <a class="mark" href="#top"><i>in</i>ƒlow</a>
     <nav class="nav-links">
       <a class="opt" href="#keyboard">Keyboard</a>
       <a class="opt" href="#local-first">Local-first</a>
       <a class="opt" href="#install">Install</a>
-      <a class="opt" href="/app">Open app</a>
       <a href="https://github.com/grinich/inflow">GitHub</a>
       <a class="btn btn-primary btn-sm" data-install-cta href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
         <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
@@ -514,9 +539,12 @@ kbd,.kbd{
         read, reply, and archive at the speed you type. Just the messages — none of the feed.
       </p>
       <div class="hero-cta rise d3">
-        <a class="btn btn-primary" data-install-cta href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+        <a class="btn btn-primary" data-install-hide href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
           <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
         </a>
+        <span class="installed" data-installed-badge hidden>
+          <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#check-badge"/></svg>Chrome extension installed
+        </span>
         <a class="btn btn-ghost" href="https://github.com/grinich/inflow">
           <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#github-mark"/></svg>Star on GitHub
         </a>
@@ -555,7 +583,7 @@ kbd,.kbd{
           <!-- conversation list -->
           <aside class="app-list">
             <div class="app-head">
-              <span class="mark"><i>in</i>flow</span>
+              <span class="mark"><i>in</i>ƒlow</span>
               <div class="tabs">
                 <span class="tab on">Focused</span>
                 <span class="tab">Other</span>
@@ -712,7 +740,7 @@ kbd,.kbd{
       <div class="stage-grid" style="margin-top:clamp(40px,5vw,64px)">
         <div class="demo rise" id="demo" tabindex="0" role="application" aria-label="Try the inflow keyboard shortcuts">
           <div class="demo-head">
-            <span class="mark" style="font-size:.9375rem"><i>in</i>flow</span>
+            <span class="mark" style="font-size:.9375rem"><i>in</i>ƒlow</span>
             <span class="tab on">Focused</span>
             <span style="margin-left:auto;font-size:.6875rem;color:var(--ink-3)" id="demoCount">6 conversations</span>
           </div>
@@ -1026,9 +1054,12 @@ kbd,.kbd{
     <div class="wrap closer">
       <h2 class="h2 rise">LinkedIn messaging, but better.</h2>
       <div class="hero-cta rise d1">
-        <a class="btn btn-primary" data-install-cta href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+        <a class="btn btn-primary" data-install-hide href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
           <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
         </a>
+        <span class="installed" data-installed-badge hidden>
+          <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#check-badge"/></svg>Chrome extension installed
+        </span>
         <a class="btn btn-ghost" href="https://github.com/grinich/inflow">
           <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#github-mark"/></svg>Star on GitHub
         </a>
@@ -1040,7 +1071,7 @@ kbd,.kbd{
 <footer class="foot">
   <div class="wrap">
     <div class="foot-top">
-      <span class="mark"><i>in</i>flow</span>
+      <span class="mark"><i>in</i>ƒlow</span>
       <nav class="foot-links">
         <a href="/app">Open app</a>
         <a href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">Chrome Web Store</a>
