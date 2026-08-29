@@ -4,9 +4,28 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.6.1] - 2026-08-29
+
+### Added
+- **A close button on the shortcuts pane** — the pane could only be dismissed
+  from the keyboard. `Esc` still closes it, and `?` still toggles it; the `Esc`
+  hint is gone from the header now that there is a button sitting right there.
+- **A conversation that LinkedIn keeps as two threads now says so** — the
+  header reads *Merged from 2 LinkedIn threads*, so it is clear why the
+  messages below move between two conversations.
 
 ### Fixed
+- **Archiving a conversation LinkedIn holds twice no longer brings it back** —
+  LinkedIn can keep more than one thread with the same person: an old InMail
+  and, separately, the thread created when you accept an invitation that came
+  with a note. inflow shows those as a single conversation, but archiving,
+  deleting, starring or moving it only ever acted on one of them. The other
+  stayed in Focused and the conversation reappeared moments later; unstarring
+  left the other starred, so the star sprang straight back on. Every one of
+  those actions now covers all of the threads behind the row.
+- **Dragging across the app no longer highlights its own buttons** — selecting
+  the text of *Report Bug* or *Archive* never helped anyone. Message text is
+  untouched and still selectable.
 - **Clicking a notification opens the desktop app** — alerts were shown by the
   app *page*, and a page can't bring its own window forward while it's in the
   background, which is exactly the state you click a notification from. So
@@ -391,6 +410,7 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.6.1]: https://github.com/grinich/inflow/releases/tag/v0.6.1
 [0.6.0]: https://github.com/grinich/inflow/releases/tag/v0.6.0
 [0.5.2]: https://github.com/grinich/inflow/releases/tag/v0.5.2
 [0.5.1]: https://github.com/grinich/inflow/releases/tag/v0.5.1

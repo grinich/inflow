@@ -164,9 +164,35 @@
     <!-- CHANGELOG:START -->
     <article class="rel">
       <div class="rel-meta">
+        <h2 class="rel-ver">0.6.1</h2>
+        <time class="rel-date" datetime="2026-08-29">29 August 2026</time>
+        <span class="rel-latest">Latest</span>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>A close button on the shortcuts pane</strong> — the pane could only be dismissed from the keyboard. <code>Esc</code> still closes it, and <code>?</code> still toggles it; the <code>Esc</code> hint is gone from the header now that there is a button sitting right there.</li>
+            <li><strong>A conversation that LinkedIn keeps as two threads now says so</strong> — the header reads <em>Merged from 2 LinkedIn threads</em>, so it is clear why the messages below move between two conversations.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Archiving a conversation LinkedIn holds twice no longer brings it back</strong> — LinkedIn can keep more than one thread with the same person: an old InMail and, separately, the thread created when you accept an invitation that came with a note. inƒlow shows those as a single conversation, but archiving, deleting, starring or moving it only ever acted on one of them. The other stayed in Focused and the conversation reappeared moments later; unstarring left the other starred, so the star sprang straight back on. Every one of those actions now covers all of the threads behind the row.</li>
+            <li><strong>Dragging across the app no longer highlights its own buttons</strong> — selecting the text of <em>Report Bug</em> or <em>Archive</em> never helped anyone. Message text is untouched and still selectable.</li>
+            <li><strong>Clicking a notification opens the desktop app</strong> — alerts were shown by the app <em>page</em>, and a page can't bring its own window forward while it's in the background, which is exactly the state you click a notification from. So clicking one did nothing. They now come from the app's service worker: clicking raises the installed app and opens the conversation, and because these notifications outlive the window that showed them, clicking one after you've closed the app launches it straight into that conversation. Clicking one of the extension's own fallback notifications also prefers the installed app over a stray extension tab. The <em>icon</em> on the notification is Chrome's own call and not something inƒlow can set: Chrome attributes every PWA notification to itself before Chrome 152, and to the installed app — with its own entry in System Settings › Notifications — from 152 on.</li>
+            <li><strong>"Turn on inƒlow notifications" no longer sits there doing nothing</strong> — the prompt-me chip is offered while notification permission is undecided, and the window watched for permission changes to take it away again. But nothing held that watcher's browser object alive, so once it was garbage-collected the window stopped hearing about changes: granting permission anywhere else left the chip on screen, and clicking it did nothing at all, because there was nothing left to ask for. The same silence meant the extension went on believing that window couldn't show notifications and kept falling back to its own. The window now holds the watcher, re-reads permission whenever you come back to it, and a stale chip clears itself when clicked.</li>
+            <li><strong>Restarting Chrome no longer strands the app on the install page</strong> — the installed app window reopens at startup while the extension is still waking up, and inƒlow gave it one retry before settling on "Add to Chrome — it's free". Its other two retries fire when the window is focused or made visible, which a window that restored already focused and already visible never does, so the pitch stayed there until you clicked away and back. The page now keeps retrying on a backoff, and while the browser can see that the extension is installed it waits quietly rather than showing an install pitch to someone who already installed it.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
         <h2 class="rel-ver">0.6.0</h2>
         <time class="rel-date" datetime="2026-08-28">28 August 2026</time>
-        <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
         <p class="rel-intro"><img class="rel-icon" src="https://inflow.im/icons/app-icon-192.png" alt="The inƒlow app icon" loading="lazy"></p>
