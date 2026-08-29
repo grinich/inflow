@@ -26,7 +26,9 @@ All notable changes to inflow are documented here. This project follows
   immediately instead of leaving you to find the toolbar icon.
 - **inflow.im goes straight to your inbox** — with the extension installed,
   visiting the homepage redirects to [inflow.im/app](https://inflow.im/app);
-  [inflow.im/home](https://inflow.im/home) always shows the homepage.
+  [inflow.im/home](https://inflow.im/home) always shows the homepage, where
+  the *Add to Chrome* buttons become *Open inƒlow* once you're installed.
+  The inflow mark in the app's sidebar links back to the homepage.
 
 ## [0.5.2] - 2026-08-25
 

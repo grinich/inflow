@@ -153,8 +153,12 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
     <div className="@container flex flex-col gap-2 border-b border-edge px-4 py-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
+        {/* Links to the marketing site; target=_top escapes the inflow.im/app
+            shell iframe (and is a plain same-tab navigation when standalone). */}
         <h1 className="shrink-0 text-base font-semibold text-fg-strong">
-          <span className="text-blue-400">in</span>ƒlow
+          <a href="https://inflow.im/home" target="_top">
+            <span className="text-blue-400">in</span>ƒlow
+          </a>
         </h1>
 
         {/* Folder selector — segmented control when the (resizable) sidebar is

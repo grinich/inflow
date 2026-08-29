@@ -15,26 +15,58 @@
 /* Installed users land straight in their inbox: probe for the extension
    (same PING the /app shell uses) and bounce / to /app. Visiting /home
    always renders this page (vercel.json rewrites it here) — the escape
-   hatch for reading the site with inflow installed.
+   hatch for reading the site with inflow installed; there, an installed
+   extension turns the "Add to Chrome" CTAs into "Open inƒlow" instead.
 
    chrome.runtime only exists on this origin when a probe-capable inflow is
    installed, so visitors without it render instantly with no probe delay;
-   when it exists, the page is held invisible briefly to avoid a homepage
-   flash before the redirect. */
+   when it exists (off /home), the page is held invisible briefly to avoid
+   a homepage flash before the redirect. */
 (function () {
-  if (location.pathname === '/home') return;
   if (!(window.chrome && chrome.runtime && chrome.runtime.sendMessage)) return;
 
+  var onHome = location.pathname === '/home';
   var css = document.documentElement.style;
-  css.visibility = 'hidden';
   var settled = false;
+
+  function upgradeCtas() {
+    var btns = document.querySelectorAll('[data-install-cta]');
+    for (var i = 0; i < btns.length; i++) {
+      var btn = btns[i];
+      btn.setAttribute('href', '/app');
+      var svg = btn.querySelector('svg');
+      var use = btn.querySelector('use');
+      if (svg && use) {
+        svg.setAttribute('viewBox', '0 0 16 16');
+        use.setAttribute('href', '#inflow-mark');
+      }
+      for (var n = btn.firstChild; n; n = n.nextSibling) {
+        if (n.nodeType === 3 && /\S/.test(n.textContent)) n.textContent = 'Open inƒlow';
+      }
+    }
+  }
+
   function settle(id) {
     if (settled) return;
     settled = true;
-    if (id) location.replace('/app');
-    else css.visibility = '';
+    if (onHome) {
+      if (!id) return;
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', upgradeCtas);
+      } else {
+        upgradeCtas();
+      }
+    } else if (id) {
+      location.replace('/app');
+    } else {
+      css.visibility = '';
+    }
   }
-  setTimeout(function () { settle(null); }, 1500);
+
+  if (!onHome) {
+    css.visibility = 'hidden';
+    setTimeout(function () { settle(null); }, 1500);
+  }
 
   function probe(id) {
     return new Promise(function (resolve) {
@@ -456,7 +488,7 @@ kbd,.kbd{
       <a class="opt" href="#install">Install</a>
       <a class="opt" href="/app">Open app</a>
       <a href="https://github.com/grinich/inflow">GitHub</a>
-      <a class="btn btn-primary btn-sm" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+      <a class="btn btn-primary btn-sm" data-install-cta href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
         <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
       </a>
     </nav>
@@ -474,7 +506,7 @@ kbd,.kbd{
         read, reply, and archive at the speed you type. Just the messages — none of the feed.
       </p>
       <div class="hero-cta rise d3">
-        <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+        <a class="btn btn-primary" data-install-cta href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
           <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
         </a>
         <a class="btn btn-ghost" href="https://github.com/grinich/inflow">
@@ -986,7 +1018,7 @@ kbd,.kbd{
     <div class="wrap closer">
       <h2 class="h2 rise">LinkedIn messaging, but better.</h2>
       <div class="hero-cta rise d1">
-        <a class="btn btn-primary" href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
+        <a class="btn btn-primary" data-install-cta href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
           <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
         </a>
         <a class="btn btn-ghost" href="https://github.com/grinich/inflow">
