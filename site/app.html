@@ -240,14 +240,34 @@ html,body{height:100%;overflow:hidden}
   // Permission can be granted or revoked from site settings mid-session —
   // without this watcher the extension would keep routing notifications to a
   // shell that silently drops them (or never use one that could now show them).
+  //
+  // The PermissionStatus is parked in a variable deliberately. Its onchange
+  // closure doesn't reference it, so with nothing else holding it the object
+  // is collectable — and a collected PermissionStatus stops firing, leaving
+  // this window frozen on whatever was true when it opened: an install that
+  // was granted permission elsewhere would keep offering the "turn on
+  // notifications" chip AND keep telling the extension it can't notify.
+  var notifPermissionStatus = null;
   if (navigator.permissions && navigator.permissions.query) {
     navigator.permissions.query({ name: 'notifications' }).then(function (status) {
-      status.onchange = function () {
-        reportCanNotify();
-        updateNotifyChip();
-      };
+      notifPermissionStatus = status;
+      status.onchange = recheckNotifications;
     }).catch(function () {});
   }
+
+  /** Re-read permission and push the consequences: the chip, and the port. */
+  function recheckNotifications() {
+    reportCanNotify();
+    updateNotifyChip();
+  }
+
+  // Belt and braces on the watcher: permission is just as often changed in
+  // another window (or the OS) while this one sits in the background, so
+  // re-read it whenever the user comes back rather than trusting one event.
+  window.addEventListener('focus', recheckNotifications);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) recheckNotifications();
+  });
 
   /** Tell the extension whether this shell can show notifications right now. */
   function reportCanNotify() {
@@ -263,7 +283,15 @@ html,body{height:100%;overflow:hidden}
    * Chrome, with nothing inside the app able to ask again.
    */
   function askForNotifications() {
-    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    if (!('Notification' in window)) return;
+    // Already decided: the chip offering this is stale — permission was
+    // granted or blocked somewhere else while this window sat open. Clear it
+    // (and re-report), rather than leaving a button that does nothing at all
+    // when clicked, which is indistinguishable from a broken page.
+    if (Notification.permission !== 'default') {
+      recheckNotifications();
+      return;
+    }
     var req;
     try { req = Notification.requestPermission(); } catch (_) { return; }
     if (!req || !req.then) return; // ancient callback-only signature
@@ -271,8 +299,7 @@ html,body{height:100%;overflow:hidden}
       if (outcome && outcome !== 'default') {
         try { localStorage.setItem('inflow-notif-asked', '1'); } catch (_) {}
       }
-      reportCanNotify();
-      updateNotifyChip();
+      recheckNotifications();
     }).catch(function () {});
   }
 

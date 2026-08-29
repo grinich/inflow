@@ -21,6 +21,16 @@ All notable changes to inflow are documented here. This project follows
   can set: Chrome attributes every PWA notification to itself before Chrome
   152, and to the installed app — with its own entry in System Settings ›
   Notifications — from 152 on.
+- **"Turn on inƒlow notifications" no longer sits there doing nothing** — the
+  prompt-me chip is offered while notification permission is undecided, and
+  the window watched for permission changes to take it away again. But nothing
+  held that watcher's browser object alive, so once it was garbage-collected
+  the window stopped hearing about changes: granting permission anywhere else
+  left the chip on screen, and clicking it did nothing at all, because there
+  was nothing left to ask for. The same silence meant the extension went on
+  believing that window couldn't show notifications and kept falling back to
+  its own. The window now holds the watcher, re-reads permission whenever you
+  come back to it, and a stale chip clears itself when clicked.
 - **Restarting Chrome no longer strands the app on the install page** — the
   installed app window reopens at startup while the extension is still waking
   up, and inflow gave it one retry before settling on "Add to Chrome — it's
