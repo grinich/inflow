@@ -131,15 +131,25 @@
   display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 20px;
   border-radius:999px;font-size:.9375rem;font-weight:500;letter-spacing:-.012em;
   color:#15803d;background:rgba(22,163,74,.09);border:1px solid rgba(22,163,74,.28);
+  text-decoration:none;
+  transition:background-color .2s ease,border-color .2s ease,transform .12s ease;
 }
+.installed:hover{background:rgba(22,163,74,.15);border-color:rgba(22,163,74,.45)}
+.installed:active{transform:scale(.985)}
 .installed .btn-ico{width:18px;height:18px;flex:none}
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]) .installed{
     color:#4ade80;background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25);
   }
+  :root:not([data-theme="light"]) .installed:hover{
+    background:rgba(74,222,128,.15);border-color:rgba(74,222,128,.45);
+  }
 }
 :root[data-theme="dark"] .installed{
   color:#4ade80;background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25);
+}
+:root[data-theme="dark"] .installed:hover{
+  background:rgba(74,222,128,.15);border-color:rgba(74,222,128,.45);
 }
 .hero-note{
   font-size:.875rem;letter-spacing:-.008em;
@@ -542,9 +552,9 @@ kbd,.kbd{
         <a class="btn btn-primary" data-install-hide href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
           <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
         </a>
-        <span class="installed" data-installed-badge hidden>
-          <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#check-badge"/></svg>Chrome extension installed
-        </span>
+        <a class="installed" data-installed-badge hidden href="/app">
+          <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#check-badge"/></svg>Installed for Chrome
+        </a>
         <a class="btn btn-ghost" href="https://github.com/grinich/inflow">
           <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#github-mark"/></svg>Star on GitHub
         </a>
@@ -1057,9 +1067,9 @@ kbd,.kbd{
         <a class="btn btn-primary" data-install-hide href="https://chromewebstore.google.com/detail/ndehgbgifkapdigmefglpgacpagoclge">
           <svg class="btn-ico" viewBox="0 0 48 48" aria-hidden="true"><use href="#chrome-mark"/></svg>Add to Chrome
         </a>
-        <span class="installed" data-installed-badge hidden>
-          <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#check-badge"/></svg>Chrome extension installed
-        </span>
+        <a class="installed" data-installed-badge hidden href="/app">
+          <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#check-badge"/></svg>Installed for Chrome
+        </a>
         <a class="btn btn-ghost" href="https://github.com/grinich/inflow">
           <svg class="btn-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#github-mark"/></svg>Star on GitHub
         </a>
