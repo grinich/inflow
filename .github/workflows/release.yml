@@ -193,6 +193,9 @@ jobs:
           echo "Publishing $ZIP to product $EDGE_PRODUCT_ID"
 
           API="https://api.addons.microsoftedge.microsoft.com/v1/products/$EDGE_PRODUCT_ID"
+          # `|| true` at every call site: grep exits non-zero when there is no
+          # Location header, and under set -e/pipefail that killed the script
+          # before the explanatory error below could run.
           operation_id() { grep -i '^location:' | awk '{print $2}' | tr -d '\r'; }
 
           # Upload the package into the draft submission. Accepted uploads
@@ -202,7 +205,7 @@ jobs:
             -H "X-ClientID: $EDGE_CLIENT_ID" \
             -H "Content-Type: application/zip" \
             --data-binary "@$ZIP" \
-            "$API/submissions/draft/package" | operation_id)
+            "$API/submissions/draft/package" | operation_id || true)
 
           if [ -z "$OP" ]; then
             echo "::error::Package upload was not accepted (no operation ID; check the API key expiry in Partner Center)."
@@ -212,14 +215,16 @@ jobs:
           STATUS=""
           for _ in $(seq 1 30); do
             sleep 10
-            STATUS=$(curl -sS \
+            BODY=$(curl -sS \
               -H "Authorization: ApiKey $EDGE_API_KEY" \
               -H "X-ClientID: $EDGE_CLIENT_ID" \
-              "$API/submissions/draft/package/operations/$OP" | jq -r '.status // empty')
+              "$API/submissions/draft/package/operations/$OP")
+            STATUS=$(echo "$BODY" | jq -r '.status // empty')
             echo "Upload operation: $STATUS"
             [ "$STATUS" = "Succeeded" ] && break
             if [ "$STATUS" = "Failed" ]; then
-              echo "::error::Package processing failed (often: version not higher than the listed one)."
+              echo "Upload operation body: $BODY"
+              echo "::error::Package processing failed (often: version not higher than the listed one): $(echo "$BODY" | jq -r '[.message, ((.errors // []) | map(.message // tostring) | join("; "))] | map(select(. != null and . != "")) | join(" - ")')"
               exit 1
             fi
           done
@@ -229,28 +234,34 @@ jobs:
           fi
 
           # Publish the draft — this creates the submission Microsoft reviews.
-          PUBOP=$(curl -sS -D - -o /dev/null -X POST \
+          PUBRESP=$(curl -sS -D /tmp/pub-headers -X POST \
             -H "Authorization: ApiKey $EDGE_API_KEY" \
             -H "X-ClientID: $EDGE_CLIENT_ID" \
             -H "Content-Length: 0" \
-            "$API/submissions" | operation_id)
+            "$API/submissions")
+          PUBOP=$(operation_id < /tmp/pub-headers || true)
 
           if [ -z "$PUBOP" ]; then
-            echo "::error::Publish was not accepted (an in-progress submission may already exist in Partner Center)."
+            echo "Publish response: $PUBRESP"
+            echo "::error::Publish was not accepted (an in-progress submission may already exist in Partner Center): $(echo "$PUBRESP" | jq -r '.message // .errors // empty')"
             exit 1
           fi
 
           STATUS=""
           for _ in $(seq 1 12); do
             sleep 10
-            STATUS=$(curl -sS \
+            BODY=$(curl -sS \
               -H "Authorization: ApiKey $EDGE_API_KEY" \
               -H "X-ClientID: $EDGE_CLIENT_ID" \
-              "$API/submissions/operations/$PUBOP" | jq -r '.status // empty')
+              "$API/submissions/operations/$PUBOP")
+            STATUS=$(echo "$BODY" | jq -r '.status // empty')
             echo "Publish operation: $STATUS"
             [ "$STATUS" = "Succeeded" ] && break
             if [ "$STATUS" = "Failed" ]; then
-              echo "::error::Submission failed — check Partner Center for the reason."
+              # Without the body this said only "Failed", which is why the
+              # 0.6.0 run gave no reason to act on.
+              echo "Publish operation body: $BODY"
+              echo "::error::Submission failed: $(echo "$BODY" | jq -r '[.message, ((.errors // []) | map(.message // tostring) | join("; "))] | map(select(. != null and . != "")) | join(" - ")')"
               exit 1
             fi
           done
