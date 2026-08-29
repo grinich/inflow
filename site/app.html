@@ -581,14 +581,61 @@ html,body{height:100%;overflow:hidden}
     if (frame) frame.focus();
   });
 
+  // A cold MV3 service worker doesn't answer the first probe, and on a
+  // browser restart it can be many seconds before it wakes. The page that
+  // sees that most is the installed app window, restored at startup with
+  // everything else competing for the wake-up — so keep retrying on a
+  // backoff. (One delayed retry used to be it: a window still unanswered
+  // after ~4.5s stayed on the install CTA forever, because the only other
+  // retries are focus and visibilitychange, and a restored app window is
+  // ALREADY focused and visible — neither event ever fires.)
+  var RETRY_DELAYS_MS = [1000, 2000, 3000, 5000, 8000, 13000, 21000];
+  var retryIndex = 0;
   var reprobing = false;
+
+  function scheduleReprobe() {
+    if (frame || retryIndex >= RETRY_DELAYS_MS.length) return;
+    setTimeout(reprobe, RETRY_DELAYS_MS[retryIndex++]);
+  }
+
   function reprobe() {
     if (frame || reprobing) return;
     reprobing = true;
     findExtension().then(function (id) {
       reprobing = false;
-      if (id) embed(id);
+      if (id) {
+        embed(id);
+        return;
+      }
+      showCtaIfDue();
+      scheduleReprobe();
     });
+  }
+
+  // Coming back from the Web Store (or after the extension's auto-update)
+  // should upgrade this page in place — no manual reload. A user who just
+  // did something gets a fresh run of tries, not the tail of the old one.
+  function reprobeFromUser() {
+    retryIndex = 0;
+    reprobe();
+  }
+
+  // chrome.runtime is exposed to a web page only when an INSTALLED extension
+  // lists its origin in externally_connectable, so its presence here means
+  // inflow is installed and simply hasn't woken yet. Telling that user to go
+  // install it — in the app window they opened from their own dock — is
+  // worse than showing nothing for a moment, so the CTA waits out the early
+  // retries. With no chrome.runtime at all there's nothing to wait for.
+  var CTA_GRACE_MS = 6000;
+  var ctaDueAt = Date.now() +
+    (window.chrome && chrome.runtime && chrome.runtime.sendMessage ? CTA_GRACE_MS : 0);
+
+  function showCtaIfDue() {
+    if (frame || !cta.hidden || Date.now() < ctaDueAt) return;
+    cta.hidden = false;
+    if (!window.chrome) {
+      document.getElementById('cta-non-chromium').hidden = false;
+    }
   }
 
   findExtension().then(function (id) {
@@ -596,18 +643,11 @@ html,body{height:100%;overflow:hidden}
       embed(id);
       return;
     }
-    cta.hidden = false;
-    if (!window.chrome) {
-      document.getElementById('cta-non-chromium').hidden = false;
-    }
-    // A cold MV3 service worker can miss the probe window — one delayed
-    // retry upgrades the page for users who already have the extension.
-    setTimeout(reprobe, 3000);
-    // Coming back from the Web Store (or after the extension's auto-update)
-    // should upgrade this page in place — no manual reload.
-    window.addEventListener('focus', reprobe);
+    showCtaIfDue();
+    scheduleReprobe();
+    window.addEventListener('focus', reprobeFromUser);
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) reprobe();
+      if (!document.hidden) reprobeFromUser();
     });
   });
 })();

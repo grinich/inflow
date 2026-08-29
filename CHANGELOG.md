@@ -21,6 +21,15 @@ All notable changes to inflow are documented here. This project follows
   can set: Chrome attributes every PWA notification to itself before Chrome
   152, and to the installed app — with its own entry in System Settings ›
   Notifications — from 152 on.
+- **Restarting Chrome no longer strands the app on the install page** — the
+  installed app window reopens at startup while the extension is still waking
+  up, and inflow gave it one retry before settling on "Add to Chrome — it's
+  free". Its other two retries fire when the window is focused or made
+  visible, which a window that restored already focused and already visible
+  never does, so the pitch stayed there until you clicked away and back. The
+  page now keeps retrying on a backoff, and while the browser can see that the
+  extension is installed it waits quietly rather than showing an install pitch
+  to someone who already installed it.
 
 ## [0.6.0] - 2026-08-28
 
