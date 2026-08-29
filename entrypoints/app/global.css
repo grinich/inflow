@@ -65,6 +65,19 @@ body {
   overscroll-behavior-x: none;
 }
 
+/* Buttons and keycaps are chrome, not content. Dragging across the thread
+   header used to leave "Report Bug" and "Archive E" highlighted, which reads
+   as a bug and never helps anyone. Message text stays selectable — no message
+   body is nested inside a button. */
+button,
+[role="button"],
+kbd,
+label,
+summary {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 10px;
