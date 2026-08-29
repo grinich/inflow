@@ -61,6 +61,55 @@ async function createPendingAction(
 export function useOptimisticAction() {
   const showToast = useUIStore((s) => s.showToast);
 
+  /**
+   * Every LinkedIn thread this row stands for.
+   *
+   * LinkedIn keeps more than one 1:1 thread with the same person (an old InMail
+   * plus the thread an accepted invitation-with-a-note creates, say).
+   * useConversations folds them into a single row and lists the rest in
+   * `mergedIds`; `conversation.id` is merely whichever of them has the latest
+   * activity. An action that touches only that one leaves the others behind —
+   * archive the row and the twin stays in Focused, bringing the conversation
+   * straight back on the next render.
+   */
+  function threadIdsOf(conversation: Conversation): string[] {
+    return conversation.mergedIds?.length
+      ? [conversation.id, ...conversation.mergedIds]
+      : [conversation.id];
+  }
+
+  /**
+   * The threads to actually act on: those we hold a row for.
+   *
+   * `mergedIds` is display state recomputed on every query, so it can name a
+   * thread this client no longer stores. Acting on one would fire a server call
+   * for a conversation we know nothing about, so those are dropped — and the
+   * primary is always kept, or an action would target nothing at all.
+   */
+  async function storedThreadIds(conversation: Conversation): Promise<string[]> {
+    const ids = threadIdsOf(conversation);
+    if (ids.length === 1) return ids;
+    const present = await Promise.all(
+      ids.map(async (id) => ((await db.conversations.get(id)) ? id : null))
+    );
+    const kept = present.filter(Boolean) as string[];
+    return kept.length ? kept : [conversation.id];
+  }
+
+  /** Send the same bridge message for each thread; false if any of them failed. */
+  async function sendToThreads(
+    type: 'ARCHIVE' | 'UNARCHIVE' | 'DELETE_CONVERSATION' | 'STAR' | 'UNSTAR'
+      | 'MOVE_TO_FOCUSED' | 'MOVE_TO_OTHER' | 'MOVE_TO_SPAM',
+    ids: string[]
+  ): Promise<boolean> {
+    const results = await Promise.all(
+      ids.map((conversationId) =>
+        sendBridgeMessage({ type, conversationId } as any).catch(() => ({ success: false }))
+      )
+    );
+    return results.every((r: any) => r?.success);
+  }
+
   async function archiveConversation(conversation: Conversation) {
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
@@ -68,10 +117,24 @@ export function useOptimisticAction() {
     // previousCategory of 'ARCHIVE' produces a row no tab query matches, and
     // the conversation vanishes from the UI until a sync heals it.
     const previousArchived = conversation.archived ?? 0;
+    // Every thread the row stands for, not just the primary (see threadIdsOf).
+    const ids = await storedThreadIds(conversation);
+    // Snapshot each stored row: a twin can sit in a different category, so one
+    // shared rollback value would put it back somewhere it never was.
+    const before = new Map<string, { archived: number; category: string }>();
+    for (const id of ids) {
+      const row = await db.conversations.get(id);
+      if (row) before.set(id, { archived: row.archived ?? 0, category: row.category || 'PRIMARY_INBOX' });
+    }
+    const restoreAll = async () => {
+      for (const [id, prev] of before) await db.conversations.update(id, prev);
+    };
     const bridgeMsg = { type: 'ARCHIVE' as const, conversationId: conversation.id };
 
     // Optimistically update IndexedDB
-    await db.conversations.update(conversation.id, { archived: 1, category: 'ARCHIVE' });
+    for (const id of ids) {
+      await db.conversations.update(id, { archived: 1, category: 'ARCHIVE' });
+    }
     await db.pendingActions.put({
       id: actionId,
       type: 'archive',
@@ -86,10 +149,10 @@ export function useOptimisticAction() {
       message: 'Conversation archived',
       undoConversationId: conversation.id,
       undoAction: async () => {
-        await db.conversations.update(conversation.id, { archived: previousArchived, category: previousCategory });
+        await restoreAll();
         await db.pendingActions.delete(actionId);
         if (navigator.onLine) {
-          sendBridgeMessage({ type: 'UNARCHIVE', conversationId: conversation.id }).catch(() => {});
+          sendToThreads('UNARCHIVE', ids).catch(() => {});
         }
       },
     });
@@ -100,14 +163,14 @@ export function useOptimisticAction() {
       return;
     }
 
-    // Fire and forget to API
-    sendBridgeMessage(bridgeMsg)
-      .then(async (res) => {
-        if (res.success) {
+    // Fire and forget to API — once per thread, or the twin stays in the
+    // inbox on LinkedIn and the next sync pulls the row back.
+    sendToThreads('ARCHIVE', ids)
+      .then(async (ok) => {
+        if (ok) {
           await db.pendingActions.update(actionId, { status: 'confirmed' });
         } else {
-          // Rollback
-          await db.conversations.update(conversation.id, { archived: previousArchived, category: previousCategory });
+          await restoreAll();
           await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: 'Failed to archive — rolled back' });
         }
@@ -118,10 +181,11 @@ export function useOptimisticAction() {
           await queueAction(actionId, bridgeMsg);
           return;
         }
-        await db.conversations.update(conversation.id, { archived: previousArchived, category: previousCategory });
+        await restoreAll();
         await db.pendingActions.update(actionId, { status: 'failed' });
         showToast({ message: 'Failed to archive — rolled back' });
-      });
+      })
+        .catch(() => {}); // fire-and-forget: never surface as unhandled
   }
 
   /**
@@ -458,6 +522,7 @@ export function useOptimisticAction() {
   ) {
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
+    const ids = await storedThreadIds(conversation);
     const bridgeMsg = { type: opts.bridgeType, conversationId: conversation.id };
 
     // Restore the previous category; also restore archived iff the patch touched it.
@@ -466,7 +531,21 @@ export function useOptimisticAction() {
         ? { archived: conversation.archived, category: previousCategory }
         : { category: previousCategory };
 
-    await db.conversations.update(conversation.id, opts.patch);
+    // Per-thread snapshot: a twin can sit in a different category, and one
+    // shared rollback would put it back somewhere it never was.
+    const before = new Map<string, Partial<Conversation>>();
+    for (const id of ids) {
+      const row = await db.conversations.get(id);
+      if (!row) continue;
+      before.set(id, 'archived' in opts.patch
+        ? { archived: row.archived, category: row.category || 'PRIMARY_INBOX' }
+        : { category: row.category || 'PRIMARY_INBOX' });
+    }
+    const restoreAll = async () => {
+      for (const [id, prev] of before) await db.conversations.update(id, prev);
+    };
+
+    for (const id of ids) await db.conversations.update(id, opts.patch);
     await db.pendingActions.put({
       id: actionId,
       type: opts.type,
@@ -480,11 +559,11 @@ export function useOptimisticAction() {
       message: opts.toastMessage,
       undoConversationId: conversation.id,
       undoAction: async () => {
-        await db.conversations.update(conversation.id, rollbackData);
+        await restoreAll();
         await db.pendingActions.delete(actionId);
         if (!navigator.onLine) return;
         const restoreType = RESTORE_BRIDGE[previousCategory] || 'MOVE_TO_FOCUSED';
-        sendBridgeMessage({ type: restoreType, conversationId: conversation.id }).catch(() => {});
+        sendToThreads(restoreType as any, ids).catch(() => {});
       },
     });
 
@@ -494,14 +573,14 @@ export function useOptimisticAction() {
     }
 
     const rollback = async () => {
-      await db.conversations.update(conversation.id, rollbackData);
+      await restoreAll();
       await db.pendingActions.update(actionId, { status: 'failed' });
       showToast({ message: opts.failMessage });
     };
 
-    sendBridgeMessage(bridgeMsg)
-      .then(async (res) => {
-        if (res.success) {
+    sendToThreads(opts.bridgeType, ids)
+      .then(async (ok) => {
+        if (ok) {
           await db.pendingActions.update(actionId, { status: 'confirmed' });
         } else {
           await rollback();
@@ -513,7 +592,8 @@ export function useOptimisticAction() {
           return;
         }
         await rollback();
-      });
+      })
+        .catch(() => {}); // fire-and-forget: never surface as unhandled
   }
 
   function moveToFocused(conversation: Conversation) {
@@ -553,20 +633,29 @@ export function useOptimisticAction() {
     // Snapshot the STORED row for rollback — the caller's object is the
     // display-merged copy from useConversations (mergedIds plus read/starred
     // overlaid at query time) and must never be persisted back.
-    const storedConv = (await db.conversations.get(conversation.id)) ?? conversation;
-    // Save messages + syncQueue row for rollback before deleting
-    const savedMessages = await db.messages.where('conversationId').equals(conversation.id).toArray();
-    const savedQueueItem = await db.syncQueue.get(conversation.id).catch(() => undefined);
+    const ids = await storedThreadIds(conversation);
+    // Snapshot every thread: leaving a twin behind resurrects the conversation
+    // as its own row the moment the list re-merges.
+    const storedConvs = (await Promise.all(ids.map((id) => db.conversations.get(id))))
+      .filter(Boolean) as Conversation[];
+    const storedConv = storedConvs.find((c) => c.id === conversation.id) ?? conversation;
+    // Save messages + syncQueue rows for rollback before deleting
+    const savedMessages = await db.messages.where('conversationId').anyOf(ids).toArray();
+    const savedQueueItems = (await Promise.all(
+      ids.map((id) => db.syncQueue.get(id).catch(() => undefined))
+    )).filter(Boolean) as any[];
     const bridgeMsg = { type: 'DELETE_CONVERSATION' as const, conversationId: conversation.id };
 
     // Remove from IndexedDB immediately (atomic transaction). The tombstone
     // stops a server page fetched BEFORE this delete from re-inserting the
     // conversation when it merges afterwards.
     await db.transaction('rw', [db.conversations, db.messages, db.syncQueue, db.tombstones], async () => {
-      await db.conversations.delete(conversation.id);
-      await db.messages.where('conversationId').equals(conversation.id).delete();
-      await db.syncQueue.delete(conversation.id).catch(() => {});
-      await db.tombstones.put({ conversationId: conversation.id, deletedAt: Date.now() });
+      for (const id of ids) {
+        await db.conversations.delete(id);
+        await db.messages.where('conversationId').equals(id).delete();
+        await db.syncQueue.delete(id).catch(() => {});
+        await db.tombstones.put({ conversationId: id, deletedAt: Date.now() });
+      }
     });
 
     if (!navigator.onLine) {
@@ -586,17 +675,17 @@ export function useOptimisticAction() {
       bridgeMessage: bridgeMsg,
     });
     const restoreDeleted = async () => {
-      await db.tombstones.delete(conversation.id).catch(() => {});
-      await db.conversations.put(storedConv);
+      for (const id of ids) await db.tombstones.delete(id).catch(() => {});
+      await db.conversations.bulkPut(storedConvs);
       if (savedMessages.length > 0) await db.messages.bulkPut(savedMessages);
-      if (savedQueueItem) await db.syncQueue.put(savedQueueItem).catch(() => {});
+      for (const q of savedQueueItems) await db.syncQueue.put(q).catch(() => {});
       await db.pendingActions.update(actionId, { status: 'failed' });
       showToast({ message: 'Failed to delete — restored' });
     };
 
-    sendBridgeMessage(bridgeMsg)
-      .then(async (res) => {
-        if (res.success) {
+    sendToThreads('DELETE_CONVERSATION', ids)
+      .then(async (ok) => {
+        if (ok) {
           await db.pendingActions.update(actionId, { status: 'confirmed' });
         } else {
           await restoreDeleted();
@@ -608,7 +697,8 @@ export function useOptimisticAction() {
           return;
         }
         await restoreDeleted();
-      });
+      })
+        .catch(() => {}); // fire-and-forget: never surface as unhandled
   }
 
   async function starConversation(conversation: Conversation) {
@@ -616,11 +706,18 @@ export function useOptimisticAction() {
     // read-modify-write atomic: two rapid presses whose `get`s both resolve
     // before either `update` commits would otherwise both take the star
     // branch (like reactToMessage, the transaction serializes them).
+    const ids = await storedThreadIds(conversation);
     let isStarred = false;
     await db.transaction('rw', db.conversations, async () => {
       const stored = await db.conversations.get(conversation.id);
-      isStarred = (stored ?? conversation).starred === 1;
-      await db.conversations.update(conversation.id, { starred: isStarred ? 0 : 1 });
+      // The merged row reads as starred if ANY thread is (useConversations ORs
+      // them), so the toggle has to follow the same rule — otherwise unstarring
+      // leaves a starred twin and the star visibly refuses to turn off.
+      const rows = (await Promise.all(ids.map((id) => db.conversations.get(id)))).filter(Boolean);
+      isStarred = rows.length
+        ? rows.some((r: any) => r.starred === 1)
+        : (stored ?? conversation).starred === 1;
+      for (const id of ids) await db.conversations.update(id, { starred: isStarred ? 0 : 1 });
     });
     if (isStarred) {
       // Unstar
@@ -644,12 +741,15 @@ export function useOptimisticAction() {
         rollbackData: { starred: 1 },
         bridgeMessage: bridgeMsg,
       });
-      sendBridgeMessage(bridgeMsg)
-        .then(async (res) => {
-          if (res.success) {
+      const restoreStar = async (v: number) => {
+        for (const id of ids) await db.conversations.update(id, { starred: v });
+      };
+      sendToThreads('UNSTAR', ids)
+        .then(async (ok) => {
+          if (ok) {
             await db.pendingActions.update(actionId, { status: 'confirmed' });
           } else {
-            await db.conversations.update(conversation.id, { starred: 1 });
+            await restoreStar(1);
             await db.pendingActions.update(actionId, { status: 'failed' });
             showToast({ message: 'Failed to unstar — rolled back' });
           }
@@ -659,10 +759,11 @@ export function useOptimisticAction() {
             await queueAction(actionId, bridgeMsg);
             return;
           }
-          await db.conversations.update(conversation.id, { starred: 1 });
+          await restoreStar(1);
           await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: 'Failed to unstar — rolled back' });
-        });
+        })
+          .catch(() => {}); // fire-and-forget: never surface as unhandled
     } else {
       // Star
       showToast({ message: 'Conversation starred' });
@@ -685,12 +786,15 @@ export function useOptimisticAction() {
         rollbackData: { starred: 0 },
         bridgeMessage: bridgeMsg,
       });
-      sendBridgeMessage(bridgeMsg)
-        .then(async (res) => {
-          if (res.success) {
+      const restoreStar = async (v: number) => {
+        for (const id of ids) await db.conversations.update(id, { starred: v });
+      };
+      sendToThreads('STAR', ids)
+        .then(async (ok) => {
+          if (ok) {
             await db.pendingActions.update(actionId, { status: 'confirmed' });
           } else {
-            await db.conversations.update(conversation.id, { starred: 0 });
+            await restoreStar(0);
             await db.pendingActions.update(actionId, { status: 'failed' });
             showToast({ message: 'Failed to star — rolled back' });
           }
@@ -700,10 +804,11 @@ export function useOptimisticAction() {
             await queueAction(actionId, bridgeMsg);
             return;
           }
-          await db.conversations.update(conversation.id, { starred: 0 });
+          await restoreStar(0);
           await db.pendingActions.update(actionId, { status: 'failed' });
           showToast({ message: 'Failed to star — rolled back' });
-        });
+        })
+          .catch(() => {}); // fire-and-forget: never surface as unhandled
     }
   }
 

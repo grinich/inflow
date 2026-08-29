@@ -106,6 +106,19 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
               {conversation.participantNames.length} participants
             </p>
           )}
+          {/* LinkedIn keeps more than one 1:1 thread with the same person (an
+              old InMail plus the one an accepted invite creates, say). The list
+              folds them into a single row, which is only confusing if the row
+              never says so — and it explains why the messages below jump
+              between two conversations. */}
+          {!!conversation.mergedIds?.length && (
+            <p
+              className="truncate text-xs text-fg-muted"
+              title={`LinkedIn has ${conversation.mergedIds.length + 1} separate conversations with this person. inflow shows them as one; replies go to the most recent.`}
+            >
+              Merged from {conversation.mergedIds.length + 1} LinkedIn threads
+            </p>
+          )}
         </div>
 
         {/* Action buttons */}
