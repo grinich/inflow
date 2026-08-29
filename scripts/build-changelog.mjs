@@ -72,8 +72,14 @@ function inline(md) {
   s = escapeHtml(s);
   // Images before links — `![alt](src)` also matches the link pattern, and would
   // otherwise render as a literal "!" followed by a link to the image file.
-  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) =>
-    `<img class="rel-img" src="${attr(src)}" alt="${attr(alt)}" loading="lazy">`);
+  // An optional markdown title picks the variant: `![alt](src "icon")` is a
+  // small square mark, anything else is a full-width screenshot. Without this
+  // every image rendered at the icon's 96px, which is useless for a screenshot.
+  // escapeHtml leaves quotes alone, so the title arrives with real " marks.
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (_, alt, src, title) => {
+    const cls = title === 'icon' ? 'rel-icon' : 'rel-shot';
+    return `<img class="${cls}" src="${attr(src)}" alt="${attr(alt)}" loading="lazy">`;
+  });
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, href) => `<a href="${href}">${text}</a>`);
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');

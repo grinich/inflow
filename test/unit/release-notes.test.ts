@@ -104,7 +104,14 @@ describe('release notes', () => {
   it('builds the real 0.6.0 body with its image and the update section', () => {
     const notes = buildReleaseNotes('0.6.0', CHANGELOG) as string;
 
-    expect(notes).toContain('![The inƒlow app icon](https://inflow.im/icons/app-icon-192.png)');
+    // The "icon" title is a size hint for the site; GitHub renders it as a
+    // tooltip, which is harmless.
+    expect(notes).toContain('![The inƒlow app icon](https://inflow.im/icons/app-icon-192.png "icon")');
+    // The desktop-app screenshots must reach the release page too, and by
+    // absolute URL — GitHub has no base to resolve a relative one against.
+    for (const shot of ['dark', 'light']) {
+      expect(notes).toContain(`https://inflow.im/img/0.6.0-desktop-app-${shot}.png`);
+    }
     expect(notes).toContain(HOW_TO_UPDATE);
     expect(notes).not.toContain('## [0.5.2]');
     // The defect this guards: no bullet may still be split across lines.

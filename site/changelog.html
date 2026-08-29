@@ -77,7 +77,8 @@
 .rel-store.is-pending::before{background:none;border:1px solid currentColor}
 .rel-body{display:flex;flex-direction:column;gap:24px;max-width:42rem}
 .rel-intro{margin:0;color:var(--ink-2);line-height:1.6}
-.rel-img{display:block;width:96px;height:auto;border-radius:20px}
+.rel-icon{display:block;width:96px;height:auto;border-radius:20px}
+.rel-shot{display:block;width:100%;height:auto;border-radius:10px;border:1px solid var(--line);margin:4px 0}
 .rel-group{display:flex;flex-direction:column;gap:10px}
 .rel-tag{
   font-size:.6875rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
@@ -165,8 +166,10 @@
         <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
-        <p class="rel-intro"><img class="rel-img" src="https://inflow.im/icons/app-icon-192.png" alt="The inƒlow app icon" loading="lazy"></p>
+        <p class="rel-intro"><img class="rel-icon" src="https://inflow.im/icons/app-icon-192.png" alt="The inƒlow app icon" loading="lazy"></p>
         <p class="rel-intro"><strong>inƒlow becomes an app.</strong> It now lives at a real URL — <a href="https://inflow.im/app">inflow.im/app</a> — and installs as a standalone desktop app with its own dock icon, unread badge, and native notifications. It also lands on Microsoft Edge. Underneath, 30 bugs found by a systematic audit of the composer, optimistic actions, caching, and realtime layers, each locked in by a regression test (the suite grew to 1,003 tests).</p>
+        <p class="rel-intro"><img class="rel-shot" src="https://inflow.im/img/0.6.0-desktop-app-dark.png" alt="inƒlow running as a desktop app in dark mode — conversation list on the left, thread on the right" loading="lazy"></p>
+        <p class="rel-intro"><img class="rel-shot" src="https://inflow.im/img/0.6.0-desktop-app-light.png" alt="The same window in light mode" loading="lazy"></p>
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>

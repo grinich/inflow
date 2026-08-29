@@ -124,12 +124,24 @@ describe('changelog site build', () => {
       // `![alt](src)` also matches the link pattern; without image handling
       // first it renders as a literal "!" followed by a link to the PNG.
       // alt is assistive copy, so it carries the brand mark; the src must not.
-      expect(inline('![inflow](https://inflow.im/icons/app-icon-192.png)')).toBe(
-        '<img class="rel-img" src="https://inflow.im/icons/app-icon-192.png" ' +
+      expect(inline('![inflow](https://inflow.im/a.png)')).toBe(
+        '<img class="rel-shot" src="https://inflow.im/a.png" ' +
         'alt="inƒlow" loading="lazy">',
       );
       expect(inline('![](https://inflow.im/a.png)')).toContain('alt=""');
       expect(inline('![x](https://inflow.im/a.png)')).not.toContain('<a href');
+    });
+
+    it('sizes an image by its title: "icon" is a mark, anything else a shot', () => {
+      // Without this every image rendered at the icon's 96px, which turns a
+      // screenshot into an unreadable thumbnail.
+      expect(inline('![m](https://inflow.im/icons/app-icon-192.png "icon")'))
+        .toContain('class="rel-icon"');
+      expect(inline('![s](https://inflow.im/img/shot.png)'))
+        .toContain('class="rel-shot"');
+      // The title is a hint, not content: it must not leak into the markup.
+      expect(inline('![m](https://inflow.im/i.png "icon")')).not.toContain('icon"</');
+      expect(inline('![m](https://inflow.im/i.png "icon")')).not.toContain('&quot;');
     });
 
     it('escapes quotes in image attributes so alt text cannot break out', () => {
