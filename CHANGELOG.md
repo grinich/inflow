@@ -24,6 +24,11 @@ All notable changes to inflow are documented here. This project follows
   title bar (window-controls overlay) instead of showing a browser strip.
 - **Smoother first run** — installing the extension now opens the inbox
   immediately instead of leaving you to find the toolbar icon.
+- **Notifications carry the inflow identity in the installed app** — when the
+  desktop app window is open (with notification permission granted), new-message
+  alerts come from inƒlow with its own icon instead of being attributed to
+  Chrome; clicking one focuses the app and opens the conversation. Without an
+  app window they fall back to the extension's notifications as before.
 - **inflow.im goes straight to your inbox** — with the extension installed,
   visiting the homepage redirects to [inflow.im/app](https://inflow.im/app);
   [inflow.im/home](https://inflow.im/home) always shows the homepage, which
@@ -31,6 +36,13 @@ All notable changes to inflow are documented here. This project follows
   install buttons give way to a green *Installed for Chrome* check that
   also opens the app.
   The inƒlow mark in the app's sidebar links back to the homepage.
+
+### Fixed
+- **Conversations in Other can move back to Focused** — the command palette,
+  the thread list's right-click menu, the thread header's dropdown, and the
+  `O` shortcut all showed only "Move to Other", even for conversations
+  already there. Each now flips contextually to "Move to Focused" (and `O`
+  toggles); archived and spam threads keep their existing routes back.
 
 ## [0.5.2] - 2026-08-25
 

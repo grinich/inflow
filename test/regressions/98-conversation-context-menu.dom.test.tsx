@@ -45,6 +45,13 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (testDb) {
+    // Drain the fire-and-forget bridge confirmations before closing the db —
+    // an action's .then() still updating pendingActions after close rejects
+    // with an unhandled DatabaseClosedError under parallel suite load.
+    await waitFor(async () => {
+      const actions = await testDb.pendingActions.toArray();
+      expect(actions.filter((a: any) => a.status === 'pending')).toEqual([]);
+    });
     testDb.close();
     await Dexie.delete(testDb.name);
   }

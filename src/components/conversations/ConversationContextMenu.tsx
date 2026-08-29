@@ -20,8 +20,8 @@ interface MenuItem {
 
 /**
  * Right-click menu for a conversation row. Mirrors the keyboard shortcuts:
- * archive (E), star (S), move to Other (O), spam (!), delete (D) — spam and
- * delete route through the same confirm modals the shortcuts use.
+ * archive (E), star (S), move to Other/Focused (O), spam (!), delete (D) —
+ * spam and delete route through the same confirm modals the shortcuts use.
  */
 export function ConversationContextMenu({ conversation, x, y, onClose }: ConversationContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -83,9 +83,12 @@ export function ConversationContextMenu({ conversation, x, y, onClose }: Convers
       onSelect: () => actions.starConversation(conversation),
     },
     {
-      label: 'Move to Other',
+      label: conversation.category === 'SECONDARY_INBOX' ? 'Move to Focused' : 'Move to Other',
       shortcut: 'O',
-      onSelect: () => actions.moveToOther(conversation),
+      onSelect: () =>
+        conversation.category === 'SECONDARY_INBOX'
+          ? actions.moveToFocused(conversation)
+          : actions.moveToOther(conversation),
     },
     {
       label: 'Mark as spam',

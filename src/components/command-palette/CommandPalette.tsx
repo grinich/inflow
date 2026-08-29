@@ -44,9 +44,13 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       if (inboxTab === 'archived') moveToFocused(selectedConv);
       else archiveConversation(selectedConv);
     },
-    moveToOtherSelected: () => {
-      if (selectedConv) moveToOther(selectedConv);
+    moveToOtherOrFocusedSelected: () => {
+      if (!selectedConv) return;
+      // A conversation already in Other moves back to Focused (mirrors the 'o' shortcut).
+      if (selectedConv.category === 'SECONDARY_INBOX') moveToFocused(selectedConv);
+      else moveToOther(selectedConv);
     },
+    selectedInOther: selectedConv?.category === 'SECONDARY_INBOX',
     moveToSpamSelected: () => {
       // Route through the confirmation modal, like the keyboard shortcut does.
       if (selectedConv) useUIStore.getState().setSpamConfirmId(selectedConv.id);

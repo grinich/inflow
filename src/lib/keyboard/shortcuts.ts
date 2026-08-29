@@ -26,7 +26,7 @@ export const shortcutDefinitions: ShortcutDef[] = [
 
   // Actions
   { key: 'e', display: 'E', context: 'List / Thread', group: 'Actions', description: 'Archive / Move to Focused' },
-  { key: 'o', display: 'O', context: 'List / Thread', group: 'Actions', description: 'Move to Other' },
+  { key: 'o', display: 'O', context: 'List / Thread', group: 'Actions', description: 'Move to Other / Focused' },
   { key: 's', display: 'S', context: 'List / Thread', group: 'Actions', description: 'Star conversation' },
   { key: 'u', display: 'U', context: 'List', group: 'Actions', description: 'Toggle read/unread' },
   { key: 'u', display: '⇧U', context: 'Thread', group: 'Actions', description: 'Mark unread & go back', shift: true },

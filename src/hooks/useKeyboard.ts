@@ -298,13 +298,16 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         return;
       }
 
-      // O — Move to Other
+      // O — Move to Other (or back to Focused if already in Other)
       if (e.key === 'o' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         const conv = store.selectedConversationId
           ? convs.find((c) => c.id === store.selectedConversationId)
           : convs[store.selectedIndex];
-        if (conv) act.moveToOther(conv);
+        if (conv) {
+          if (conv.category === 'SECONDARY_INBOX') act.moveToFocused(conv);
+          else act.moveToOther(conv);
+        }
         return;
       }
 

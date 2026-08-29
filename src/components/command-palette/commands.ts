@@ -7,7 +7,8 @@ export interface Command {
 
 export function buildCommands(actions: {
   archiveSelected: () => void;
-  moveToOtherSelected: () => void;
+  moveToOtherOrFocusedSelected: () => void;
+  selectedInOther: boolean;
   moveToSpamSelected: () => void;
   markReadSelected: () => void;
   markUnreadSelected: () => void;
@@ -37,7 +38,12 @@ export function buildCommands(actions: {
 }): Command[] {
   return [
     { id: 'archive', label: 'Archive conversation', shortcut: 'E', action: actions.archiveSelected },
-    { id: 'move-to-other', label: 'Move to Other', shortcut: 'O', action: actions.moveToOtherSelected },
+    {
+      id: 'move-to-other',
+      label: actions.selectedInOther ? 'Move to Focused' : 'Move to Other',
+      shortcut: 'O',
+      action: actions.moveToOtherOrFocusedSelected,
+    },
     { id: 'move-to-spam', label: 'Mark as spam', shortcut: '!', action: actions.moveToSpamSelected },
     { id: 'mark-read', label: 'Mark as read', shortcut: '', action: actions.markReadSelected },
     { id: 'mark-unread', label: 'Mark as unread', shortcut: 'U', action: actions.markUnreadSelected },

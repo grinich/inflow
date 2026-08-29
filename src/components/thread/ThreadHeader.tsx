@@ -21,6 +21,7 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
   const { archiveConversation, moveToFocused, moveToOther, moveToSpam, markUnread, starConversation: starConv } = useOptimisticAction();
   const inboxTab = useUIStore((s) => s.inboxTab);
   const isInArchive = inboxTab === 'archived';
+  const isInOther = conversation.category === 'SECONDARY_INBOX';
   const [menuOpen, setMenuOpen] = useState(false);
   const [whatsappDismissed, setWhatsappDismissed] = useState(true);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -223,10 +224,10 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
                 <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">U</kbd>
               </button>
               <button
-                onClick={() => { moveToOther(conversation); setMenuOpen(false); }}
+                onClick={() => { (isInOther ? moveToFocused : moveToOther)(conversation); setMenuOpen(false); }}
                 className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg-strong"
               >
-                <span>Move to Other</span>
+                <span>{isInOther ? 'Move to Focused' : 'Move to Other'}</span>
                 <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">O</kbd>
               </button>
               {conversation.category === 'SPAM' ? (
