@@ -209,6 +209,19 @@ html,body{height:100%;overflow:hidden}
     document.body.appendChild(frame);
     frame.focus();
     connectUnreadPort(id);
+
+    // Some extensions' content scripts sweep away cross-extension iframes
+    // they can't script (observed with automation tooling; ad/privacy
+    // blockers can do it too). Re-attach when that happens — reparenting
+    // reloads the frame, which beats a silently blank page. Bounded so a
+    // persistent remover can't cause an infinite tug-of-war.
+    var reattachesLeft = 3;
+    new MutationObserver(function () {
+      if (frame && !document.body.contains(frame) && reattachesLeft-- > 0) {
+        document.body.appendChild(frame);
+        frame.focus();
+      }
+    }).observe(document.body, { childList: true });
   }
 
   window.addEventListener('focus', function () {

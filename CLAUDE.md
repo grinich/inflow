@@ -45,8 +45,10 @@ inflow is a Chrome extension (MV3) that provides a keyboard-driven messaging cli
    (see `docs/chrome-web-store-release.md` for the required secrets)
 5. The site (inflow.im) deploys automatically on push — the Vercel project is
    connected to this GitHub repo (since 0.5.1; before that, deploys were
-   manual and the live changelog went stale). `cd site && npx vercel --prod`
-   still works as a manual fallback.
+   manual and the live changelog went stale). Manual fallback: run from the
+   **repo root** (the project's root-directory setting is `site`, so running
+   inside `site/` fails looking for `site/site`):
+   `VERCEL_ORG_ID=team_KLSLe39H0laAoEpSRLqEoH6W VERCEL_PROJECT_ID=prj_4MRzBhL20cBHjxWnTn4NF1j6us37 npx vercel --prod --yes`
 
 ## Marketing site
 
