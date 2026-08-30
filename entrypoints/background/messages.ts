@@ -91,13 +91,34 @@ export function setupMessageRouter() {
 async function storeArrivedPage<T extends { id: string; status: string }>(
   table: EntityTable<T, 'id'>,
   rows: T[]
-): Promise<void> {
-  if (!rows.length) return;
+): Promise<number> {
+  if (!rows.length) return 0;
   const ids = rows.map((r) => r.id) as Parameters<typeof table.bulkGet>[0];
   const existing = await table.bulkGet(ids);
   // Never resurrect one the user accepted, ignored or withdrew since.
   const fresh = rows.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
   if (fresh.length) await table.bulkPut(fresh);
+  // How many we had never seen. A page of nothing new is the signal that the
+  // walk has caught up with what is already stored.
+  return existing.filter((row) => !row).length;
+}
+
+/**
+ * How long a complete walk stays authoritative.
+ *
+ * Removals are the only change an incremental walk cannot see — a withdrawn or
+ * expired request just vanishes from the middle of the list — so the full read
+ * still happens, just hourly rather than on every open of the view.
+ */
+const WALK_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** Whether this walk has to read every page, or may stop once it recognises one. */
+async function mustReadEverything(name: string): Promise<boolean> {
+  const prior = await db.walkState.get(name);
+  // Never completed one — including after a reset, which clears this — means
+  // we cannot assume anything about the pages we are not about to read.
+  if (!prior?.completedAt) return true;
+  return Date.now() - prior.completedAt > WALK_TTL_MS;
 }
 
 export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
@@ -348,6 +369,8 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       const MAX_PAGES = 50;
       const invitations: Invitation[] = [];
       const seenIds = new Set<string>();
+      const readEverything = await mustReadEverything('invitations');
+      let added = 0;
       // Captured BEFORE the walk starts writing. Pages now land as they
       // arrive, so reading this afterwards would count rows this very walk
       // added and the truncation ratio below would no longer mean what it says.
@@ -375,10 +398,19 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         for (const i of unseen) seenIds.add(i.id);
         invitations.push(...unseen);
         // Show this page now rather than at the end of the walk.
-        await storeArrivedPage(db.invitations, unseen);
+        const newThisPage = await storeArrivedPage(db.invitations, unseen);
+        added += newThisPage;
         // These senders are often richer than the sparse profiles the
         // Messenger API returns, and they were previously discarded entirely.
         await mergeProfiles(batchProfiles);
+        // Same rule as the sent walk. `total` from this endpoint has been seen
+        // reporting the PAGE size rather than the set size, which is exactly
+        // why the arithmetic has to agree before we trust it — a bogus total
+        // will not match, and we read everything as before.
+        if (!readEverything && newThisPage === 0 && total !== null && heldBefore + added === total) {
+          debugLog('info', `FETCH_INVITATIONS stopped at page ${page}: already up to date`);
+          break;
+        }
         // `paging.total` is only ever trusted in the direction of fetching
         // MORE. This endpoint has been OBSERVED reporting `total` as the page
         // size (40) rather than the size of the full set: treating it as a
@@ -423,6 +455,9 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
           await db.invitations.bulkDelete(doomed);
         }
       }
+      if (complete) {
+        await db.walkState.put({ name: 'invitations', completedAt: Date.now(), total });
+      }
       return { success: true, data: { count: invitations.length, complete } };
     }
     case 'ACCEPT_INVITATION':
@@ -446,6 +481,12 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       const seenIds = new Set<string>();
       let total: number | null = null;
       let complete = false;
+      // Reading all 32 pages to rediscover an unchanged list is the bulk of
+      // what made this slow. Stop early when we recognise a whole page AND
+      // hold exactly as many rows as the server says exist — see caughtUp.
+      const readEverything = await mustReadEverything('sentInvitations');
+      const heldBefore = await db.sentInvitations.where('status').equals('pending').count();
+      let added = 0;
 
       for (let page = 0; page < MAX_PAGES; page++) {
         let source: string;
@@ -467,7 +508,18 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         sent.push(...unseen);
         // Show this page now. This is the slowest walk of the three — one
         // request per ten rows — so buffering it was the longest wait.
-        await storeArrivedPage(db.sentInvitations, unseen);
+        const newThisPage = await storeArrivedPage(db.sentInvitations, unseen);
+        added += newThisPage;
+        // Nothing on this page was new, and our pending count now agrees with
+        // the server's own heading — so no request has been withdrawn or
+        // accepted behind our back, and every older page is already stored.
+        // Both halves are needed: the count alone cannot tell one removed and
+        // one added from no change at all.
+        const caughtUp = newThisPage === 0 && total !== null && heldBefore + added === total;
+        if (!readEverything && caughtUp) {
+          debugLog('info', `FETCH_SENT_INVITATIONS stopped at page ${page}: already up to date`);
+          break;
+        }
         // Short by the page's OWN row count, not by how many of them we could
         // read: a full page with one unreadable row is not the end of the list,
         // and treating it as one would also let the prune below run.
@@ -491,6 +543,12 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         );
       }
 
+      // Only a walk that read every page may claim to have covered the list.
+      // An early stop deliberately leaves the old timestamp alone, so the TTL
+      // still forces a full read on schedule.
+      if (complete) {
+        await db.walkState.put({ name: 'sentInvitations', completedAt: Date.now(), total });
+      }
       return { success: true, data: { count: sent.length, total: total ?? sent.length, complete } };
     }
     case 'WITHDRAW_INVITATION': {
@@ -529,7 +587,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     }
     case 'RESET_DB': {
       // Clear all tables (safer than db.delete() which can break the Dexie instance)
-      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones, db.invitations, db.sentInvitations, db.connections], async () => {
+      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones, db.invitations, db.sentInvitations, db.connections, db.walkState], async () => {
         await db.conversations.clear();
         await db.messages.clear();
         await db.profiles.clear();
@@ -543,6 +601,9 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         await db.invitations.clear();
         await db.sentInvitations.clear();
         await db.connections.clear();
+        // Otherwise the next walk would trust a completion that covered rows
+        // this reset just deleted, and stop after one page.
+        await db.walkState.clear();
       });
       clearDebugLogs();
       await syncConversations();

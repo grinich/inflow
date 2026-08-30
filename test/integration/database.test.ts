@@ -49,6 +49,7 @@ describe('applySchema', () => {
       'syncQueue',
       'syncState',
       'tombstones',
+      'walkState',
     ]);
   });
 

@@ -44,6 +44,23 @@ export interface SyncState {
   lastSyncCompletedAt: number;
 }
 
+/**
+ * How far a paginated walk got, so the next one need not start from nothing.
+ *
+ * The invitation walks read the whole list every time the network view opened
+ * — thirty-odd sequential requests for a few hundred sent requests. Recording
+ * that a walk covered everything, and what the server said the total was,
+ * lets the next one stop as soon as it recognises what it is reading.
+ */
+export interface WalkState {
+  /** 'invitations' | 'sentInvitations' */
+  name: string;
+  /** When a walk last covered the COMPLETE list. 0 if one never has. */
+  completedAt: number;
+  /** Rows the server claimed at that point, or null if it did not say. */
+  total: number | null;
+}
+
 export interface DraftAttachment {
   conversationId: string;
   text?: string;     // draft message text
@@ -91,6 +108,7 @@ type InflowDatabase = Dexie & {
   invitations: EntityTable<Invitation, 'id'>;
   sentInvitations: EntityTable<SentInvitation, 'id'>;
   connections: EntityTable<Connection, 'profileUrn'>;
+  walkState: EntityTable<WalkState, 'name'>;
 };
 
 export function applySchema(database: Dexie): void {
@@ -308,6 +326,26 @@ export function applySchema(database: Dexie): void {
     invitations: 'id, sentAt, status',
     connections: 'profileUrn, connectedAt',
     sentInvitations: 'id, sentAt, status',
+  });
+
+  // v16: remember how far each invitation walk got. Without it every open of
+  // the network view re-read every page — one request per ten sent requests,
+  // the first of them a 600KB page — to rediscover a list that had not changed.
+  database.version(16).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, starred, *participantUrns, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+    draftAttachments: 'conversationId',
+    tombstones: 'conversationId',
+    invitations: 'id, sentAt, status',
+    connections: 'profileUrn, connectedAt',
+    sentInvitations: 'id, sentAt, status',
+    walkState: 'name',
   });
 }
 
