@@ -54,12 +54,21 @@ export async function respondToInvitation(
  *   relationships/dash/invitationViews?q=sent             404
  *
  * `q=receivedInvitation` on the same path still returns 200, so the endpoint
- * lives — LinkedIn has moved sent invitations off it. Their own Sent page
- * (/mynetwork/invitation-manager/sent/) is server-driven UI now and makes no
- * Voyager call at all; the rows are rendered into the document, which does
- * carry invitationId and profileUrn but no sharedSecret.
+ * lives — LinkedIn has moved sent invitations off Voyager entirely. Watching
+ * their own invitation manager confirms it: switching Received → Sent fires no
+ * Voyager call at all, and neither does withdrawing.
  *
- * Left in place, unused, until we decide whether to scrape that page. Do not
+ * What it does instead (see docs/linkedin-sent-invitations.md for the full
+ * capture):
+ *
+ *   list      POST /flagship-web/mynetwork/invitation-manager/sent
+ *             → HTML with a JSON island per row carrying invitationId,
+ *               profileUrn, firstName, lastName and inviteeVanityName, plus a
+ *               "People (N)" total. First ~10 rows only.
+ *   withdraw  POST /flagship-web/rsc-action/actions/server-request
+ *                  ?sduiid=com.linkedin.sdui.requests.mynetwork.addaWithdrawInvitation
+ *
+ * Left in place, unused, until we decide whether to take that route. Do not
  * wire it back to the UI as-is: it cannot return anything.
  */
 export async function fetchSentInvitationsRaw(start = 0, count = 40): Promise<any> {
