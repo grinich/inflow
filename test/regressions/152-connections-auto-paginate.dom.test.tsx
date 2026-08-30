@@ -122,20 +122,16 @@ describe('connections auto-pagination', () => {
     await waitFor(() => expect(testDb.connections.count()).resolves.toBe(80));
   });
 
-  it('marks the count as partial while more remain', async () => {
+  it('keeps a count off the tab, so its width never shifts', async () => {
+    // Counts arrived with the fetch rather than the render, so each one
+    // appearing resized its button and nudged the two beside it — a flicker
+    // every time the view opened.
     serveConnections(95);
     render(<NetworkView />);
 
-    // "40" claims that is all of them; "40+" does not.
-    await waitFor(() => expect(screen.getByText('40+')).toBeInTheDocument());
-  });
-
-  it('drops the + once the whole list is in', async () => {
-    serveConnections(25);
-    render(<NetworkView />);
-
-    await waitFor(() => expect(screen.getByText('25')).toBeInTheDocument());
-    expect(screen.queryByText('25+')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText('Connection 0').length).toBeGreaterThan(0));
+    const tab = screen.getByTitle('Connections (2)');
+    expect(tab.textContent).toBe('Connections');
   });
 
   it('does not fetch the same page twice when both triggers fire', async () => {

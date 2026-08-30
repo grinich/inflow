@@ -42,10 +42,6 @@ export function NetworkView() {
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
-  // Every outstanding sent request, from the page's own heading. The page
-  // embeds only its first handful of rows, so this is almost always larger
-  // than what the list can show.
-  const [sentTotal, setSentTotal] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const nextStartRef = useRef(PAGE);
   const filterRef = useRef<HTMLInputElement>(null);
@@ -69,15 +65,7 @@ export function NetworkView() {
 
     Promise.allSettled([
       sendBridgeMessage({ type: 'FETCH_INVITATIONS' }).then(note('invitations')).catch(fail('invitations')),
-      sendBridgeMessage({ type: 'FETCH_SENT_INVITATIONS' })
-        .then(note('sent'))
-        .then((res) => {
-          if (!cancelled && res.success && typeof res.data?.total === 'number') {
-            setSentTotal(res.data.total);
-          }
-          return res;
-        })
-        .catch(fail('sent')),
+      sendBridgeMessage({ type: 'FETCH_SENT_INVITATIONS' }).then(note('sent')).catch(fail('sent')),
       sendBridgeMessage({ type: 'FETCH_CONNECTIONS' })
         .then(note('connections'))
         .then((res) => {
@@ -281,24 +269,14 @@ export function NetworkView() {
     return () => window.removeEventListener('keydown', handler);
   }, [networkTab, rowCount, filteredInvitations, filteredSent, filteredConnections, actions, setAppView, setNetworkTab, setSelectedIndex]);
 
-  // `40` next to Connections reads as "you have 40 connections". It is really
-  // "40 synced so far", so say so while more remain.
-  const TABS: { id: NetworkTab; label: string; count: string; key: string }[] = [
-    { id: 'invitations', label: 'Invitations', count: invitations.length ? String(invitations.length) : '', key: '1' },
-    {
-      id: 'connections',
-      label: 'Connections',
-      count: connections.length ? `${connections.length}${hasMore ? '+' : ''}` : '',
-      key: '2',
-    },
-    {
-      id: 'sent',
-      label: 'Sent',
-      // The heading's total, not the row count — the page hands over a
-      // handful of rows out of hundreds.
-      count: String(sentTotal ?? sentInvitations.length ?? '') || '',
-      key: '3',
-    },
+  // No counts on the tabs. They arrive with the fetch rather than with the
+  // render, so each one appearing resized its button and shifted the two
+  // beside it — a visible flicker every time you opened the view. A number
+  // that jumps is worse than no number.
+  const TABS: { id: NetworkTab; label: string; key: string }[] = [
+    { id: 'invitations', label: 'Invitations', key: '1' },
+    { id: 'connections', label: 'Connections', key: '2' },
+    { id: 'sent', label: 'Sent', key: '3' },
   ];
 
   const selectedInvitation = filteredInvitations[selectedIndex];
@@ -339,7 +317,6 @@ export function NetworkView() {
                     }`}
                   >
                     {tab.label}
-                    {tab.count && <span className="ml-1 text-fg-muted">{tab.count}</span>}
                   </button>
                 ))}
               </div>

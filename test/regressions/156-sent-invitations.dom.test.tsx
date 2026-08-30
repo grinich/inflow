@@ -125,19 +125,20 @@ describe('regression #156: the Sent tab', () => {
     expect(screen.queryByText(/hands over the first page/)).toBeNull();
   });
 
-  it('counts the outstanding requests on the tab', async () => {
+  it('carries no count on the tab', async () => {
+    // A count that arrives with the fetch resizes the button and shifts the
+    // tabs beside it. The label alone is a fixed width.
     await renderSent();
 
-    const tab = screen.getByTitle('Sent (3)');
-    expect(tab.textContent).toContain('2');
+    expect(screen.getByTitle('Sent (3)').textContent).toBe('Sent');
   });
 
-  it('only counts the ones still pending', async () => {
+  it('drops a withdrawn row from the list', async () => {
     await testDb.sentInvitations.update('sent-1', { status: 'withdrawn' });
     await renderSent();
 
-    await waitFor(() => expect(screen.getByTitle('Sent (3)').textContent).toContain('1'));
-    // A withdrawn row leaves the list rather than lingering greyed out.
-    expect(screen.queryByText('Recipient 1')).toBeNull();
+    // Gone, rather than lingering greyed out.
+    await waitFor(() => expect(screen.queryByText('Recipient 1')).toBeNull());
+    expect(screen.getAllByText('Recipient 0').length).toBeGreaterThan(0);
   });
 });
