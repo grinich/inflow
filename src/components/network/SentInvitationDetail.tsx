@@ -61,11 +61,9 @@ export function SentInvitationDetail({ invitation, onWithdraw, onOpenProfile }: 
         <div className="mx-auto flex max-w-md">
           <button
             onClick={onWithdraw}
-            title="Withdraw (⌫)"
-            className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full border border-edge py-2 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
+            className="flex-1 cursor-pointer rounded-full border border-edge py-2 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
           >
             Withdraw
-            <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px] font-normal text-fg-faint">⌫</kbd>
           </button>
         </div>
       </div>

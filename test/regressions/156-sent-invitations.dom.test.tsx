@@ -96,23 +96,15 @@ describe('regression #156: the Sent tab', () => {
     expect(withdrawInvitation.mock.calls[0][0].id).toBe('sent-0');
   });
 
-  it('withdraws from the keyboard', async () => {
+  it('has no withdraw key — the button is the only way', async () => {
     await renderSent();
 
-    await waitFor(() => {
-      fireEvent.keyDown(window, { key: 'Backspace' });
-      expect(withdrawInvitation.mock.calls.length).toBeGreaterThan(0);
-    });
-    expect(withdrawInvitation.mock.calls[0][0].id).toBe('sent-0');
-  });
+    // Deliberate: a stray D on the wrong tab must not silently retract a
+    // request. Withdrawing is not symmetrical with ignoring an incoming one.
+    fireEvent.keyDown(window, { key: 'd' });
+    fireEvent.keyDown(window, { key: 'Backspace' });
 
-  it('withdraws on ⌘I, which stays "get rid of this one" across tabs', async () => {
-    await renderSent();
-
-    await waitFor(() => {
-      fireEvent.keyDown(window, { key: 'i', metaKey: true });
-      expect(withdrawInvitation.mock.calls.length).toBeGreaterThan(0);
-    });
+    expect(withdrawInvitation).not.toHaveBeenCalled();
   });
 
   it('offers no Accept — there is nothing to accept on an outgoing request', async () => {
@@ -125,7 +117,7 @@ describe('regression #156: the Sent tab', () => {
   it('counts the outstanding requests on the tab', async () => {
     await renderSent();
 
-    const tab = screen.getByTitle('Sent (2)');
+    const tab = screen.getByTitle('Sent (3)');
     expect(tab.textContent).toContain('2');
   });
 
@@ -133,7 +125,7 @@ describe('regression #156: the Sent tab', () => {
     await testDb.sentInvitations.update('sent-1', { status: 'withdrawn' });
     await renderSent();
 
-    await waitFor(() => expect(screen.getByTitle('Sent (2)').textContent).toContain('1'));
+    await waitFor(() => expect(screen.getByTitle('Sent (3)').textContent).toContain('1'));
     // A withdrawn row leaves the list rather than lingering greyed out.
     expect(screen.queryByText('Recipient 1')).toBeNull();
   });

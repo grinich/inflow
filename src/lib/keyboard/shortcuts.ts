@@ -50,14 +50,10 @@ export const shortcutDefinitions: ShortcutDef[] = [
   // Network
   { key: 'g', display: 'G N', context: 'Global', group: 'Navigation', description: 'Go to Network' },
   { key: 'Enter', display: '↵', context: 'Network', group: 'Actions', description: 'Accept invitation / message connection' },
-  { key: 'Enter', display: '⌘↵', context: 'Network', group: 'Actions', description: 'Accept invitation', meta: true },
   { key: 'x', display: 'D / ⌫', context: 'Network', group: 'Actions', description: 'Ignore invitation' },
-  { key: 'i', display: '⌘I', context: 'Network', group: 'Actions', description: 'Ignore invitation', meta: true },
   { key: 'm', display: 'M', context: 'Network', group: 'Actions', description: 'Message connection' },
-  { key: 'i', display: '⌘I', context: 'Network', group: 'Actions', description: 'Withdraw sent invitation', meta: true },
-  { key: 'x', display: 'D / ⌫', context: 'Network', group: 'Actions', description: 'Withdraw sent invitation' },
-  { key: 'Tab', display: 'Tab', context: 'Network', group: 'Navigation', description: 'Cycle Invitations / Sent / Connections' },
+  { key: 'Tab', display: 'Tab', context: 'Network', group: 'Navigation', description: 'Cycle Invitations / Connections / Sent' },
   { key: '1', display: '1', context: 'Network', group: 'Navigation', description: 'Go to Invitations' },
-  { key: '2', display: '2', context: 'Network', group: 'Navigation', description: 'Go to Sent' },
-  { key: '3', display: '3', context: 'Network', group: 'Navigation', description: 'Go to Connections' },
+  { key: '2', display: '2', context: 'Network', group: 'Navigation', description: 'Go to Connections' },
+  { key: '3', display: '3', context: 'Network', group: 'Navigation', description: 'Go to Sent' },
 ];

@@ -167,34 +167,7 @@ export function NetworkView() {
       // dropdown needs its own Arrow keys to change options.
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
 
-      // ⌘↵ / ⌘I act on the selected invitation. Handled ahead of both the
-      // modifier bail-out below and the editable-control check, because a
-      // chorded shortcut is unambiguous — the point of holding a modifier is
-      // that it still works while you are typing in the filter box.
-      if (e.metaKey || e.ctrlKey) {
-        const i = useUIStore.getState().networkSelectedIndex;
-        if (networkTab === 'invitations') {
-          const inv = filteredInvitations[i];
-          if (!inv) return;
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            actions.acceptInvitation(inv);
-          } else if (e.key === 'i' || e.key === 'I') {
-            e.preventDefault();
-            actions.ignoreInvitation(inv);
-          }
-        } else if (networkTab === 'sent') {
-          // ⌘I stays "get rid of this one" across tabs; there is no ⌘↵ here
-          // because an outgoing request has nothing to accept.
-          const inv = filteredSent[i];
-          if (!inv) return;
-          if (e.key === 'i' || e.key === 'I') {
-            e.preventDefault();
-            actions.withdrawInvitation(inv);
-          }
-        }
-        return;
-      }
+      if (e.metaKey || e.ctrlKey) return;
       if (isInput) {
         if (e.key === 'Escape') (target as HTMLElement).blur();
         if (e.key === 'Enter') (target as HTMLElement).blur();
@@ -223,7 +196,7 @@ export function NetworkView() {
           return;
         case 'Tab': {
           e.preventDefault();
-          const order: NetworkTab[] = ['invitations', 'sent', 'connections'];
+          const order: NetworkTab[] = ['invitations', 'connections', 'sent'];
           setNetworkTab(order[(order.indexOf(networkTab) + 1) % order.length]);
           return;
         }
@@ -233,11 +206,11 @@ export function NetworkView() {
           return;
         case '2':
           e.preventDefault();
-          setNetworkTab('sent');
+          setNetworkTab('connections');
           return;
         case '3':
           e.preventDefault();
-          setNetworkTab('connections');
+          setNetworkTab('sent');
           return;
       }
       if (networkTab === 'invitations') {
@@ -249,8 +222,8 @@ export function NetworkView() {
       } else if (networkTab === 'sent') {
         const inv = filteredSent[idx];
         if (!inv) return;
-        // Same keys that clear a row elsewhere; there is nothing to accept here.
-        if (e.key === 'd' || e.key === 'x' || e.key === 'Backspace') { e.preventDefault(); actions.withdrawInvitation(inv); }
+        // Withdraw is button-only for now — deliberately no key, so a stray D
+        // on the wrong tab cannot silently retract a request.
         if (e.key === 'p') { e.preventDefault(); actions.openProfile({ publicId: inv.publicId, profileUrn: inv.toUrn }); }
       } else {
         const conn = filteredConnections[idx];
@@ -267,13 +240,13 @@ export function NetworkView() {
   // "40 synced so far", so say so while more remain.
   const TABS: { id: NetworkTab; label: string; count: string; key: string }[] = [
     { id: 'invitations', label: 'Invitations', count: invitations.length ? String(invitations.length) : '', key: '1' },
-    { id: 'sent', label: 'Sent', count: sentInvitations.length ? String(sentInvitations.length) : '', key: '2' },
     {
       id: 'connections',
       label: 'Connections',
       count: connections.length ? `${connections.length}${hasMore ? '+' : ''}` : '',
-      key: '3',
+      key: '2',
     },
+    { id: 'sent', label: 'Sent', count: sentInvitations.length ? String(sentInvitations.length) : '', key: '3' },
   ];
 
   const selectedInvitation = filteredInvitations[selectedIndex];
@@ -285,26 +258,30 @@ export function NetworkView() {
       {/* Two panes, same shape as the inbox: list left, selected person right. */}
       <div className="flex min-h-0 flex-1">
         <div style={{ width: sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
-          <header className="border-b border-edge px-3 py-2">
-            <div className="flex items-center gap-1">
+          {/* Same shell as ConversationListHeader — identical padding, gap and
+              first-row height — so the header does not change height and the
+              search field does not jump when you cross between the two views. */}
+          <header className="flex flex-col gap-2 border-b border-edge px-4 py-3">
+            <div className="flex min-h-6 items-center gap-2">
               <button
                 onClick={() => setAppView('inbox')}
-                className="mr-1 shrink-0 rounded px-2 py-1 text-sm text-fg-secondary hover:bg-surface-hover"
+                className="mr-1 shrink-0 cursor-pointer rounded px-2 py-1 text-[11px] font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
                 title="Back to inbox (Esc)"
               >
                 ← Inbox
               </button>
-              {/* Same segmented control as the inbox's Focused/Other/Archived. */}
-              <div className="flex shrink-0 rounded-md bg-surface-input p-0.5">
+              {/* Separate pills rather than one joined track: three tabs of
+                  quite different lengths read better spaced than butted up. */}
+              <div className="flex shrink-0 items-center gap-1">
                 {TABS.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setNetworkTab(tab.id)}
                     title={`${tab.label} (${tab.key})`}
-                    className={`cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
+                    className={`cursor-pointer rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
                       networkTab === tab.id
-                        ? 'bg-surface text-fg-strong shadow-sm'
-                        : 'text-fg-muted hover:text-fg-secondary'
+                        ? 'bg-surface-input text-fg-strong'
+                        : 'text-fg-muted hover:bg-surface-hover hover:text-fg-secondary'
                     }`}
                   >
                     {tab.label}
@@ -313,7 +290,7 @@ export function NetworkView() {
                 ))}
               </div>
             </div>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="flex items-center gap-2">
               {/* Same field as the inbox search box, down to the `/` hint. */}
               <div className="relative min-w-0 flex-1">
                 <input

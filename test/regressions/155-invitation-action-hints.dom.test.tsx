@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
-// ⌘↵ accepts and ⌘I ignores the selected invitation.
+// The detail pane's Accept and Ignore name their keys, and those keys work.
 //
-// The network key handler bailed out of every chorded key (`if (e.metaKey ||
-// e.ctrlKey) return`) before reaching any action, and separately ignored all
-// keys while focus sat in an editable control. Both are right for bare keys
-// and wrong for a chord: holding a modifier is exactly what makes a shortcut
-// unambiguous while you are typing in the filter box.
+// Buttons with no hint leave a keyboard-driven app's main actions undiscovered;
+// hints that name a key the handler does not implement are worse. This pins
+// the two together, so the label and the binding cannot drift apart.
 import '../dom-setup';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import Dexie from 'dexie';
@@ -85,40 +83,42 @@ async function renderNetwork() {
   await waitFor(() => expect(screen.getByText(/Accept invitation from/)).toBeTruthy());
 }
 
-describe('regression #155: ⌘↵ and ⌘I on the network view', () => {
-  it('accepts the selected invitation on ⌘↵', async () => {
+describe('regression #155: the invitation actions and their hints', () => {
+  it('accepts the selected invitation on Enter', async () => {
     await renderNetwork();
 
-    await press(window, { key: 'Enter', metaKey: true }, acceptInvitation);
+    await press(window, { key: 'Enter' }, acceptInvitation);
 
     expect(acceptInvitation.mock.calls[0][0].id).toBe('inv-0');
   });
 
-  it('ignores the selected invitation on ⌘I', async () => {
+  it('ignores the selected invitation on D', async () => {
     await renderNetwork();
     useUIStore.setState({ networkSelectedIndex: 1 });
     await waitFor(() => expect(screen.getByText(/Sender 1/)).toBeTruthy());
 
-    await press(window, { key: 'i', metaKey: true }, ignoreInvitation);
+    await press(window, { key: 'd' }, ignoreInvitation);
 
     expect(ignoreInvitation.mock.calls[0][0].id).toBe('inv-1');
   });
 
-  it('works with Ctrl for non-Mac keyboards', async () => {
+  it('also ignores on Backspace', async () => {
     await renderNetwork();
 
-    await press(window, { key: 'Enter', ctrlKey: true }, acceptInvitation);
+    await press(window, { key: 'Backspace' }, ignoreInvitation);
 
-    expect(acceptInvitation.mock.calls[0][0].id).toBe('inv-0');
+    expect(ignoreInvitation.mock.calls[0][0].id).toBe('inv-0');
   });
 
-  it('still fires while the filter box has focus', async () => {
+  it('leaves the keys alone while the filter box has focus', async () => {
     await renderNetwork();
     const filter = screen.getByPlaceholderText(/^Filter invitations/);
     filter.focus();
 
-    // A bare Enter here just blurs the field; the chord is unambiguous.
-    await press(filter, { key: 'Enter', metaKey: true }, acceptInvitation);
+    // Typing a `d` into the filter must not ignore the selected invitation.
+    fireEvent.keyDown(filter, { key: 'd', bubbles: true });
+
+    expect(ignoreInvitation).not.toHaveBeenCalled();
   });
 
   it('does nothing on the Connections tab', async () => {
@@ -127,19 +127,16 @@ describe('regression #155: ⌘↵ and ⌘I on the network view', () => {
     // Wait for the re-render, or the key handler still closes over the old tab.
     await waitFor(() => expect(screen.getByPlaceholderText(/^Filter connections/)).toBeTruthy());
 
-    fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
-    fireEvent.keyDown(window, { key: 'i', metaKey: true });
+    fireEvent.keyDown(window, { key: 'd' });
 
-    // There is no invitation to accept or ignore over there.
-    expect(acceptInvitation).not.toHaveBeenCalled();
+    // There is no invitation to ignore over there.
     expect(ignoreInvitation).not.toHaveBeenCalled();
   });
 
-  it('shows the chords on the buttons', async () => {
+  it('shows those same keys on the buttons', async () => {
     await renderNetwork();
 
-    // Discoverability: the detail pane's actions name their shortcut.
-    expect(screen.getByText('⌘↵')).toBeTruthy();
-    expect(screen.getByText('⌘I')).toBeTruthy();
+    expect(screen.getByText('↵')).toBeTruthy();
+    expect(screen.getByText('D')).toBeTruthy();
   });
 });
