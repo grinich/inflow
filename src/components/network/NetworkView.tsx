@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
@@ -81,15 +81,45 @@ export function NetworkView() {
     document.querySelectorAll('[data-network-row]')[selectedIndex]?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex, networkTab]);
 
-  async function loadMore() {
+  // Guarded with a ref, not `loadingMore`: the scroll sentinel and the
+  // keyboard both reach for the next page, and reading React state here would
+  // let two overlapping calls fetch the same `start` twice.
+  const fetchingRef = useRef(false);
+  const loadMore = useCallback(async () => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     setLoadingMore(true);
     const res = await sendBridgeMessage({ type: 'FETCH_CONNECTIONS', start: nextStartRef.current }).catch(() => ({ success: false }) as any);
     if (res.success) {
       nextStartRef.current += PAGE;
       setHasMore(Boolean(res.data?.hasMore));
     }
+    fetchingRef.current = false;
     setLoadingMore(false);
-  }
+  }, []);
+
+  // Pull the next page when the end of the list comes into view. A single
+  // 40-row page is nothing for an account with thousands of connections, and
+  // making people click through it 40 at a time is not a browsable list.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || networkTab !== 'connections' || !hasMore || filter) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries.some((e) => e.isIntersecting)) void loadMore(); },
+      { rootMargin: '400px' }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [networkTab, hasMore, filter, loadMore, connections.length]);
+
+  // Same for the keyboard: J/K to the bottom has to keep going, or the list
+  // ends at 40 for anyone who never touches the mouse.
+  useEffect(() => {
+    if (networkTab !== 'connections' || !hasMore || filter) return;
+    if (selectedIndex >= filteredConnections.length - 5) void loadMore();
+  }, [selectedIndex, networkTab, hasMore, filter, filteredConnections.length, loadMore]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -170,9 +200,16 @@ export function NetworkView() {
     return () => window.removeEventListener('keydown', handler);
   }, [networkTab, rowCount, filteredInvitations, filteredConnections, actions, setAppView, setNetworkTab, setSelectedIndex]);
 
-  const TABS: { id: NetworkTab; label: string; count: number; key: string }[] = [
-    { id: 'invitations', label: 'Invitations', count: invitations.length, key: '1' },
-    { id: 'connections', label: 'Connections', count: connections.length, key: '2' },
+  // `40` next to Connections reads as "you have 40 connections". It is really
+  // "40 synced so far", so say so while more remain.
+  const TABS: { id: NetworkTab; label: string; count: string; key: string }[] = [
+    { id: 'invitations', label: 'Invitations', count: invitations.length ? String(invitations.length) : '', key: '1' },
+    {
+      id: 'connections',
+      label: 'Connections',
+      count: connections.length ? `${connections.length}${hasMore ? '+' : ''}` : '',
+      key: '2',
+    },
   ];
 
   return (
@@ -193,7 +230,7 @@ export function NetworkView() {
             className={`shrink-0 rounded px-3 py-1 text-sm font-medium ${networkTab === tab.id ? 'bg-surface-active text-fg-strong' : 'text-fg-secondary hover:bg-surface-hover'}`}
           >
             {tab.label}
-            {tab.count > 0 && <span className="ml-1.5 text-xs text-fg-muted">{tab.count}</span>}
+            {tab.count && <span className="ml-1.5 text-xs text-fg-muted">{tab.count}</span>}
           </button>
         ))}
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -249,9 +286,13 @@ export function NetworkView() {
             {filteredConnections.length === 0 && (
               <p className="p-6 text-sm text-fg-muted">No connections synced yet.</p>
             )}
+            <div ref={sentinelRef} aria-hidden />
             {hasMore && !filter && (
+              // Auto-loading covers the normal path; the button stays as the
+              // fallback for when the observer never fires (no
+              // IntersectionObserver, or a list too short to scroll).
               <button
-                onClick={loadMore}
+                onClick={() => void loadMore()}
                 disabled={loadingMore}
                 className="m-4 rounded border border-edge px-4 py-2 text-sm text-fg-secondary hover:bg-surface-hover disabled:opacity-50"
               >

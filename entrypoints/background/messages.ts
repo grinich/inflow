@@ -348,11 +348,12 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         invitations.push(...unseen);
         profiles.push(...batchProfiles);
         // `paging.total` is only ever trusted in the direction of fetching
-        // MORE. Treating it as a stop condition cost a 382-invitation account
-        // all but the first page: if the endpoint reports `total` as the page
-        // size rather than the full set, the walk stops at 40, calls itself
-        // complete, and the prune below deletes the rest. It may only withhold
-        // the completeness claim or extend the walk, never end it.
+        // MORE. This endpoint has been OBSERVED reporting `total` as the page
+        // size (40) rather than the size of the full set: treating it as a
+        // stop condition cost a 382-invitation account all but the first page,
+        // because the walk stopped at 40, called itself complete, and the
+        // prune deleted the other 342. It may only withhold the completeness
+        // claim or extend the walk, never end it.
         const serverSaysMore = total !== null && invitations.length < total;
         // A page that repeats what we've already seen means the server is
         // ignoring `start`; we have to stop either way, but it is not proof
