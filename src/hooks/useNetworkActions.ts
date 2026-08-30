@@ -240,13 +240,24 @@ export function useNetworkActions() {
     }
     if (!real) return;
 
-    // Carry anything typed while waiting. Losing a half-written reply to a
-    // swap the user did not ask for would be worse than the delay was.
-    const pending = await db.draftAttachments.get(placeholderId).catch(() => undefined);
-    if (pending) {
-      await db.draftAttachments.put({ ...pending, conversationId: real.id });
-      await db.draftAttachments.delete(placeholderId);
+    // Carry anything typed while waiting, reading it off the textarea rather
+    // than out of the database. The composer only autosaves once a second, so
+    // the stored row is up to a second behind — and swapping the conversation
+    // out from under it clears the box, which made those keystrokes look lost
+    // even though a later save put them back.
+    const live = document.querySelector<HTMLTextAreaElement>('[data-compose-input]')?.value ?? '';
+    const stored = await db.draftAttachments.get(placeholderId).catch(() => undefined);
+    const text = live || stored?.text || '';
+    if (text || stored?.files?.length) {
+      await db.draftAttachments.put({
+        conversationId: real.id,
+        text: text || undefined,
+        files: stored?.files ?? [],
+        names: stored?.names ?? [],
+        types: stored?.types ?? [],
+      });
     }
+    await db.draftAttachments.delete(placeholderId).catch(() => {});
 
     await navigateToConversation(real.id);
     focusComposer();

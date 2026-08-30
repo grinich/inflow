@@ -118,7 +118,41 @@ describe('regression #162: accepting an invitation with a note', () => {
     expect(await testDb.conversations.get('draft-ACoAAAsender')).toBeUndefined();
   });
 
-  it('carries a reply typed while waiting onto the real thread', async () => {
+  it('carries keystrokes the composer has not saved yet', async () => {
+    // The composer autosaves once a second, so the stored row lags what is on
+    // screen. Reading only the row lost the last second of typing: the swap
+    // cleared the box, and the text reappeared solely as a draft you had to
+    // navigate away and back to find.
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+    const accept = actions().acceptInvitation(invitation('Hi Michael'));
+
+    await waitFor(() =>
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
+    );
+    // On screen but not yet persisted — exactly the window that lost text.
+    (document.querySelector('[data-compose-input]') as HTMLTextAreaElement).value = 'Typed but unsaved';
+
+    await accept;
+
+    expect((await testDb.draftAttachments.get('conv-late'))?.text).toBe('Typed but unsaved');
+  });
+
+  it('prefers what is on screen over a stale saved draft', async () => {
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+    const accept = actions().acceptInvitation(invitation('Hi Michael'));
+
+    await waitFor(() =>
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
+    );
+    await testDb.draftAttachments.put({ conversationId: 'draft-ACoAAAsender', text: 'one second ago' });
+    (document.querySelector('[data-compose-input]') as HTMLTextAreaElement).value = 'one second ago plus more';
+
+    await accept;
+
+    expect((await testDb.draftAttachments.get('conv-late'))?.text).toBe('one second ago plus more');
+  });
+
+  it('falls back to the saved draft when the box is empty', async () => {
     setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
     const accept = actions().acceptInvitation(invitation('Hi Michael'));
 
