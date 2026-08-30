@@ -92,6 +92,8 @@ function buildDemoInvitations(): Invitation[] {
     message: p.message,
     sentAt: Date.now() - p.daysAgo * DAY_MS,
     status: 'pending' as const,
+    mutualCount: p.mutualCount,
+    mutualNames: [...p.mutuals],
   }));
 }
 

@@ -23,7 +23,7 @@ import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
 import { fetchInvitationsRaw, fetchConnectionsRaw, respondToInvitation } from './api/relationships';
-import { normalizeInvitations, normalizeConnections } from '@/lib/network-normalizer';
+import { normalizeInvitations, normalizeConnections, invitationPaging } from '@/lib/network-normalizer';
 import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
 import { applyPendingReceipts, consumePendingReceipts } from './realtime/pending-receipts';
 import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
@@ -40,6 +40,7 @@ import { getSSEStatus } from './realtime/sse-client';
 import { checkForUpdate } from './update-check';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 import type { Invitation } from '@/types/network';
+import type { Profile } from '@/types/profile';
 
 /**
  * Serialize a mutation (archive/move/read/star/delete/edit) on the same
@@ -315,20 +316,44 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     }
     case 'FETCH_INVITATIONS': {
       const PAGE = 40;
-      const MAX_PAGES = 10; // 400 invitations — a runaway stop, not an expected ceiling
+      // 382 invitations already sits inside the old 10-page (400) cap, which
+      // would have started silently truncating within a few weeks. This ceiling
+      // is a runaway stop, not an expected limit — the walk normally ends on
+      // paging.total or a short page long before reaching it.
+      const MAX_PAGES = 50;
       const invitations: Invitation[] = [];
+      const profiles: Profile[] = [];
       const seenIds = new Set<string>();
       // Walk every page: the view has no load-more, so anything left unfetched
       // is permanently invisible to the user.
       let complete = false;
+      let total: number | null = null;
       for (let page = 0; page < MAX_PAGES; page++) {
-        const raw = await fetchInvitationsRaw(page * PAGE, PAGE);
-        const batch = normalizeInvitations(raw);
+        let raw: any;
+        try {
+          raw = await fetchInvitationsRaw(page * PAGE, PAGE);
+        } catch (err) {
+          // Keep what we already have. Ten-plus sequential Voyager calls will
+          // occasionally trip a rate limit, and discarding several hundred
+          // successfully fetched invitations over the last page is far worse
+          // than storing a prefix. `complete` stays false, so we won't prune.
+          debugLog('error', `FETCH_INVITATIONS stopped at page ${page}: ${String(err)}`);
+          break;
+        }
+        const { invitations: batch, profiles: batchProfiles, rawCount } = normalizeInvitations(raw);
+        total ??= invitationPaging(raw)?.total ?? null;
         // Guard against a server that ignores `start` and replays page 1 forever.
         const unseen = batch.filter((i) => !seenIds.has(i.id));
         for (const i of unseen) seenIds.add(i.id);
         invitations.push(...unseen);
-        if (batch.length < PAGE || unseen.length === 0) {
+        profiles.push(...batchProfiles);
+        // Stop on the SERVER's page size, not the normalized count: a full page
+        // where some entities failed to parse is not the end of the list.
+        if (total !== null && invitations.length >= total) {
+          complete = true;
+          break;
+        }
+        if (rawCount < PAGE || unseen.length === 0) {
           complete = true;
           break;
         }
@@ -346,7 +371,10 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       const existing = await db.invitations.bulkGet(invitations.map((i) => i.id));
       const fresh = invitations.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
       await db.invitations.bulkPut(fresh);
-      return { success: true, data: { count: invitations.length } };
+      // These senders are often richer than the sparse profiles the Messenger
+      // API returns, and they were previously discarded on every sync.
+      await mergeProfiles(profiles);
+      return { success: true, data: { count: invitations.length, complete } };
     }
     case 'ACCEPT_INVITATION':
     case 'IGNORE_INVITATION': {

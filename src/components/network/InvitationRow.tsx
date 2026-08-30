@@ -10,6 +10,19 @@ interface Props {
   onOpenProfile: () => void;
 }
 
+/**
+ * "12 shared connections" — named where the payload gave us names, since a
+ * name you recognise decides the request far faster than a count does.
+ */
+function mutualsLabel({ mutualCount, mutualNames }: Invitation): string {
+  const plural = `${mutualCount} shared connection${mutualCount === 1 ? '' : 's'}`;
+  if (mutualNames.length === 0) return plural;
+  const [first] = mutualNames;
+  const others = mutualCount - 1;
+  if (others <= 0) return `${first} is a shared connection`;
+  return `${first} and ${others} other shared connection${others === 1 ? '' : 's'}`;
+}
+
 export function InvitationRow({ invitation, selected, onAccept, onIgnore, onOpenProfile }: Props) {
   return (
     <div
@@ -34,6 +47,9 @@ export function InvitationRow({ invitation, selected, onAccept, onIgnore, onOpen
           )}
         </div>
         <p className="truncate text-xs text-fg-muted">{invitation.headline}</p>
+        {invitation.mutualCount > 0 && (
+          <p className="truncate text-xs text-fg-muted">{mutualsLabel(invitation)}</p>
+        )}
         {invitation.message && (
           <p className="mt-0.5 truncate text-xs italic text-fg-secondary">“{invitation.message}”</p>
         )}

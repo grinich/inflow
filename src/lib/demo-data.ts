@@ -97,11 +97,11 @@ export const DEMO_OPENERS = [
 ];
 
 export const DEMO_INVITATIONS = [
-  { firstName: 'Noah', lastName: 'Bennett', headline: 'Founder at Driftwood Labs', picture: pic('m71.jpg'), message: 'Loved your talk on local-first apps — would be great to connect!', daysAgo: 0 },
-  { firstName: 'Isabella', lastName: 'Moreau', headline: 'Engineering Recruiter at TalentBridge', picture: pic('w37.jpg'), message: '', daysAgo: 1 },
-  { firstName: 'Leo', lastName: 'Fischer', headline: 'CTO at Brightpath', picture: pic('m87.jpg'), message: 'We met at the React meetup last week. Let\'s stay in touch!', daysAgo: 2 },
-  { firstName: 'Amara', lastName: 'Okafor', headline: 'Product Designer at Northwind', picture: pic('w61.jpg'), message: '', daysAgo: 4 },
-  { firstName: 'Hugo', lastName: 'Silva', headline: 'DevRel at CloudForge', picture: pic('m55.jpg'), message: 'Big fan of inflow — would love to compare notes on Voyager APIs.', daysAgo: 6 },
+  { firstName: 'Noah', lastName: 'Bennett', headline: 'Founder at Driftwood Labs', picture: pic('m71.jpg'), message: 'Loved your talk on local-first apps — would be great to connect!', daysAgo: 0 , mutuals: ['Priya Raman', 'Tom Whitfield'], mutualCount: 14 },
+  { firstName: 'Isabella', lastName: 'Moreau', headline: 'Engineering Recruiter at TalentBridge', picture: pic('w37.jpg'), message: '', daysAgo: 1 , mutuals: ['Priya Raman'], mutualCount: 3 },
+  { firstName: 'Leo', lastName: 'Fischer', headline: 'CTO at Brightpath', picture: pic('m87.jpg'), message: 'We met at the React meetup last week. Let\'s stay in touch!', daysAgo: 2 , mutuals: [], mutualCount: 0 },
+  { firstName: 'Amara', lastName: 'Okafor', headline: 'Product Designer at Northwind', picture: pic('w61.jpg'), message: '', daysAgo: 4 , mutuals: ['Dan Okonkwo', 'Sofia Marchetti'], mutualCount: 27 },
+  { firstName: 'Hugo', lastName: 'Silva', headline: 'DevRel at CloudForge', picture: pic('m55.jpg'), message: 'Big fan of inflow — would love to compare notes on Voyager APIs.', daysAgo: 6 , mutuals: ['Tom Whitfield'], mutualCount: 5 },
 ] as const;
 
 /**

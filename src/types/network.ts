@@ -1,4 +1,12 @@
-export interface Invitation {
+/** Shared-connection context, from the `includeInsights=true` payload. */
+export interface InvitationInsight {
+  /** How many connections you and the sender have in common (0 if unknown). */
+  mutualCount: number;
+  /** Names of the mutuals the payload named — usually a couple, not all of them. */
+  mutualNames: string[];
+}
+
+export interface Invitation extends InvitationInsight {
   /** Numeric invitation id (tail of urn:li:fs_relInvitation:...) */
   id: string;
   /** Secret required by the accept/ignore endpoint */

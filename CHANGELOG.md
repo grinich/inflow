@@ -41,9 +41,30 @@ All notable changes to inflow are documented here. This project follows
   hands its route to the page around it, which keeps it in the address bar and
   gives it back on the next load.
 
+- **Shared connections on each invitation** — requests now carry the same
+  *"Grace Hopper and 11 other shared connections"* line LinkedIn's own My
+  Network page shows, which is usually what decides a request. It rides along
+  on the request inflow already makes.
+
 ### Changed
 - **`⌫` archives in the inbox**, matching `E`, so the same key clears a
   row in both the inbox and the network view.
+
+### Fixed
+- **Invitations no longer go missing on large accounts** — three separate
+  faults, all of which bite hardest on the accounts with the most requests.
+  The walk stopped when a page of invitations *parsed* short, which a full
+  page does whenever a single entity is in a shape inflow doesn't recognise —
+  and stopping that way also convinced it that it had seen the whole list, so
+  it then deleted every pending invitation past that point. A single failed
+  request — likely on any account needing ten or more sequential fetches —
+  threw away every invitation already collected instead of keeping them. And
+  the ceiling sat at 400, which accounts in the high hundreds were already
+  brushing against.
+- **Profile pictures on invitations** — LinkedIn moves shared sub-objects out
+  of the record that references them, and inflow only understood the inline
+  form, so every invitation fell back to a grey initial. Sender profiles are
+  also kept now instead of being discarded after each sync.
 
 ## [0.6.1] - 2026-08-29
 

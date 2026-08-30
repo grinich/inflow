@@ -4,10 +4,14 @@ import { debugLog } from '@/lib/debug-log';
 /**
  * Received connection invitations (classic relationships API — the same
  * endpoint voyager-web's My Network page uses).
+ *
+ * `includeInsights=true` is what carries the shared-connections insight
+ * ("Sarah Chen and 11 other shared connections") that My Network shows under
+ * each request. It costs nothing extra — same request, one response.
  */
 export async function fetchInvitationsRaw(start = 0, count = 40): Promise<any> {
   const res = await voyagerFetch(
-    `/relationships/invitationViews?q=receivedInvitation&start=${start}&count=${count}&includeInsights=false`
+    `/relationships/invitationViews?q=receivedInvitation&start=${start}&count=${count}&includeInsights=true`
   );
   if (!res.ok) {
     debugLog('error', `fetchInvitationsRaw failed: ${res.status}`);

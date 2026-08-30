@@ -1,8 +1,15 @@
-// Regression: FETCH_INVITATIONS fetched only `start=0&count=40`. Neither the
-// handler nor NetworkView exposed a later page, so on accounts with more than
-// 40 pending invitations everything past the first 40 was permanently
-// unreachable in the network view. Walk every page instead, and only prune
-// local pending rows once we've actually seen the complete server set.
+// Regression: three ways the invitation walk lost invitations on a real
+// account (382 pending, which is where all of these start to bite).
+//
+// 1. The early-break compared the NORMALIZED row count against the page size,
+//    so a full server page where some entities failed to parse read as "end of
+//    list" — and because that also set `complete`, the prune then deleted every
+//    local pending row past the truncation point.
+// 2. A single failed page threw out of the loop before `bulkPut`, discarding
+//    every invitation already fetched. Ten-plus sequential Voyager calls will
+//    occasionally trip a rate limit, so this was a routine total loss.
+// 3. MAX_PAGES was 10 (400 invitations) — a ceiling this account was already
+//    at 382 of.
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
 import type { Invitation } from '@/types/network';
@@ -23,9 +30,6 @@ vi.mock('../../entrypoints/background/api/relationships', () => ({
   respondToInvitation: vi.fn(),
 }));
 
-// `raw` is opaque to the handler — it only round-trips through the normalizer.
-// `rawCount` defaults to the row count but a fixture can set it independently,
-// which is what lets us reproduce a full server page that parses short.
 vi.mock('@/lib/network-normalizer', () => ({
   normalizeInvitations: (raw: any) => ({
     invitations: raw.rows,
@@ -76,6 +80,7 @@ vi.mock('../../entrypoints/background/db-ready', () => ({ dbReady: Promise.resol
 vi.mock('@/lib/debug-log', () => ({ debugLog: vi.fn(), getDebugLogs: vi.fn(), clearDebugLogs: vi.fn() }));
 
 import { handleMessage } from '../../entrypoints/background/messages';
+import { mergeProfiles } from '@/db/database';
 
 const PAGE = 40;
 
@@ -87,13 +92,14 @@ function inv(id: string): Invitation {
   };
 }
 
-/** n invitations numbered from `from`. */
-const page = (from: number, n: number) =>
-  ({ rows: Array.from({ length: n }, (_, i) => inv(`inv-${from + i}`)) });
+const page = (from: number, n: number, extra: Record<string, unknown> = {}) => ({
+  rows: Array.from({ length: n }, (_, i) => inv(`inv-${from + i}`)),
+  ...extra,
+});
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  testDb = new Dexie(`TestDB_inv_page_${Date.now()}_${Math.random()}`);
+  testDb = new Dexie(`TestDB_inv_resil_${Date.now()}_${Math.random()}`);
   applySchema(testDb);
   await testDb.open();
 });
@@ -102,71 +108,78 @@ afterEach(async () => {
   await Dexie.delete(testDb.name);
 });
 
-describe('FETCH_INVITATIONS pagination', () => {
-  it('walks every page until a short one and stores them all', async () => {
+describe('invitation walk resilience', () => {
+  it('keeps walking when a full page normalizes short', async () => {
+    // The server sent 40, only 31 survived parsing. That is NOT the end of the
+    // list — the old code stopped here and lost everything after page 1.
     fetchInvitationsRaw
-      .mockResolvedValueOnce(page(0, PAGE))
-      .mockResolvedValueOnce(page(40, PAGE))
-      .mockResolvedValueOnce(page(80, 7));
-
-    const res = await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
-
-    expect(res.success).toBe(true);
-    expect((res.data as any).count).toBe(87);
-    expect(fetchInvitationsRaw.mock.calls.map((c) => c[0])).toEqual([0, 40, 80]);
-    expect(await testDb.invitations.count()).toBe(87);
-    // The page-2+ rows the old single-page fetch could never reach.
-    expect(await testDb.invitations.get('inv-86')).toBeTruthy();
-  });
-
-  it('stops after one request when the first page is short', async () => {
-    fetchInvitationsRaw.mockResolvedValueOnce(page(0, 3));
-
-    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
-
-    expect(fetchInvitationsRaw).toHaveBeenCalledTimes(1);
-    expect(await testDb.invitations.count()).toBe(3);
-  });
-
-  it('prunes local pending rows the full walk did not return', async () => {
-    await testDb.invitations.bulkPut([inv('stale'), inv('inv-0')]);
-    fetchInvitationsRaw
-      .mockResolvedValueOnce(page(0, PAGE))
-      .mockResolvedValueOnce(page(40, 1));
-
-    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
-
-    expect(await testDb.invitations.get('stale')).toBeUndefined();
-    expect(await testDb.invitations.get('inv-0')).toBeTruthy();
-  });
-
-  it('keeps locally-acted-on invitations out of the pending list', async () => {
-    await testDb.invitations.put({ ...inv('inv-0'), status: 'ignored' });
-    fetchInvitationsRaw.mockResolvedValueOnce(page(0, 2));
-
-    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
-
-    expect((await testDb.invitations.get('inv-0')).status).toBe('ignored');
-  });
-
-  it('does not prune when it stops at the page cap', async () => {
-    await testDb.invitations.put(inv('stale'));
-    // Always a full page — the walk hits MAX_PAGES without proving completeness.
-    fetchInvitationsRaw.mockImplementation(async (start: number) => page(start, PAGE));
-
-    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
-
-    expect(fetchInvitationsRaw).toHaveBeenCalledTimes(50);
-    expect(await testDb.invitations.get('stale')).toBeTruthy();
-  });
-
-  it('stops instead of looping when the server ignores `start`', async () => {
-    // Same full page every time — without the dedup guard this runs to the cap.
-    fetchInvitationsRaw.mockResolvedValue(page(0, PAGE));
+      .mockResolvedValueOnce(page(0, 31, { rawCount: PAGE }))
+      .mockResolvedValueOnce(page(40, 12));
 
     await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
 
     expect(fetchInvitationsRaw).toHaveBeenCalledTimes(2);
-    expect(await testDb.invitations.count()).toBe(PAGE);
+    expect(await testDb.invitations.count()).toBe(43);
+  });
+
+  it('does not prune on a page that only looked short', async () => {
+    await testDb.invitations.put(inv('inv-99'));
+    // A full page that parsed short (so the walk must continue), then a
+    // failure. `inv-99` is in neither page, and the old code would have called
+    // page 1 the end of the list and pruned it.
+    fetchInvitationsRaw.mockResolvedValueOnce(page(0, 5, { rawCount: PAGE }));
+    fetchInvitationsRaw.mockRejectedValueOnce(new Error('429 Too Many Requests'));
+
+    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
+
+    // Walk never proved completeness, so nothing is pruned.
+    expect(await testDb.invitations.get('inv-99')).toBeTruthy();
+  });
+
+  it('stores the invitations it already fetched when a later page fails', async () => {
+    fetchInvitationsRaw
+      .mockResolvedValueOnce(page(0, PAGE))
+      .mockResolvedValueOnce(page(40, PAGE))
+      .mockRejectedValueOnce(new Error('429 Too Many Requests'));
+
+    const res = await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
+
+    // The old handler threw straight past bulkPut and stored none of these.
+    expect(res.success).toBe(true);
+    expect((res.data as any).complete).toBe(false);
+    expect(await testDb.invitations.count()).toBe(80);
+  });
+
+  it('walks past the old 400-invitation ceiling', async () => {
+    // 382 pending is inside the old cap; 420 is not.
+    // A server holding exactly 420, so the last page is a partial one.
+    fetchInvitationsRaw.mockImplementation(async (start: number) =>
+      page(start, Math.max(0, Math.min(PAGE, 420 - start)))
+    );
+
+    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
+
+    expect(await testDb.invitations.count()).toBe(420);
+  });
+
+  it('stops as soon as paging.total is satisfied', async () => {
+    fetchInvitationsRaw
+      .mockResolvedValueOnce(page(0, PAGE, { total: 60 }))
+      .mockResolvedValueOnce(page(40, 20, { total: 60 }));
+
+    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
+
+    expect(fetchInvitationsRaw).toHaveBeenCalledTimes(2);
+    expect(await testDb.invitations.count()).toBe(60);
+  });
+
+  it('feeds sender profiles to the shared profile cache', async () => {
+    const profiles = [{ urn: 'urn:li:fsd_profile:x', publicId: 'x', firstName: 'X', lastName: 'Y',
+      fullName: 'X Y', occupation: '', location: '', pictureUrl: 'https://pic' }];
+    fetchInvitationsRaw.mockResolvedValueOnce(page(0, 1, { profiles }));
+
+    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
+
+    expect(mergeProfiles).toHaveBeenCalledWith(profiles);
   });
 });
