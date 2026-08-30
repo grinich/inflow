@@ -16,6 +16,9 @@ export function buildCommands(actions: {
   markUnreadSelected: () => void;
   openSelected: () => void;
   reply: () => void;
+  discardDraft: () => void;
+  /** True when the open thread's composer holds unsent text or attachments. */
+  hasDraft: boolean;
   compose: () => void;
   goBack: () => void;
   showShortcuts: () => void;
@@ -59,6 +62,11 @@ export function buildCommands(actions: {
     { id: 'mark-unread', label: 'Mark as unread', shortcut: 'U', action: actions.markUnreadSelected },
     { id: 'open', label: 'Open conversation', shortcut: 'Enter', action: actions.openSelected },
     { id: 'reply', label: 'Reply', shortcut: 'R', action: actions.reply },
+    // Only offered while there is actually a draft to discard — an always-on
+    // entry that silently no-ops would read as broken.
+    ...(actions.hasDraft
+      ? [{ id: 'discard-draft', label: 'Discard draft', shortcut: '', action: actions.discardDraft }]
+      : []),
     { id: 'compose', label: 'Compose new message', shortcut: 'C', action: actions.compose },
     { id: 'undo', label: 'Undo last action', shortcut: 'Z', action: actions.undo },
     { id: 'back', label: 'Go back to inbox', shortcut: 'Esc', action: actions.goBack },

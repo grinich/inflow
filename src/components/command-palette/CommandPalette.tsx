@@ -32,11 +32,24 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
   const setInboxTab = useUIStore((s) => s.setInboxTab);
 
   const inboxTab = useUIStore((s) => s.inboxTab);
+  const composeNewActive = useUIStore((s) => s.composeNewActive);
   const { archiveConversation, moveToFocused, moveToOther, markRead, markUnread } = useOptimisticAction();
 
   const selectedConv = selectedConversationId
     ? conversations.find((c) => c.id === selectedConversationId)
     : conversations[selectedIndex];
+
+  // Whether the open thread's composer holds an unsent draft, read live at
+  // render time: the textarea's value (the stored draftAttachments row can lag
+  // the newest keystrokes, and IndexedDB can't be consulted synchronously
+  // here) plus the attachments attribute ComposeBox maintains. The new-message
+  // composer is excluded — its draft lifecycle (recipients + draft
+  // conversation row) is its own.
+  const composeEl = composeRef.current;
+  const hasDraft =
+    !composeNewActive &&
+    !!composeEl &&
+    (composeEl.value.trim() !== '' || composeEl.hasAttribute('data-has-attachments'));
 
   const commands = buildCommands({
     archiveSelected: () => {
@@ -73,6 +86,13 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       setComposeActive(true);
       setTimeout(() => composeRef.current?.focus(), 0);
     },
+    discardDraft: () => {
+      // ComposeBox owns the draft (in-memory state + stored row) and clears
+      // both on this event; see its inflow:discard-draft listener.
+      document.dispatchEvent(new CustomEvent('inflow:discard-draft'));
+      useUIStore.getState().showToast({ message: 'Draft discarded' });
+    },
+    hasDraft,
     compose: () => {
       useUIStore.getState().setComposeNewActive(true);
     },

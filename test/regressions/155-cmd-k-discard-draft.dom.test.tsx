@@ -1,20 +1,19 @@
 // @vitest-environment jsdom
-// Cmd+K discards the unsent draft on the open thread: with text or attachments
-// in the thread composer it clears the draft (in-memory state AND the stored
-// draftAttachments row — deleting only the row would let the 1s periodic saver
-// write the old text right back); with no draft it keeps its long-standing
-// binding, the command palette. It must still close an open palette, and the
-// new-message composer keeps the palette binding (its draft lifecycle is its
-// own).
+// Discarding a draft lives in the command palette, not on a key: Cmd+K always
+// opens the palette (an earlier cut intercepted Cmd+K when a draft existed —
+// rejected: Cmd+K must stay the palette), and a "Discard draft" command is
+// offered only while the open thread's composer holds unsent text or
+// attachments. Selecting it clears the draft everywhere it lives: the
+// composer's in-memory state AND the stored draftAttachments row — deleting
+// only the row would let the 1s periodic saver write the old text right back.
 //
 // (Numbered past 146–154, which the network-view branch's renumbered network
 // tests occupy, so the merge doesn't need another renumber.)
 import '../dom-setup';
 
 import Dexie from 'dexie';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, renderHook } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderHook } from '@testing-library/react';
 import { applySchema } from '@/db/database';
 
 let testDb: any;
@@ -36,11 +35,26 @@ vi.mock('@/hooks/useOptimisticAction', () => ({
     sendMessage: vi.fn().mockResolvedValue(true),
     sendAndArchive: vi.fn(),
     archiveConversation: vi.fn(),
+    moveToFocused: vi.fn(),
+    moveToOther: vi.fn(),
+    markRead: vi.fn(),
+    markUnread: vi.fn(),
   }),
 }));
 
 vi.mock('@/lib/bridge', () => ({
   sendBridgeMessage: mockSendBridgeMessage,
+}));
+
+vi.mock('@/lib/demo-mode', () => ({
+  isDemoMode: () => false,
+  enableDemoMode: vi.fn(),
+  disableDemoMode: vi.fn(),
+}));
+
+vi.mock('@/lib/ai-settings', () => ({
+  getAISuggestionsEnabled: vi.fn().mockResolvedValue(true),
+  setAISuggestionsEnabled: vi.fn(),
 }));
 
 vi.mock('@/hooks/useAutocomplete', () => ({
@@ -51,12 +65,28 @@ vi.mock('@/hooks/useReplySuggestions', () => ({
   useReplySuggestions: () => ({ suggestions: [], isLoading: false, clear: vi.fn() }),
 }));
 
+// cmdk scrolls the selected item into view and observes list resizes; jsdom
+// implements neither.
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = () => {};
+}
+if (typeof (globalThis as any).ResizeObserver !== 'function') {
+  (globalThis as any).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 import { useKeyboard } from '@/hooks/useKeyboard';
+import { CommandPalette } from '@/components/command-palette/CommandPalette';
 import { ComposeBox } from '@/components/thread/ComposeBox';
 import { useUIStore } from '@/store/ui-store';
 
+let discardSpy: ReturnType<typeof vi.fn>;
+
 beforeEach(async () => {
-  testDb = new Dexie(`CmdKDiscard_${Date.now()}_${Math.random()}`);
+  testDb = new Dexie(`PaletteDiscard_${Date.now()}_${Math.random()}`);
   applySchema(testDb);
   await testDb.open();
   mockSendBridgeMessage.mockReset().mockResolvedValue({ success: true });
@@ -74,112 +104,90 @@ beforeEach(async () => {
     lightboxVideoUrl: null,
     toast: null,
   });
+  discardSpy = vi.fn();
+  document.addEventListener('inflow:discard-draft', discardSpy);
 });
 
 afterEach(async () => {
+  document.removeEventListener('inflow:discard-draft', discardSpy);
   if (testDb) {
     testDb.close();
     await Dexie.delete(testDb.name);
   }
 });
 
-function pressCmdK() {
-  const ev = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true });
-  document.body.dispatchEvent(ev);
-  return ev;
+/** A detached stand-in for the thread composer's textarea. */
+function composerStandIn(value: string): HTMLTextAreaElement {
+  const ta = document.createElement('textarea');
+  ta.value = value;
+  document.body.appendChild(ta);
+  return ta;
 }
 
-describe('Cmd+K routing in useKeyboard', () => {
-  let discardSpy: ReturnType<typeof vi.fn>;
-  let ta: HTMLTextAreaElement;
+describe('Cmd+K and the Discard draft command', () => {
+  it('Cmd+K opens the palette even when the composer holds a draft', () => {
+    const ta = composerStandIn('half-written reply');
+    renderHook(() => useKeyboard([], { current: ta }));
 
-  beforeEach(() => {
-    discardSpy = vi.fn();
-    document.addEventListener('inflow:discard-draft', discardSpy);
-    ta = document.createElement('textarea');
-    document.body.appendChild(ta);
-  });
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true })
+    );
 
-  afterEach(() => {
-    document.removeEventListener('inflow:discard-draft', discardSpy);
+    expect(useUIStore.getState().paletteOpen).toBe(true);
+    expect(discardSpy).not.toHaveBeenCalled();
     ta.remove();
   });
 
-  function mountKeyboard(current: HTMLTextAreaElement | null = null) {
-    return renderHook(() => useKeyboard([], { current }));
-  }
+  it('Cmd+K → type "discar" → Enter discards the draft', async () => {
+    const ta = composerStandIn('half-written reply');
+    renderHook(() => useKeyboard([], { current: ta }));
+    render(<CommandPalette conversations={[]} composeRef={{ current: ta }} />);
 
-  it('discards instead of opening the palette when the composer holds text', () => {
-    ta.value = 'half-written reply';
-    mountKeyboard(ta);
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true })
+    );
+    const input = await screen.findByPlaceholderText('Type a command...');
 
-    pressCmdK();
+    await userEvent.type(input, 'discar');
+    // The filter narrowed the list to the draft command.
+    expect(screen.getByText('Discard draft')).toBeInTheDocument();
+    expect(screen.queryByText('Archive conversation')).toBeNull();
+
+    await userEvent.keyboard('{Enter}');
 
     expect(discardSpy).toHaveBeenCalledTimes(1);
     expect(useUIStore.getState().paletteOpen).toBe(false);
     expect(useUIStore.getState().toast?.message).toBe('Draft discarded');
+    ta.remove();
   });
 
-  it('opens the palette when the composer is empty', () => {
-    ta.value = '';
-    mountKeyboard(ta);
-
-    pressCmdK();
-
-    expect(discardSpy).not.toHaveBeenCalled();
-    expect(useUIStore.getState().paletteOpen).toBe(true);
-  });
-
-  it('treats whitespace-only text as no draft', () => {
-    ta.value = '   \n ';
-    mountKeyboard(ta);
-
-    pressCmdK();
-
-    expect(discardSpy).not.toHaveBeenCalled();
-    expect(useUIStore.getState().paletteOpen).toBe(true);
-  });
-
-  it('discards an attachments-only draft via the data attribute', () => {
-    ta.value = '';
-    ta.setAttribute('data-has-attachments', '');
-    mountKeyboard(ta);
-
-    pressCmdK();
-
-    expect(discardSpy).toHaveBeenCalledTimes(1);
-    expect(useUIStore.getState().paletteOpen).toBe(false);
-  });
-
-  it('still closes an open palette even with a draft present', () => {
-    ta.value = 'half-written reply';
+  it('offers no Discard draft command when the composer is empty', () => {
+    const ta = composerStandIn('  \n ');
     useUIStore.setState({ paletteOpen: true });
-    mountKeyboard(ta);
+    render(<CommandPalette conversations={[]} composeRef={{ current: ta }} />);
 
-    pressCmdK();
-
-    expect(discardSpy).not.toHaveBeenCalled();
-    expect(useUIStore.getState().paletteOpen).toBe(false);
+    expect(screen.queryByText('Discard draft')).toBeNull();
+    expect(screen.getByText('Archive conversation')).toBeInTheDocument();
+    ta.remove();
   });
 
-  it('keeps the palette binding in the new-message composer', () => {
-    ta.value = 'note to a new recipient';
-    useUIStore.setState({ composeNewActive: true });
-    mountKeyboard(ta);
+  it('offers the command for an attachments-only draft', () => {
+    const ta = composerStandIn('');
+    ta.setAttribute('data-has-attachments', '');
+    useUIStore.setState({ paletteOpen: true });
+    render(<CommandPalette conversations={[]} composeRef={{ current: ta }} />);
 
-    pressCmdK();
-
-    expect(discardSpy).not.toHaveBeenCalled();
-    expect(useUIStore.getState().paletteOpen).toBe(true);
+    expect(screen.getByText('Discard draft')).toBeInTheDocument();
+    ta.remove();
   });
 
-  it('opens the palette when no composer is mounted', () => {
-    mountKeyboard(null);
+  it('hides the command in the new-message composer', () => {
+    const ta = composerStandIn('note to a new recipient');
+    useUIStore.setState({ paletteOpen: true, composeNewActive: true });
+    render(<CommandPalette conversations={[]} composeRef={{ current: ta }} />);
 
-    pressCmdK();
-
-    expect(discardSpy).not.toHaveBeenCalled();
-    expect(useUIStore.getState().paletteOpen).toBe(true);
+    expect(screen.queryByText('Discard draft')).toBeNull();
+    ta.remove();
   });
 });
 

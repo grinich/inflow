@@ -48,25 +48,10 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
       if (document.querySelector('[data-debug-panel]')) return;
       if (store.deleteConfirmId || store.spamConfirmId || store.aiSetupOpen || store.lightboxImageUrl || store.lightboxVideoUrl) return;
 
-      // Cmd+K — with an unsent draft in the open thread's composer, discard it;
-      // otherwise the command palette (and always while the palette is open, so
-      // Cmd+K still closes it). The attachment check rides on a DOM attribute
-      // because a keydown handler can't wait on IndexedDB to pick between the
-      // two. The new-message composer keeps the palette binding — its draft
-      // lifecycle (recipients + draft conversation row) is its own.
+      // Cmd+K — Command palette (works in any context). Draft discard lives in
+      // the palette as a command, not on the key itself.
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        const compose = composeRef.current;
-        const hasDraft =
-          !store.paletteOpen &&
-          !store.composeNewActive &&
-          !!compose &&
-          (compose.value.trim() !== '' || compose.hasAttribute('data-has-attachments'));
-        if (hasDraft) {
-          document.dispatchEvent(new CustomEvent('inflow:discard-draft'));
-          store.showToast({ message: 'Draft discarded' });
-          return;
-        }
         store.togglePalette();
         return;
       }
