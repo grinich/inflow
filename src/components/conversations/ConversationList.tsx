@@ -13,6 +13,7 @@ import { SwipeableRow } from './SwipeableRow';
 import { SyncStatusIndicator } from '../common/SyncStatusIndicator';
 import type { Conversation } from '@/types/conversation';
 import { ListLoadingIndicator } from '@/components/common/ListLoadingIndicator';
+import { keyboardFocusOnly } from '@/lib/focus-on-keyboard-only';
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -369,6 +370,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
       </div>
       {!compact && <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">
         <button
+          {...keyboardFocusOnly}
           onClick={() => useUIStore.getState().toggleShortcutOverlay()}
           className="flex items-center gap-1.5 text-fg-faint transition-colors hover:text-fg-muted"
         >

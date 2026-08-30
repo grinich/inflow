@@ -2,6 +2,7 @@ import { useState, useRef, useMemo, useCallback } from 'react';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
 import { queryHasUnread, setUnreadInQuery } from '@/lib/app-route';
 import { sendBridgeMessage } from '@/lib/bridge';
+import { keyboardFocusOnly } from '@/lib/focus-on-keyboard-only';
 
 const FILTER_SUGGESTIONS = [
   { filter: 'is:unread', description: 'Unread conversations' },
@@ -145,9 +146,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
   }
 
   return (
-    // @container enables the width-based visibility below: with the sidebar
-    // now resizable, secondary controls yield space before the row overflows.
-    <div className="@container flex flex-col gap-2 border-b border-edge px-4 py-3">
+    <div className="flex flex-col gap-2 border-b border-edge px-4 py-3">
       {/* A fixed height, not a floor. A floor only holds while both rows have
           the same tallest child, and they do not: this row's is the compose
           button (a 16px icon and a kbd inside p-1, ~25px), where the network
@@ -164,28 +163,17 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
           </a>
         </h1>
 
-        {/* Folder selector — segmented control when the (resizable) sidebar is
-            wide enough, a compact dropdown when it's narrow. */}
-        <div className="hidden rounded-md bg-surface-input p-0.5 @min-[352px]:flex">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => handleTabSelect(tab.id)}
-              className={`cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
-                inboxTab === tab.id
-                  ? 'bg-surface text-fg-strong shadow-sm'
-                  : 'text-fg-muted hover:text-fg-secondary'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <div className="relative @min-[352px]:hidden">
+        {/* Folder selector. Always a dropdown, at every width: as a segmented
+            control it was four buttons wide and the row could not hold them
+            plus Unread, Network and compose without wrapping. */}
+        <div className="relative">
           <select
             aria-label="Folder"
             value={inboxTab}
-            onChange={(e) => handleTabSelect(e.target.value as InboxTab)}
+            onChange={(e) => {
+              handleTabSelect(e.target.value as InboxTab);
+              e.currentTarget.blur();
+            }}
             className="cursor-pointer appearance-none rounded-md bg-surface-input py-1 pl-2 pr-6 text-[11px] font-medium text-fg-strong outline-none ring-1 ring-transparent transition-colors focus:ring-blue-500/50"
           >
             {TABS.map((tab) => (
@@ -209,6 +197,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
 
         {/* Unread quick-filter — sets/clears the is:unread search filter */}
         <button
+          {...keyboardFocusOnly}
           onClick={toggleUnread}
           title="Show only unread"
           aria-pressed={unreadActive}
@@ -223,6 +212,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
 
         {/* Network view — the same destination as the G N chord. */}
         <button
+          {...keyboardFocusOnly}
           onClick={() => useUIStore.getState().setAppView('network')}
           title="Network — invitations and connections (G N)"
           className="cursor-pointer rounded-md bg-surface-input px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:text-fg-secondary"
@@ -232,6 +222,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
         </div>
 
         <button
+          {...keyboardFocusOnly}
           onClick={() => useUIStore.getState().setComposeNewActive(true)}
           title="New message (C)"
           className="flex shrink-0 cursor-pointer items-center gap-1 rounded-md p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong"

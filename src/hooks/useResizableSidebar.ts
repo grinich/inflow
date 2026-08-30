@@ -1,10 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-/** Default sidebar width. Wide enough that the header shows the horizontal
- *  folder tabs (the narrow-width dropdown kicks in below ~384px total). */
+/** Default sidebar width: the header row plus room for real previews. */
 export const DEFAULT_SIDEBAR_WIDTH = 416;
-/** Narrow enough to save space, wide enough for the tab bar + previews. */
-export const MIN_SIDEBAR_WIDTH = 280;
+/**
+ * Narrow enough to save space, wide enough that the header row still fits.
+ *
+ * At 280 the compose button fell off the end: the logo, folder dropdown,
+ * Unread and Network come to 352px including the row's own padding — measured,
+ * not guessed — and there was nothing left for it. This leaves ~28px of slack
+ * for a longer folder name and the scrollbar.
+ */
+export const MIN_SIDEBAR_WIDTH = 380;
 /** Hard ceiling; also capped to a fraction of the window (see clamp). */
 export const MAX_SIDEBAR_WIDTH = 720;
 

@@ -20,9 +20,6 @@ function shellClasses(source: string): string[] {
   if (!match) throw new Error('no header shell found');
   return match[1]
     .split(/\s+/)
-    // @container is an inbox-only concern (its tabs collapse to a select on
-    // narrow widths) and does not affect the box.
-    .filter((c) => c !== '@container')
     .sort();
 }
 
@@ -41,28 +38,26 @@ describe('regression #157: the two headers are the same height', () => {
     expect(INBOX).not.toMatch(/min-h-6/);
   });
 
-  // The tabs drifted twice: first to their own pill shape, then to a spaced
-  // layout that dropped the track — and the selected pill is `bg-surface`,
-  // which only reads as selected against the track's `bg-surface-input`.
-  it('wraps the tabs in the same track', () => {
-    const track = /className="flex shrink-0 rounded-md bg-surface-input p-0\.5"/;
-    expect(NETWORK).toMatch(track);
-    expect(INBOX).toMatch(/rounded-md bg-surface-input p-0\.5/);
+  // These used to compare the network's tabs against the inbox's segmented
+  // folder control, class for class. That control is gone — four folder
+  // buttons plus Unread, Network and compose could not fit the sidebar, so the
+  // inbox is a dropdown at every width now (#171) — and the comparison has no
+  // second side left. The network's own track is still pinned, since the
+  // selected pill is `bg-surface` and only reads as selected against it.
+  it('wraps the network tabs in a track', () => {
+    expect(NETWORK).toMatch(/className="flex shrink-0 rounded-md bg-surface-input p-0\.5"/);
   });
 
-  it('gives selected and unselected tabs the same treatment as the inbox', () => {
-    const selected = /'bg-surface text-fg-strong shadow-sm'/;
-    const unselected = /'text-fg-muted hover:text-fg-secondary'/;
-    for (const source of [NETWORK, INBOX]) {
-      expect(source).toMatch(selected);
-      expect(source).toMatch(unselected);
-    }
+  it('keeps the selected network tab distinguishable', () => {
+    expect(NETWORK).toMatch(/'bg-surface text-fg-strong shadow-sm'/);
+    expect(NETWORK).toMatch(/'text-fg-muted hover:text-fg-secondary'/);
   });
 
-  it('sizes the tab buttons the same', () => {
-    const size = /cursor-pointer rounded px-1\.5 py-0\.5 text-\[11px\] font-medium transition-colors/;
-    expect(NETWORK).toMatch(size);
-    expect(INBOX).toMatch(size);
+  it('uses the same control sizing on both sides', () => {
+    // The one piece of tab styling that still has a counterpart: the inbox's
+    // Unread and Network buttons sit in the same row at the same size.
+    expect(NETWORK).toMatch(/rounded px-1\.5 py-0\.5 text-\[11px\] font-medium/);
+    expect(INBOX).toMatch(/px-2 py-1 text-\[11px\] font-medium/);
   });
 
   // The field looked identical but sat in a different box: the network's was

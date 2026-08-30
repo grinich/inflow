@@ -12,6 +12,7 @@ import { ConnectionRow } from './ConnectionRow';
 import { InvitationDetail } from './InvitationDetail';
 import { ConnectionDetail } from './ConnectionDetail';
 import { ListLoadingIndicator } from '@/components/common/ListLoadingIndicator';
+import { keyboardFocusOnly } from '@/lib/focus-on-keyboard-only';
 
 type SortMode = 'recent' | 'name';
 const PAGE = 40;
@@ -306,6 +307,7 @@ export function NetworkView() {
           <header className="flex flex-col gap-2 border-b border-edge px-4 py-3">
             <div className="flex h-7 items-center gap-2">
               <button
+                {...keyboardFocusOnly}
                 onClick={() => setAppView('inbox')}
                 className="mr-1 shrink-0 cursor-pointer rounded px-2 py-1 text-[11px] font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
                 title="Back to inbox (Esc)"
@@ -319,6 +321,7 @@ export function NetworkView() {
               <div className="flex shrink-0 rounded-md bg-surface-input p-0.5">
                 {TABS.map((tab) => (
                   <button
+                    {...keyboardFocusOnly}
                     key={tab.id}
                     onClick={() => setNetworkTab(tab.id)}
                     title={`${tab.label} (${tab.key})`}
@@ -423,6 +426,7 @@ export function NetworkView() {
                   // fallback for when the observer never fires (no
                   // IntersectionObserver, or a list too short to scroll).
                   <button
+                    {...keyboardFocusOnly}
                     onClick={() => void loadMore()}
                     disabled={loadingMore}
                     className="m-4 rounded border border-edge px-4 py-2 text-sm text-fg-secondary hover:bg-surface-hover disabled:opacity-50"
@@ -480,6 +484,7 @@ export function NetworkView() {
 
       <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">
         <button
+          {...keyboardFocusOnly}
           onClick={() => useUIStore.getState().toggleShortcutOverlay()}
           className="flex items-center gap-1.5 text-fg-faint transition-colors hover:text-fg-muted"
         >
@@ -488,6 +493,7 @@ export function NetworkView() {
           <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px]">?</kbd>
         </button>
         <button
+          {...keyboardFocusOnly}
           onClick={() => setAppView('inbox')}
           className="flex items-center gap-1.5 text-fg-faint transition-colors hover:text-fg-muted"
         >
