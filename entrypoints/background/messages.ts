@@ -25,6 +25,7 @@ import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
 import { fetchInvitationsRaw, fetchConnectionsRaw, respondToInvitation } from './api/relationships';
 import { fetchSentInvitationsPage, fetchSentInvitationsAt, withdrawSentInvitation } from './api/sent-invitations';
 import { scrapeSentInvitations, SENT_PAGE_SIZE } from '@/lib/sent-invitation-scraper';
+import { recordAcceptedSender } from './realtime/accept-suppression';
 import { normalizeInvitations, normalizeConnections, invitationPaging } from '@/lib/network-normalizer';
 import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
 import { applyPendingReceipts, consumePendingReceipts } from './realtime/pending-receipts';
@@ -407,6 +408,9 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       if (!inv) return { success: false, error: 'Invitation not found' };
       const action: 'accept' | 'ignore' = msg.type === 'ACCEPT_INVITATION' ? 'accept' : 'ignore';
       await respondToInvitation(inv.id, inv.sharedSecret, action);
+      // Their note arrives as an inbound message moments from now. We know
+      // about it — the user just accepted it — so don't alert them to it.
+      if (action === 'accept') recordAcceptedSender(inv.fromUrn);
       await db.invitations.update(inv.id, { status: action === 'accept' ? 'accepted' : 'ignored' });
       return { success: true };
     }

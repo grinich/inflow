@@ -246,6 +246,7 @@ async function applyInboundMessageToConversation(
   }
 }
 import type { Message } from '@/types/message';
+import { isRecentlyAccepted } from './accept-suppression';
 
 /**
  * Show a native OS notification for an inbound message.
@@ -277,6 +278,11 @@ function showNativeNotification(msg: {
     // shouldn't ping the OS either.
     const conv = await db.conversations.get(msg.conversationId);
     if (conv?.category === 'SPAM') return;
+
+    // The note attached to an invitation the user just accepted. They chose to
+    // accept it and are being shown the thread; alerting them to it announces
+    // something they already did.
+    if (conv?.participantUrns.length === 1 && isRecentlyAccepted(conv.participantUrns[0])) return;
 
     // Prefer a connected web shell with Notification permission: its
     // notifications come from the inflow.im origin, so macOS attributes them

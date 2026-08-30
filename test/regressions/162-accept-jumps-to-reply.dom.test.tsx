@@ -92,15 +92,62 @@ describe('regression #162: accepting an invitation with a note', () => {
     expect(useUIStore.getState().selectedConversationId).toBeNull();
   });
 
-  it('waits for the thread the accept just created', async () => {
-    // The common case: accepting is what makes the thread, so it is not in the
-    // table yet. Arrive late and the jump should still land on it.
+  it('switches immediately, without waiting for the thread to sync', async () => {
+    // The jank: accepting is what creates the thread, so waiting for it left
+    // the user on the network list for a second or more with nothing happening.
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+    const accept = actions().acceptInvitation(invitation('Hi Michael'));
+
+    // A placeholder is up and focused long before the real thread lands.
+    await waitFor(() => {
+      expect(useUIStore.getState().appView).toBe('inbox');
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender');
+    });
+
+    await accept;
+  });
+
+  it('swaps the placeholder for the real thread once it arrives', async () => {
     setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
 
     await actions().acceptInvitation(invitation('Hi Michael'));
 
     expect(useUIStore.getState().selectedConversationId).toBe('conv-late');
     expect(sendBridgeMessage).toHaveBeenCalledWith({ type: 'BURST_DISCOVER', category: 'PRIMARY_INBOX' });
+    // The stand-in is cleaned up, not left in the list.
+    expect(await testDb.conversations.get('draft-ACoAAAsender')).toBeUndefined();
+  });
+
+  it('carries a reply typed while waiting onto the real thread', async () => {
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+    const accept = actions().acceptInvitation(invitation('Hi Michael'));
+
+    await waitFor(() =>
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
+    );
+    // Typing starts the moment the box is focused — well before the swap.
+    await testDb.draftAttachments.put({ conversationId: 'draft-ACoAAAsender', text: 'Great to connect!' });
+
+    await accept;
+
+    // Losing a half-written reply to a swap nobody asked for would be worse
+    // than the delay it replaced.
+    expect((await testDb.draftAttachments.get('conv-late'))?.text).toBe('Great to connect!');
+    expect(await testDb.draftAttachments.get('draft-ACoAAAsender')).toBeUndefined();
+  });
+
+  it('leaves the user alone if they navigated away while waiting', async () => {
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+    const accept = actions().acceptInvitation(invitation('Hi Michael'));
+
+    await waitFor(() =>
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
+    );
+    useUIStore.getState().openThread('somewhere-else', 0);
+
+    await accept;
+
+    expect(useUIStore.getState().selectedConversationId).toBe('somewhere-else');
   });
 
   it('never drops the reply into a group thread', async () => {
@@ -115,15 +162,14 @@ describe('regression #162: accepting an invitation with a note', () => {
     expect(useUIStore.getState().selectedConversationId).not.toBe('group');
   });
 
-  it('falls back to a draft when no thread ever arrives', async () => {
+  it('keeps the placeholder when no thread ever arrives', async () => {
     await actions().acceptInvitation(invitation('Hi Michael'));
 
-    // A dead end would be worse than a draft: the reply is still typeable, and
-    // sending it reuses the real thread.
-    const id = useUIStore.getState().selectedConversationId;
-    expect(id).toBe('draft-ACoAAAsender');
-    expect(useUIStore.getState().composeNewActive).toBe(true);
-  });
+    // Yanking it away would be worse than leaving it: the reply is still
+    // typeable, and sending from it reuses the real thread.
+    expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender');
+    expect(await testDb.conversations.get('draft-ACoAAAsender')).toBeTruthy();
+  }, 20_000);
 
   it('does not jump when the accept was rejected', async () => {
     await testDb.conversations.put(thread('conv-1'));

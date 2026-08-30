@@ -164,27 +164,21 @@ export function useNetworkActions() {
     store.setAppView('inbox');
     store.setInboxTab('focused');
 
-    let thread = await findThread(inv.fromUrn);
-    if (!thread) {
-      sendBridgeMessage({ type: 'BURST_DISCOVER', category: 'PRIMARY_INBOX' }).catch(() => {});
-      const deadline = Date.now() + 8000;
-      while (!thread && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 400));
-        thread = await findThread(inv.fromUrn);
-      }
-    }
-
-    if (thread) {
-      store.openThread(thread.id, 0);
+    const existing = await findThread(inv.fromUrn);
+    if (existing) {
+      store.openThread(existing.id, 0);
       focusComposer();
       return;
     }
 
-    // Nothing arrived — open a draft so the reply is still typeable. Their note
-    // won't be above it, which is worth the trade against a dead end.
+    // Accepting is what creates the thread, so it is not here yet — and
+    // waiting on it before switching left the user staring at the network list
+    // for a second or more. Stand a placeholder in its place immediately: same
+    // person, same header, a reply box they can already type into.
     const memberId = inv.fromUrn.split(':').pop()!;
-    const draft: Conversation = {
-      id: `draft-${memberId}`,
+    const placeholderId = `draft-${memberId}`;
+    await db.conversations.put({
+      id: placeholderId,
       participantUrns: [inv.fromUrn],
       participantNames: [inv.name],
       participantPictures: [inv.pictureUrl],
@@ -194,10 +188,35 @@ export function useNetworkActions() {
       archived: 0,
       category: 'PRIMARY_INBOX',
       draft: 1,
-    };
-    await db.conversations.put(draft);
-    store.setSelectedConversationId(draft.id);
-    store.setComposeNewActive(true);
+    } as Conversation);
+    store.openThread(placeholderId, 0);
+    focusComposer();
+
+    sendBridgeMessage({ type: 'BURST_DISCOVER', category: 'PRIMARY_INBOX' }).catch(() => {});
+    const deadline = Date.now() + 15_000;
+    let real = await findThread(inv.fromUrn);
+    while (!real && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 400));
+      real = await findThread(inv.fromUrn);
+    }
+    // Never arrived: leave them on the placeholder rather than yanking it
+    // away. Sending from it reuses the real thread anyway.
+    if (!real) return;
+
+    // Carry anything typed while waiting. Losing a half-written reply to a
+    // swap the user did not ask for would be worse than the delay was.
+    const pending = await db.draftAttachments.get(placeholderId).catch(() => undefined);
+    if (pending) {
+      await db.draftAttachments.put({ ...pending, conversationId: real.id });
+      await db.draftAttachments.delete(placeholderId);
+    }
+
+    // Only move if they are still on the placeholder; they may have navigated.
+    if (useUIStore.getState().selectedConversationId === placeholderId) {
+      useUIStore.getState().openThread(real.id, 0);
+      focusComposer();
+    }
+    await db.conversations.delete(placeholderId);
   }, []);
 
   const openProfile = useCallback((target: { publicId: string; profileUrn?: string }) => {
