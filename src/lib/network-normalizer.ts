@@ -95,37 +95,41 @@ function displayName(p: any): string {
 }
 
 /**
- * The shared-connections insight behind LinkedIn's "X and N others" line.
- * Only present when the request passes `includeInsights=true`.
+ * The shared-connections insight behind LinkedIn's "X and N others" line —
+ * only present when the request passes `includeInsights=true`.
  *
- * Every field is read through a candidate list: this entity is undocumented,
- * and a shape we don't recognise degrades to "no mutuals" rather than throwing
- * and taking the whole invitation sync down with it.
+ * It hangs off the InvitationView, not the Invitation, which is why an earlier
+ * guess at this shape found nothing:
+ *
+ *   InvitationView
+ *     *invitation  -> urn of the Invitation this describes
+ *     insights[]   -> { sharedInsight: { totalCount, *connections: [urn] } }
+ *
+ * `totalCount` is the real number of mutuals; `*connections` names only one of
+ * them, resolving to a MiniProfile with a picture.
  */
-function insightFor(inv: any, resolve: Resolve): InvitationInsight {
-  const none: InvitationInsight = { mutualCount: 0, mutualNames: [] };
-  const pointer = ref(inv, 'insight') || ref(inv, 'invitationInsight');
-  let ins = pointer ? resolve(pointer) : null;
-  if (!ins && inv?.insight && typeof inv.insight === 'object') ins = inv.insight;
-  if (!ins) return none;
+function insightFrom(view: any, resolve: Resolve): InvitationInsight {
+  const none: InvitationInsight = { mutualCount: 0, mutualNames: [], mutualPictures: [] };
+  const insights = Array.isArray(view?.insights) ? view.insights : [];
+  const shared = insights
+    .map((i: any) => i?.sharedInsight ?? i?.sharedConnectionsInsight)
+    .find(Boolean);
+  if (!shared) return none;
 
-  const shared =
-    ins.sharedConnectionsInsight ??
-    ins['com.linkedin.voyager.relationships.shared.SharedConnectionsInsight'] ??
-    ins;
-
-  const rawRefs = shared?.['*connections'] ?? shared?.connections ?? [];
-  const mutualNames = (Array.isArray(rawRefs) ? rawRefs : [])
+  const refs = shared['*connections'] ?? shared.connections ?? [];
+  const profiles = (Array.isArray(refs) ? refs : [])
     .map((r: any) => (typeof r === 'string' ? resolve(r) : r))
-    .map(displayName)
     .filter(Boolean);
 
-  const declared = Number(
-    shared?.totalCount ?? shared?.numSharedConnections ?? shared?.count ?? NaN
-  );
+  const mutualNames = profiles.map(displayName).filter(Boolean);
+  const mutualPictures = profiles
+    .map((p: any) => profilePictureUrl(p, 100, resolve))
+    .filter(Boolean);
+
+  const declared = Number(shared.totalCount ?? shared.numSharedConnections ?? NaN);
   const mutualCount = Number.isFinite(declared) ? declared : mutualNames.length;
   if (!mutualCount && !mutualNames.length) return none;
-  return { mutualCount, mutualNames };
+  return { mutualCount, mutualNames, mutualPictures };
 }
 
 export interface NormalizedInvitations {
@@ -153,6 +157,15 @@ export function normalizeInvitations(raw: any): NormalizedInvitations {
       const id = String(e.entityUrn || '').split(':').pop();
       if (id) profilesById.set(id, e);
     }
+  }
+
+  // The insight lives on the InvitationView, which points back at its
+  // Invitation — so index the views by the invitation they describe.
+  const viewByInvitation = new Map<string, any>();
+  for (const e of entities) {
+    if (!String(e?.$type || '').endsWith('InvitationView')) continue;
+    const target = ref(e, 'invitation');
+    if (target) viewByInvitation.set(target, e);
   }
 
   const invitations: Invitation[] = [];
@@ -183,7 +196,7 @@ export function normalizeInvitations(raw: any): NormalizedInvitations {
       message: typeof msg === 'string' ? msg : String(msg?.text || ''),
       sentAt: Number(e.sentTime || e.sentAt || 0),
       status: 'pending',
-      ...insightFor(e, resolve),
+      ...insightFrom(viewByInvitation.get(String(e.entityUrn)), resolve),
     });
     // Feed the shared profile cache: these are often richer than the sparse
     // profiles the Messenger API returns, and merging them means an invitation

@@ -94,31 +94,64 @@ describe('normalizeInvitations — pictures and insights', () => {
     expect(invitations[0].pictureUrl).toBe('https://media.licdn.com/dms/image/ref/100_100/ada.jpg');
   });
 
-  it('reads the shared-connections insight', () => {
-    const raw = {
-      included: [
-        ...withRefPicture.included.map((e: any) =>
-          String(e.$type || '').endsWith('invitation.Invitation')
-            ? { ...e, '*insight': 'urn:li:fs_insight:i1' }
-            : e
-        ),
-        {
-          entityUrn: 'urn:li:fs_insight:i1',
-          sharedConnectionsInsight: {
-            totalCount: 12,
-            '*connections': ['urn:li:fs_miniProfile:ACoAAAmut'],
+  // The real shape, captured from a live account. The insight hangs off the
+  // InvitationView and points back at its Invitation — an earlier version
+  // looked for it on the Invitation itself and silently found nothing, so the
+  // mutuals line never appeared.
+  const withInsight = {
+    included: [
+      ...withRefPicture.included,
+      {
+        $type: 'com.linkedin.voyager.relationships.invitation.InvitationView',
+        entityUrn: 'urn:li:fs_invitationView:7300009',
+        '*invitation': 'urn:li:fs_relInvitation:7300009',
+        insights: [
+          {
+            $type: 'com.linkedin.voyager.relationships.shared.Insight',
+            sharedInsight: {
+              $type: 'com.linkedin.voyager.relationships.shared.SharedInsight',
+              totalCount: 63,
+              '*connections': ['urn:li:fs_miniProfile:ACoAAAmut'],
+            },
+          },
+        ],
+      },
+      {
+        $type: 'com.linkedin.voyager.identity.shared.MiniProfile',
+        entityUrn: 'urn:li:fs_miniProfile:ACoAAAmut',
+        firstName: 'Viren', lastName: 'Baraiya',
+        picture: {
+          'com.linkedin.common.VectorImage': {
+            rootUrl: 'https://media.licdn.com/mutual/',
+            artifacts: [{ width: 100, fileIdentifyingUrlPathSegment: 'viren.jpg' }],
           },
         },
-        {
-          $type: 'com.linkedin.voyager.identity.shared.MiniProfile',
-          entityUrn: 'urn:li:fs_miniProfile:ACoAAAmut',
-          firstName: 'Grace', lastName: 'Hopper',
-        },
-      ],
-    };
-    const { invitations } = normalizeInvitations(raw);
-    expect(invitations[0].mutualCount).toBe(12);
-    expect(invitations[0].mutualNames).toEqual(['Grace Hopper']);
+      },
+    ],
+  };
+
+  it('reads the shared-connections insight off the InvitationView', () => {
+    const { invitations } = normalizeInvitations(withInsight);
+
+    // totalCount is the real number; only one mutual is ever named.
+    expect(invitations[0].mutualCount).toBe(63);
+    expect(invitations[0].mutualNames).toEqual(['Viren Baraiya']);
+  });
+
+  it('keeps the named mutual\'s avatar for the face row', () => {
+    const { invitations } = normalizeInvitations(withInsight);
+
+    expect(invitations[0].mutualPictures).toEqual(['https://media.licdn.com/mutual/viren.jpg']);
+  });
+
+  it('does not attach an insight to the wrong invitation', () => {
+    // The view points at its invitation by urn; a mismatch must yield nothing
+    // rather than borrowing another row's mutuals.
+    const wrongTarget = JSON.parse(JSON.stringify(withInsight));
+    wrongTarget.included.find((e: any) => e['*invitation'])['*invitation'] =
+      'urn:li:fs_relInvitation:someone-else';
+
+    expect(normalizeInvitations(wrongTarget).invitations[0].mutualCount).toBe(0);
   });
 
   it('degrades to no mutuals when the insight shape is unrecognised', () => {
@@ -134,6 +167,7 @@ describe('normalizeInvitations — pictures and insights', () => {
     const { invitations } = normalizeInvitations(raw);
     expect(invitations[0].mutualCount).toBe(0);
     expect(invitations[0].mutualNames).toEqual([]);
+    expect(invitations[0].mutualPictures).toEqual([]);
   });
 });
 

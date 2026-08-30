@@ -94,6 +94,7 @@ function buildDemoInvitations(): Invitation[] {
     status: 'pending' as const,
     mutualCount: p.mutualCount,
     mutualNames: [...p.mutuals],
+    mutualPictures: p.mutuals.map((_, n) => DEMO_PEOPLE[(i + n) % DEMO_PEOPLE.length].picture),
   }));
 }
 

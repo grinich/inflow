@@ -2,8 +2,10 @@
 export interface InvitationInsight {
   /** How many connections you and the sender have in common (0 if unknown). */
   mutualCount: number;
-  /** Names of the mutuals the payload named — usually a couple, not all of them. */
+  /** Names of the mutuals the payload named — in practice one, not all of them. */
   mutualNames: string[];
+  /** Their avatars, for the face row. Same order as `mutualNames`. */
+  mutualPictures: string[];
 }
 
 export interface Invitation extends InvitationInsight {

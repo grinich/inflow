@@ -52,10 +52,10 @@ All notable changes to inflow are documented here. This project follows
   worth knowing: only the first page of requests is listed (the count is the
   true total), and the note you attached isn't available, so inflow won't
   pretend to know whether there was one.
-- **Shared connections on each invitation** — requests now carry the same
-  *"Grace Hopper and 11 other shared connections"* line LinkedIn's own My
-  Network page shows, which is usually what decides a request. It rides along
-  on the request inflow already makes.
+- **Mutual connections on each invitation** — opening a request shows the same
+  *"Viren Baraiya and 62 other mutual connections"* line LinkedIn does, faces
+  and all, under the bio. It is usually what decides a request, and it rides
+  along on the request inflow already makes.
 
 ### Changed
 - **`⌫` archives in the inbox**, matching `E`, so the same key clears a

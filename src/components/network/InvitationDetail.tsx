@@ -1,5 +1,6 @@
 import { formatDistanceToNowStrict } from 'date-fns';
 import { GroupAvatar } from '../common/GroupAvatar';
+import { MutualConnections } from './MutualConnections';
 import type { Invitation } from '@/types/network';
 
 interface Props {
@@ -7,19 +8,6 @@ interface Props {
   onAccept: () => void;
   onIgnore: () => void;
   onOpenProfile: () => void;
-}
-
-/**
- * "12 shared connections" — named where the payload gave us names, since a
- * name you recognise decides the request far faster than a count does.
- */
-function mutualsLabel({ mutualCount, mutualNames }: Invitation): string {
-  const plural = `${mutualCount} shared connection${mutualCount === 1 ? '' : 's'}`;
-  if (mutualNames.length === 0) return plural;
-  const [first] = mutualNames;
-  const others = mutualCount - 1;
-  if (others <= 0) return `${first} is a shared connection`;
-  return `${first} and ${others} other shared connection${others === 1 ? '' : 's'}`;
 }
 
 /**
@@ -40,7 +28,9 @@ export function InvitationDetail({ invitation, onAccept, onIgnore, onOpenProfile
               <p className="mt-0.5 max-w-md text-sm text-fg-muted">{invitation.headline}</p>
             )}
             {invitation.mutualCount > 0 && (
-              <p className="mt-1 text-xs text-fg-muted">{mutualsLabel(invitation)}</p>
+              <div className="mt-3">
+                <MutualConnections insight={invitation} />
+              </div>
             )}
             <button
               onClick={onOpenProfile}
