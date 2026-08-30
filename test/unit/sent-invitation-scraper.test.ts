@@ -86,8 +86,9 @@ describe('scrapeSentInvitations', () => {
 
   it('reads the avatar out of the image envelope', () => {
     // Smallest rendition at or above 100px, matching pickArtifact's rule.
+    // Signature and all: the CDN rejects the url without it.
     expect(byName().get('Alberto Parrella')!.pictureUrl).toBe(
-      'https://media.licdn.com/dms/image/v2/100/alberto-parrella.jpg'
+      'https://media.licdn.com/dms/image/v2/100/alberto-parrella.jpg?e=1789603200&v=beta&t=sig-7498810568384856065-100'
     );
   });
 
@@ -288,7 +289,9 @@ describe('scrapeSentInvitations on a pagination response', () => {
     const alberto = rscByName().get('Alberto Parrella')!;
 
     expect(alberto.id).toBe('7498810568384856065');
-    expect(alberto.pictureUrl).toBe('https://media.licdn.com/dms/image/v2/100/alberto-parrella.jpg');
+    expect(alberto.pictureUrl).toBe(
+      'https://media.licdn.com/dms/image/v2/100/alberto-parrella.jpg?e=1789603200&v=beta&t=sig-7498810568384856065-100'
+    );
   });
 
   it('reports no total — only the first page carries the heading', () => {

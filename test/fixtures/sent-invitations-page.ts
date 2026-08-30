@@ -50,7 +50,21 @@ function actionPayload(r: Row, deep = false): string {
  * `deep` doubles the escaping. The live island mixes depths — some objects
  * arrive as \" and others as \\\" — which is what used to leave every other
  * row without a face, so the fixture mixes them too.
+ *
+ * The suffixUrl carries a SIGNED query string, as the live one does, and the
+ * page writes its ampersands as \u0026. The CDN rejects the URL without the
+ * signature, so a reader that stops at the first backslash produces a link
+ * that looks perfectly plausible and always 404s.
  */
+/**
+ * `100/ada.jpg?e=1789603200&v=beta&t=<signature>` — every part required.
+ * JSON.stringify leaves the ampersands alone; the caller re-escapes them the
+ * way the page does, below.
+ */
+function signed(r: Row, width: number): string {
+  return `${width}/${r.vanity}.jpg?e=1789603200&v=beta&t=sig-${r.id}-${width}`;
+}
+
 function avatarPayload(r: Row, deep = false): string {
   const json = JSON.stringify({
     a11yText: `${r.first} ${r.last}\u2019s profile picture`,
@@ -59,14 +73,16 @@ function avatarPayload(r: Row, deep = false): string {
     renderPayload: {
       rootUrl: 'https://media.licdn.com/dms/image/v2/',
       imageRenditions: [
-        { width: 50, height: 50, suffixUrl: `50/${r.vanity}.jpg` },
-        { width: 100, height: 100, suffixUrl: `100/${r.vanity}.jpg` },
-        { width: 200, height: 200, suffixUrl: `200/${r.vanity}.jpg` },
+        { width: 50, height: 50, suffixUrl: signed(r, 50) },
+        { width: 100, height: 100, suffixUrl: signed(r, 100) },
+        { width: 200, height: 200, suffixUrl: signed(r, 200) },
       ],
       assetUrn: 'urn:li:digitalmediaAsset:' + r.id,
     },
   });
-  const escaped = json.replace(/"/g, '\\"');
+  // The island escapes ampersands as \u0026 — the escape that used to cut
+  // every avatar URL short, right before its signature.
+  const escaped = json.replace(/&/g, '\\u0026').replace(/"/g, '\\"');
   return deep ? escaped.replace(/\\"/g, '\\\\\\"') : escaped;
 }
 

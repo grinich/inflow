@@ -25,55 +25,27 @@ const SENT_AGO = /^Sent\s+(.+)\s+ago$/;
 const LAZY_REF = /^\$L[0-9a-f]+$/i;
 
 /**
- * The document escapes its JSON for embedding in a JS string literal, so the
- * bytes read `\"profileUrn\":\"…\"`. Unescape only what the embedding added.
+ * Rejoin the flight payload's chunk boundaries.
+ *
+ * The page embeds its payload as a JS array of string chunks, and a chunk can
+ * end in the middle of a value. One avatar url arrived as
+ *
+ *   …/0/1751805872801?e=178960320","0\u0026v=beta\u0026t=<signature>
+ *
+ * — the two halves of `1789603200` spliced by the join between two chunks. The
+ * browser concatenates them before anything reads them; a scraper taking the
+ * bytes at face value gets a url that stops early and a face that never loads.
+ *
+ * Every real quote inside the island is escaped (`\"`), so an UNescaped `","`
+ * is always a join and never data. They occur only inside <script>, so heal
+ * there: the rendered markup is left exactly as it was, and a pagination
+ * response — which has no script tags, and whose own arrays really do separate
+ * strings with `","` — passes through untouched.
  */
-function unescapeEmbedded(html: string): string {
-  return html.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-}
-
-/** The balanced `{...}` containing `index`, found by counting braces. */
-function enclosingObject(text: string, index: number): string | null {
-  let depth = 0;
-  let start = -1;
-  for (let i = index; i >= 0; i--) {
-    const c = text[i];
-    if (c === '}') depth++;
-    else if (c === '{') {
-      if (depth === 0) { start = i; break; }
-      depth--;
-    }
-  }
-  if (start === -1) return null;
-  depth = 0;
-  for (let i = start; i < text.length; i++) {
-    const c = text[i];
-    if (c === '{') depth++;
-    else if (c === '}') {
-      depth--;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return null;
-}
-
-/** Every balanced object containing `marker`, parsed, skipping the unparseable. */
-function objectsContaining(text: string, marker: string): any[] {
-  const out: any[] = [];
-  let from = 0;
-  for (;;) {
-    const hit = text.indexOf(marker, from);
-    if (hit === -1) break;
-    from = hit + marker.length;
-    const raw = enclosingObject(text, hit);
-    if (!raw) continue;
-    try {
-      out.push(JSON.parse(raw));
-    } catch {
-      // Unrecognised shape: skip this one, keep the rest.
-    }
-  }
-  return out;
+function healChunkJoins(html: string): string {
+  return html.replace(/<script[\s\S]*?<\/script>/gi, (block) =>
+    block.replace(/(?<!\\)","/g, '')
+  );
 }
 
 function str(v: unknown): string {
@@ -223,8 +195,18 @@ function decode(raw: string): string {
     .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
     .replace(/\\(.)/g, '$1');
 }
-const ROOT_URL = /rootUrl\\*"\s*:\s*\\*"(https:\/\/[^"\\]+)/;
-const RENDITION = /width\\*"\s*:\s*(\d+)[^]{0,80}?suffixUrl\\*"\s*:\s*\\*"([^"\\]+)/g;
+const ROOT_URL = /rootUrl\\*"\s*:\s*\\*"(https:\/\/.*?)\\*"/;
+/**
+ * A rendition's width and its suffix.
+ *
+ * The suffix is a SIGNED url — `100_100/<id>/0/<ts>?e=<expiry>&v=beta&t=<sig>`
+ * — and the page writes those ampersands as `\u0026`. Stopping the capture at
+ * the first backslash therefore cut the url off right after `?e=<expiry>`,
+ * losing the signature the CDN requires: every face on the first page came out
+ * as a link that looked fine and always failed to load. Read to the closing
+ * quote instead and decode after.
+ */
+const RENDITION = /width\\*"\s*:\s*(\d+)[^]{0,80}?suffixUrl\\*"\s*:\s*\\*"(.*?)\\*"/g;
 
 /** How far past an a11yText to look for its image; one envelope is ~1.2KB. */
 const ENVELOPE_WINDOW = 2000;
@@ -233,18 +215,25 @@ const ENVELOPE_WINDOW = 2000;
 function avatars(source: string): Map<string, string> {
   const out = new Map<string, string>();
   A11Y_TEXT.lastIndex = 0;
-  for (const match of source.matchAll(A11Y_TEXT)) {
+  const starts = [...source.matchAll(A11Y_TEXT)];
+  for (const [i, match] of starts.entries()) {
     const label = match[1].replace(/\\u2019/g, '\u2019');
-    const window = source.slice(match.index ?? 0, (match.index ?? 0) + ENVELOPE_WINDOW);
+    const from = match.index ?? 0;
+    // Stop at the NEXT label as well as at the window size: envelopes sit back
+    // to back, and a window that runs into the following one mixes two people's
+    // renditions together — then sorting them by width can hand this row its
+    // neighbour's face.
+    const next = starts[i + 1]?.index ?? source.length;
+    const window = source.slice(from, Math.min(next, from + ENVELOPE_WINDOW));
     const rootUrl = window.match(ROOT_URL)?.[1];
     if (!rootUrl) continue;
     const renditions = [...window.matchAll(RENDITION)]
-      .map((r) => ({ width: Number(r[1]), suffix: r[2] }))
+      .map((r) => ({ width: Number(r[1]), suffix: decode(r[2]) }))
       .sort((a, b) => a.width - b.width);
     if (!renditions.length) continue;
     // Smallest at or above 100px, else the largest — pickArtifact's rule.
     const pick = renditions.find((r) => r.width >= 100) ?? renditions[renditions.length - 1];
-    if (pick.suffix) out.set(label, rootUrl + pick.suffix);
+    if (pick.suffix) out.set(label, decode(rootUrl) + pick.suffix);
   }
   return out;
 }
@@ -282,8 +271,7 @@ export function scrapeSentInvitations(
   html: string,
   now: number = Date.now()
 ): ScrapedSentInvitations {
-  const source = String(html || '');
-  const text = unescapeEmbedded(source);
+  const source = healChunkJoins(String(html || ''));
 
   // Names in row order, from the withdraw control. This is also the join key
   // between the JSON island and the rendered markup.
