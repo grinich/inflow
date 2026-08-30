@@ -37,7 +37,7 @@ import { useUIStore } from '@/store/ui-store';
 
 function sent(i: number, message = ''): SentInvitation {
   return {
-    id: `sent-${i}`, sharedSecret: 's', toUrn: `urn:li:fsd_profile:t${i}`,
+    id: `sent-${i}`, toUrn: `urn:li:fsd_profile:t${i}`,
     name: `Recipient ${i}`, headline: 'Their headline', pictureUrl: '', publicId: `t${i}`,
     message, sentAt: 1_750_000_000_000 - i * 1000, status: 'pending',
   };
@@ -80,11 +80,13 @@ describe('regression #156: the Sent tab', () => {
     expect(screen.getByText('Would love to trade notes.')).toBeTruthy();
   });
 
-  it('says so when there was no note', async () => {
+  it('does not claim there was no note when it cannot tell', async () => {
     await renderSent();
     useUIStore.setState({ networkSelectedIndex: 1 });
 
-    await waitFor(() => expect(screen.getByText(/sent this without a note/)).toBeTruthy());
+    // The note is rendered by LinkedIn but absent from the payload we parse,
+    // so "you sent this without a note" would be a guess presented as fact.
+    await waitFor(() => expect(screen.getByText(/doesn't say whether you attached a note/)).toBeTruthy());
   });
 
   it('withdraws from the button', async () => {

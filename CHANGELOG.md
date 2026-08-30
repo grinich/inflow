@@ -43,10 +43,15 @@ All notable changes to inflow are documented here. This project follows
   hands its route to the page around it, which keeps it in the address bar and
   gives it back on the next load.
 
-- **A Sent tab** — the requests you're waiting on, with the note you attached
-  shown as your own outgoing message and a **Withdraw** button under it.
-  `3` opens it, and the tab carries a count of how many are still
-  outstanding.
+- **A Sent tab** — the connection requests you're still waiting on, with a
+  **Withdraw** button on each. `3` opens it, and the tab shows how many are
+  outstanding in total.
+
+  LinkedIn no longer serves this over the API inflow uses for everything else,
+  so it comes from their invitation manager page instead. Two consequences
+  worth knowing: only the first page of requests is listed (the count is the
+  true total), and the note you attached isn't available, so inflow won't
+  pretend to know whether there was one.
 - **Shared connections on each invitation** — requests now carry the same
   *"Grace Hopper and 11 other shared connections"* line LinkedIn's own My
   Network page shows, which is usually what decides a request. It rides along

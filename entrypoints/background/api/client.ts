@@ -71,7 +71,7 @@ export async function ensureCookieRule(): Promise<void> {
     const extDomain = chrome.runtime.id;
 
     await chrome.declarativeNetRequest.updateSessionRules({
-      removeRuleIds: [1, 2],
+      removeRuleIds: [1, 2, 3],
       addRules: [
         // Rule 1: make Voyager API requests look same-origin (cookie + browser headers)
         {
@@ -111,6 +111,35 @@ export async function ensureCookieRule(): Promise<void> {
           },
           condition: {
             urlFilter: '||www.linkedin.com/realtime/',
+            resourceTypes: [XHR, OTHER],
+            initiatorDomains: [extDomain],
+          },
+        },
+        // Rule 3: the sent-invitations pages, which are NOT Voyager. LinkedIn
+        // moved sent invitations onto its server-driven UI, so the only source
+        // is the invitation-manager page itself and the RSC action behind its
+        // Withdraw button. Referer points at that page rather than /messaging/,
+        // because the RSC action is only meaningful as a navigation from it.
+        {
+          id: 3,
+          priority: 3,
+          action: {
+            type: MODIFY,
+            requestHeaders: [
+              { header: 'Cookie', operation: SET, value: cookieValue },
+              { header: 'Sec-Fetch-Site', operation: SET, value: 'same-origin' },
+              { header: 'Sec-Fetch-Mode', operation: SET, value: 'cors' },
+              { header: 'Sec-Fetch-Dest', operation: SET, value: 'empty' },
+              { header: 'Origin', operation: SET, value: 'https://www.linkedin.com' },
+              {
+                header: 'Referer',
+                operation: SET,
+                value: 'https://www.linkedin.com/mynetwork/invitation-manager/sent/',
+              },
+            ],
+          },
+          condition: {
+            requestDomains: ['www.linkedin.com'],
             resourceTypes: [XHR, OTHER],
             initiatorDomains: [extDomain],
           },

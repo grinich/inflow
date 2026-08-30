@@ -42,6 +42,10 @@ export function NetworkView() {
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
+  // Every outstanding sent request, from the page's own heading. The page
+  // embeds only its first handful of rows, so this is almost always larger
+  // than what the list can show.
+  const [sentTotal, setSentTotal] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const nextStartRef = useRef(PAGE);
   const filterRef = useRef<HTMLInputElement>(null);
@@ -65,7 +69,15 @@ export function NetworkView() {
 
     Promise.allSettled([
       sendBridgeMessage({ type: 'FETCH_INVITATIONS' }).then(note('invitations')).catch(fail('invitations')),
-      sendBridgeMessage({ type: 'FETCH_SENT_INVITATIONS' }).then(note('sent')).catch(fail('sent')),
+      sendBridgeMessage({ type: 'FETCH_SENT_INVITATIONS' })
+        .then(note('sent'))
+        .then((res) => {
+          if (!cancelled && res.success && typeof res.data?.total === 'number') {
+            setSentTotal(res.data.total);
+          }
+          return res;
+        })
+        .catch(fail('sent')),
       sendBridgeMessage({ type: 'FETCH_CONNECTIONS' })
         .then(note('connections'))
         .then((res) => {
@@ -279,7 +291,14 @@ export function NetworkView() {
       count: connections.length ? `${connections.length}${hasMore ? '+' : ''}` : '',
       key: '2',
     },
-    { id: 'sent', label: 'Sent', count: sentInvitations.length ? String(sentInvitations.length) : '', key: '3' },
+    {
+      id: 'sent',
+      label: 'Sent',
+      // The heading's total, not the row count — the page hands over a
+      // handful of rows out of hundreds.
+      count: String(sentTotal ?? sentInvitations.length ?? '') || '',
+      key: '3',
+    },
   ];
 
   const selectedInvitation = filteredInvitations[selectedIndex];
@@ -379,14 +398,22 @@ export function NetworkView() {
               filteredSent.length === 0 ? (
                 <EmptyPane failure={failed.sent} empty="No requests waiting on a reply." />
               ) : (
-                filteredSent.map((inv, i) => (
-                  <SentInvitationRow
-                    key={inv.id}
-                    invitation={inv}
-                    selected={i === selectedIndex}
-                    onSelect={() => setSelectedIndex(i)}
-                  />
-                ))
+                <>
+                  {filteredSent.map((inv, i) => (
+                    <SentInvitationRow
+                      key={inv.id}
+                      invitation={inv}
+                      selected={i === selectedIndex}
+                      onSelect={() => setSelectedIndex(i)}
+                    />
+                  ))}
+                  {sentTotal !== null && sentTotal > sentInvitations.length && (
+                    <p className="p-4 text-xs text-fg-muted">
+                      Showing {sentInvitations.length} of {sentTotal}. LinkedIn only hands over
+                      the first page of sent requests.
+                    </p>
+                  )}
+                </>
               )
             ) : (
               <>

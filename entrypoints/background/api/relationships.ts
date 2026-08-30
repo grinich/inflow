@@ -42,72 +42,11 @@ export async function respondToInvitation(
   }
 }
 
-/**
- * BROKEN — `q=sentInvitation` answers 400. Verified against a live account on
- * 2026-08-30, along with every other REST route that looked plausible:
- *
- *   relationships/invitationViews?q=sentInvitation        400
- *   relationships/invitationViews?q=sent                  400
- *   relationships/invitations?q=sent                      400
- *   relationships/sentInvitationViews                     404
- *   relationships/dash/invitations?q=sent                 404
- *   relationships/dash/invitationViews?q=sent             404
- *
- * `q=receivedInvitation` on the same path still returns 200, so the endpoint
- * lives — LinkedIn has moved sent invitations off Voyager entirely. Watching
- * their own invitation manager confirms it: switching Received → Sent fires no
- * Voyager call at all, and neither does withdrawing.
- *
- * What it does instead (see docs/linkedin-sent-invitations.md for the full
- * capture):
- *
- *   list      POST /flagship-web/mynetwork/invitation-manager/sent
- *             → HTML with a JSON island per row carrying invitationId,
- *               profileUrn, firstName, lastName and inviteeVanityName, plus a
- *               "People (N)" total. First ~10 rows only.
- *   withdraw  POST /flagship-web/rsc-action/actions/server-request
- *                  ?sduiid=com.linkedin.sdui.requests.mynetwork.addaWithdrawInvitation
- *
- * Left in place, unused, until we decide whether to take that route. Do not
- * wire it back to the UI as-is: it cannot return anything.
- */
-export async function fetchSentInvitationsRaw(start = 0, count = 40): Promise<any> {
-  const res = await voyagerFetch(
-    `/relationships/invitationViews?q=sentInvitation&start=${start}&count=${count}`
-  );
-  if (!res.ok) {
-    debugLog('error', `fetchSentInvitationsRaw failed: ${res.status}`);
-    throw new Error(`fetchSentInvitations failed: ${res.status}`);
-  }
-  return res.json();
-}
-
-/**
- * Withdraw a sent invitation.
- *
- * `?action=withdraw` mirrors the accept/ignore calls on the same endpoint.
- * Unverified against a live account, so the caller must treat a non-OK
- * response as "still outstanding" rather than assuming it worked.
- */
-export async function withdrawInvitation(
-  invitationId: string,
-  sharedSecret: string
-): Promise<void> {
-  const res = await voyagerFetch(`/relationships/invitations/${invitationId}?action=withdraw`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      invitationId,
-      invitationSharedSecret: sharedSecret,
-      isGenericInvitation: false,
-    }),
-    skipJitter: true,
-  });
-  if (!res.ok) {
-    debugLog('error', `withdrawInvitation failed: ${res.status}`);
-    throw new Error(`Invitation withdraw failed: ${res.status}`);
-  }
-}
+// Sent invitations used to live on this endpoint via `q=sentInvitation`. They
+// do not any more — it answers 400, and every other REST route 404s while
+// `q=receivedInvitation` above still returns 200. They now come from the
+// invitation-manager page instead; see api/sent-invitations.ts and
+// docs/linkedin-sent-invitations.md.
 
 const CONNECTIONS_DECORATION =
   'com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16';

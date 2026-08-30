@@ -100,7 +100,6 @@ function buildDemoInvitations(): Invitation[] {
 function buildDemoSentInvitations(): SentInvitation[] {
   return DEMO_SENT_INVITATIONS.map((p, i) => ({
     id: `demo-sent-${i}`,
-    sharedSecret: 'demo',
     toUrn: `urn:li:fsd_profile:demo-sent-${i}`,
     name: `${p.firstName} ${p.lastName}`,
     headline: p.headline,
@@ -331,7 +330,7 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
       if (database && (await database.sentInvitations.count()) === 0) {
         await database.sentInvitations.bulkPut(buildDemoSentInvitations());
       }
-      return { success: true, data: { count: DEMO_SENT_INVITATIONS.length, complete: true } };
+      return { success: true, data: { count: DEMO_SENT_INVITATIONS.length, total: DEMO_SENT_INVITATIONS.length } };
     }
     case 'FETCH_CONNECTIONS': {
       const database = getDb();

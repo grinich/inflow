@@ -22,8 +22,10 @@ import { burstDiscover, toggleSyncPause, broadcastProgress } from './sync/sync-c
 import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
-import { fetchInvitationsRaw, fetchSentInvitationsRaw, fetchConnectionsRaw, respondToInvitation, withdrawInvitation } from './api/relationships';
-import { normalizeInvitations, normalizeSentInvitations, normalizeConnections, invitationPaging } from '@/lib/network-normalizer';
+import { fetchInvitationsRaw, fetchConnectionsRaw, respondToInvitation } from './api/relationships';
+import { fetchSentInvitationsPage, withdrawSentInvitation } from './api/sent-invitations';
+import { scrapeSentInvitations } from '@/lib/sent-invitation-scraper';
+import { normalizeInvitations, normalizeConnections, invitationPaging } from '@/lib/network-normalizer';
 import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
 import { applyPendingReceipts, consumePendingReceipts } from './realtime/pending-receipts';
 import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
@@ -39,7 +41,7 @@ import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression
 import { getSSEStatus } from './realtime/sse-client';
 import { checkForUpdate } from './update-check';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
-import type { Invitation, SentInvitation } from '@/types/network';
+import type { Invitation } from '@/types/network';
 import type { Profile } from '@/types/profile';
 
 /**
@@ -409,65 +411,34 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       return { success: true };
     }
     case 'FETCH_SENT_INVITATIONS': {
-      // Same walk as FETCH_INVITATIONS, and for the same reasons: the tab has
-      // no load-more, paging.total is only ever trusted in the direction of
-      // fetching more, a failed page keeps what came before it, and pruning
-      // needs a walk that proved it saw everything.
-      const PAGE = 40;
-      const MAX_PAGES = 50;
-      const sent: SentInvitation[] = [];
-      const profiles: Profile[] = [];
-      const seenIds = new Set<string>();
-      let complete = false;
-      let total: number | null = null;
-      for (let page = 0; page < MAX_PAGES; page++) {
-        let raw: any;
-        try {
-          raw = await fetchSentInvitationsRaw(page * PAGE, PAGE);
-        } catch (err) {
-          debugLog('error', `FETCH_SENT_INVITATIONS stopped at page ${page}: ${String(err)}`);
-          break;
-        }
-        const { sent: batch, profiles: batchProfiles, rawCount } = normalizeSentInvitations(raw);
-        total ??= invitationPaging(raw)?.total ?? null;
-        const unseen = batch.filter((i) => !seenIds.has(i.id));
-        for (const i of unseen) seenIds.add(i.id);
-        sent.push(...unseen);
-        profiles.push(...batchProfiles);
-        const serverSaysMore = total !== null && sent.length < total;
-        if (unseen.length === 0) {
-          complete = !serverSaysMore;
-          break;
-        }
-        if (rawCount < PAGE && !serverSaysMore) {
-          complete = true;
-          break;
-        }
+      // Not a paginated Voyager walk like the received list — LinkedIn serves
+      // sent invitations only as HTML from its own invitation manager, which
+      // embeds the first page of rows plus the real total. See
+      // docs/linkedin-sent-invitations.md.
+      const html = await fetchSentInvitationsPage();
+      const { invitations: sent, total } = scrapeSentInvitations(html);
+
+      // Prune only what the page actually covered. It carries a handful of
+      // rows out of hundreds, so anything not in it is almost always simply
+      // further down the list — never absence.
+      const serverIds = new Set(sent.map((i) => i.id));
+      const localPending = await db.sentInvitations.where('status').equals('pending').toArray();
+      const covered = total !== null && localPending.length <= sent.length;
+      if (covered) {
+        await db.sentInvitations.bulkDelete(
+          localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id)
+        );
       }
-      if (complete) {
-        const serverIds = new Set(sent.map((i) => i.id));
-        const localPending = await db.sentInvitations.where('status').equals('pending').toArray();
-        const doomed = localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id);
-        const looksTruncated = doomed.length > 50 && sent.length < localPending.length / 2;
-        if (looksTruncated) {
-          debugLog(
-            'error',
-            `FETCH_SENT_INVITATIONS declined to prune ${doomed.length} rows: fetched only ${sent.length} but hold ${localPending.length}`
-          );
-        } else {
-          await db.sentInvitations.bulkDelete(doomed);
-        }
-      }
+
       const existing = await db.sentInvitations.bulkGet(sent.map((i) => i.id));
       const fresh = sent.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
       await db.sentInvitations.bulkPut(fresh);
-      await mergeProfiles(profiles);
-      return { success: true, data: { count: sent.length, complete } };
+      return { success: true, data: { count: sent.length, total } };
     }
     case 'WITHDRAW_INVITATION': {
       const inv = await db.sentInvitations.get(msg.invitationId);
       if (!inv) return { success: false, error: 'Sent invitation not found' };
-      await withdrawInvitation(inv.id, inv.sharedSecret);
+      await withdrawSentInvitation(inv);
       await db.sentInvitations.update(inv.id, { status: 'withdrawn' });
       return { success: true };
     }

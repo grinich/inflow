@@ -1,7 +1,7 @@
 // Pure functions: raw Voyager normalized+json → typed records.
 // Defensive by design — these endpoints are undocumented and shapes drift.
 import { pickArtifact } from '@/lib/voyager-image';
-import type { Invitation, SentInvitation, Connection, InvitationInsight } from '@/types/network';
+import type { Invitation, Connection, InvitationInsight } from '@/types/network';
 import type { Profile } from '@/types/profile';
 
 function included(raw: any): any[] {
@@ -202,77 +202,6 @@ export function normalizeInvitations(raw: any): NormalizedInvitations {
     }
   }
   return { invitations, profiles, rawCount };
-}
-
-export interface NormalizedSentInvitations {
-  sent: SentInvitation[];
-  /** Recipient profiles, for the shared `profiles` table. */
-  profiles: Profile[];
-  /** Raw entity count, for the same reason as NormalizedInvitations.rawCount. */
-  rawCount: number;
-}
-
-/**
- * Outgoing requests. Same envelope as the received list, but the person on the
- * other end hangs off `toMember` rather than `fromMember`, and the note is one
- * I wrote rather than one I received.
- */
-export function normalizeSentInvitations(raw: any): NormalizedSentInvitations {
-  const entities = included(raw);
-  const byUrn = indexByUrn(entities);
-  const resolve: Resolve = (urn) => byUrn.get(String(urn));
-
-  const profilesById = new Map<string, any>();
-  for (const e of entities) {
-    const t = String(e?.$type || '');
-    if (t.endsWith('shared.MiniProfile') || t.endsWith('profile.Profile')) {
-      const id = String(e.entityUrn || '').split(':').pop();
-      if (id) profilesById.set(id, e);
-    }
-  }
-
-  const sent: SentInvitation[] = [];
-  const profiles: Profile[] = [];
-  let rawCount = 0;
-  for (const e of entities) {
-    if (!String(e?.$type || '').endsWith('invitation.Invitation')) continue;
-    rawCount++;
-    const id = String(e.entityUrn || '').split(':').pop() || '';
-    if (!id) continue;
-    const toRef = ref(e, 'toMember') || ref(e, 'invitee') || ref(e, 'toMemberResolutionResult');
-    const memberId = toRef.split(':').pop() || '';
-    const p = profilesById.get(memberId) ?? resolve(toRef);
-    const name = displayName(p) || 'LinkedIn Member';
-    const headline = String(p?.occupation || p?.headline || '');
-    const publicId = String(p?.publicIdentifier || '');
-    const toUrn = toFsdProfileUrn(toRef);
-    const msg = e.message;
-    sent.push({
-      id,
-      sharedSecret: String(e.sharedSecret || ''),
-      toUrn,
-      name,
-      headline,
-      pictureUrl: profilePictureUrl(p, 100, resolve),
-      publicId,
-      message: typeof msg === 'string' ? msg : String(msg?.text || ''),
-      sentAt: Number(e.sentTime || e.sentAt || 0),
-      status: 'pending',
-    });
-    if (toUrn) {
-      profiles.push({
-        urn: toUrn,
-        publicId,
-        firstName: String(p?.firstName || ''),
-        lastName: String(p?.lastName || ''),
-        fullName: name,
-        occupation: headline,
-        location: '',
-        pictureUrl: profilePictureUrl(p, 100, resolve),
-      });
-    }
-  }
-  return { sent, profiles, rawCount };
 }
 
 /**

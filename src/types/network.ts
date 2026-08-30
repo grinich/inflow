@@ -31,18 +31,20 @@ export interface Invitation extends InvitationInsight {
  * that table would be deleted by it.
  */
 export interface SentInvitation {
-  /** Numeric invitation id (tail of urn:li:fs_relInvitation:...) */
+  /** invitationUrn.invitationId from the invitation-manager page */
   id: string;
-  /** Secret required by the withdraw endpoint */
-  sharedSecret: string;
   /** Recipient, normalized to urn:li:fsd_profile:<memberId> */
   toUrn: string;
   name: string;
   headline: string;
   pictureUrl: string;
   publicId: string;
-  /** The note I attached to the request ('' if none) */
+  /**
+   * Always '' for now. LinkedIn renders the note you sent, but only inside
+   * content-hashed markup — it is not in the page's embedded payload.
+   */
   message: string;
+  /** Always 0 for now, for the same reason as `message`. */
   sentAt: number;
   status: 'pending' | 'withdrawn';
 }
