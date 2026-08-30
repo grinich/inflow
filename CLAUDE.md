@@ -50,6 +50,31 @@ inflow is a Chrome extension (MV3) that provides a keyboard-driven messaging cli
    inside `site/` fails looking for `site/site`):
    `VERCEL_ORG_ID=team_KLSLe39H0laAoEpSRLqEoH6W VERCEL_PROJECT_ID=prj_4MRzBhL20cBHjxWnTn4NF1j6us37 npx vercel --prod --yes`
 
+## Testing the app shell locally
+
+`inflow.im/app` embeds the extension in a cross-origin iframe, which Chrome
+only allows for the origins in `web_accessible_resources` /
+`externally_connectable`, and which the background's own origin gate checks
+again. `INFLOW_LOCAL_SHELL=1` adds localhost to all three:
+
+```
+npm run dev:shell     # build with localhost allowed — then RELOAD the
+                      # unpacked extension, or the old manifest sticks
+npm run site:dev      # vercel dev on :8765
+open http://localhost:8765/app?ext=dev
+```
+
+`?ext=dev` pins the probe to the unpacked build's ID. A plain `npm run build`
+strips localhost again, so a later rebuild silently breaks the local shell —
+that is the first thing to check when the frame stops loading.
+
+**The service worker will serve you a stale shell.** `site/app-sw.js` caches
+`/app` stale-while-revalidate, so the load after any edit to `site/app.html`
+runs the *previous* copy and only the one after that picks up the change.
+Debugging the shell against a mix of old and new is deeply confusing; hard-
+reload twice, or unregister the worker in DevTools › Application, before
+concluding anything about shell behaviour.
+
 ## Marketing site
 
 `site/` is a static site deployed to https://inflow.im on Vercel (personal
