@@ -25,8 +25,8 @@ All notable changes to inflow are documented here. This project follows
 ### Added
 - **Network view** — keyboard-driven triage for connection requests and a
   browsable list of recent connections. `G N` opens it (or pick "Go to
-  Network" from the command palette); `1` / `2` / `Tab` switch between
-  Invitations and Connections, `J` / `K` move, `/` filters, `Enter` accepts
+  Network" from the command palette); `1` / `2` / `3` switch between
+  Invitations, Connections and Sent, `J` / `K` move, `/` filters, `Enter` accepts
   an invitation or messages a connection, `D` / `X` / `⌫` ignores, `P` opens
   the profile, and `Esc` returns to the inbox. It has its own address
   (`#/network`), so reloads and deep links land on it, and a **Network**

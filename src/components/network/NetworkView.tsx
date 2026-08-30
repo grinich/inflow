@@ -227,12 +227,10 @@ export function NetworkView() {
           e.preventDefault();
           filterRef.current?.focus();
           return;
-        case 'Tab': {
-          e.preventDefault();
-          const order: NetworkTab[] = ['invitations', 'connections', 'sent'];
-          setNetworkTab(order[(order.indexOf(networkTab) + 1) % order.length]);
+        // Tab is deliberately absent: it belongs to focus traversal, and the
+        // inbox handler leaves it alone for the same reason. 1/2/3 switch tabs.
+        case 'Tab':
           return;
-        }
         case '1':
           e.preventDefault();
           setNetworkTab('invitations');

@@ -140,3 +140,27 @@ describe('regression #155: the invitation actions and their hints', () => {
     expect(screen.getByText('D')).toBeTruthy();
   });
 });
+
+describe('regression #155: Tab is left to the browser', () => {
+  it('does not switch tabs, and does not swallow the keypress', async () => {
+    // Tab moves focus between controls; a keyboard-driven app that steals it
+    // strands anyone navigating the header. 1/2/3 switch tabs instead — and
+    // the inbox handler already leaves Tab alone for the same reason.
+    await renderNetwork();
+    expect(useUIStore.getState().networkTab).toBe('invitations');
+
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(event);
+
+    expect(useUIStore.getState().networkTab).toBe('invitations');
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('still switches on the number keys', async () => {
+    await renderNetwork();
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '3', bubbles: true, cancelable: true }));
+
+    await waitFor(() => expect(useUIStore.getState().networkTab).toBe('sent'));
+  });
+});
