@@ -29,18 +29,23 @@ async function findThread(profileUrn: string) {
     .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
 }
 
-/** Put the cursor in the reply box once the thread pane has mounted. */
-function focusComposer(attempts = 20) {
-  const store = useUIStore.getState();
-  store.setComposeActive(true);
-  const tick = (left: number) => {
+/**
+ * Put the cursor in the reply box once the thread pane has mounted.
+ *
+ * Time-boxed rather than counted in frames: the pane appears only after a live
+ * query notices the conversation and React commits, which is a database round
+ * trip away — twenty frames came and went long before that, so the focus was
+ * silently dropped.
+ */
+function focusComposer(budgetMs = 3000): void {
+  useUIStore.getState().setComposeActive(true);
+  const deadline = Date.now() + budgetMs;
+  const tick = () => {
     const el = document.querySelector<HTMLTextAreaElement>('[data-compose-input]');
     if (el) { el.focus(); return; }
-    // ThreadView mounts a frame or two after the route changes; keep looking
-    // briefly rather than firing once into an empty pane.
-    if (left > 0) requestAnimationFrame(() => tick(left - 1));
+    if (Date.now() < deadline) setTimeout(tick, 50);
   };
-  tick(attempts);
+  tick();
 }
 
 export function useNetworkActions() {
@@ -197,6 +202,11 @@ export function useNetworkActions() {
     let real = await findThread(inv.fromUrn);
     while (!real && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 400));
+      // Stop watching the moment the user moves on. Without this the loop runs
+      // for its full fifteen seconds and then reaches into a view they have
+      // long since left.
+      const now = useUIStore.getState();
+      if (now.appView !== 'inbox' || now.selectedConversationId !== placeholderId) return;
       real = await findThread(inv.fromUrn);
     }
     // Never arrived: leave them on the placeholder rather than yanking it
