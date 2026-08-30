@@ -15,7 +15,8 @@ Downstream renders (do not edit by hand — re-render from the master):
 - `site/icons/app-icon-512.png`, `-192.png` — PWA icons in `site/app.webmanifest`
 - `site/icons/app-icon-512-fullbleed.png` — the `purpose: maskable` variant
 
-The extension's toolbar icons (`public/icon-16/48/128.png`) are the blue tile
-mark, which is separate artwork — not rendered from this master.
+- `public/icon-16.png`, `-48.png`, `-128.png` — the extension's toolbar and
+  Chrome Web Store icons: the tile cropped to its bounds (transparent rounded
+  corners kept), then resized.
 
 `assets/` is not deployed: the Vercel project's root directory is `site/`.
