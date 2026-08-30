@@ -1,4 +1,4 @@
-import Dexie from 'dexie';
+import Dexie, { type EntityTable } from 'dexie';
 import {
   archiveConversation,
   unarchiveConversation,
@@ -76,6 +76,28 @@ export function setupMessageRouter() {
       return true; // keep channel open for async
     }
   );
+}
+
+
+/**
+ * Store a page of invitations as it arrives, leaving alone any row the user
+ * has already acted on locally.
+ *
+ * Both walks used to buffer every page and write once at the end, so a few
+ * hundred sent requests meant thirty-odd sequential fetches — the first of
+ * them a 600KB page — before a single row appeared. Writing per page lets the
+ * live query paint the list while the rest of the walk runs.
+ */
+async function storeArrivedPage<T extends { id: string; status: string }>(
+  table: EntityTable<T, 'id'>,
+  rows: T[]
+): Promise<void> {
+  if (!rows.length) return;
+  const ids = rows.map((r) => r.id) as Parameters<typeof table.bulkGet>[0];
+  const existing = await table.bulkGet(ids);
+  // Never resurrect one the user accepted, ignored or withdrew since.
+  const fresh = rows.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
+  if (fresh.length) await table.bulkPut(fresh);
 }
 
 export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
@@ -325,8 +347,11 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       // short page long before reaching it.
       const MAX_PAGES = 50;
       const invitations: Invitation[] = [];
-      const profiles: Profile[] = [];
       const seenIds = new Set<string>();
+      // Captured BEFORE the walk starts writing. Pages now land as they
+      // arrive, so reading this afterwards would count rows this very walk
+      // added and the truncation ratio below would no longer mean what it says.
+      const heldBefore = await db.invitations.where('status').equals('pending').count();
       // Walk every page: the view has no load-more, so anything left unfetched
       // is permanently invisible to the user.
       let complete = false;
@@ -349,7 +374,11 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         const unseen = batch.filter((i) => !seenIds.has(i.id));
         for (const i of unseen) seenIds.add(i.id);
         invitations.push(...unseen);
-        profiles.push(...batchProfiles);
+        // Show this page now rather than at the end of the walk.
+        await storeArrivedPage(db.invitations, unseen);
+        // These senders are often richer than the sparse profiles the
+        // Messenger API returns, and they were previously discarded entirely.
+        await mergeProfiles(batchProfiles);
         // `paging.total` is only ever trusted in the direction of fetching
         // MORE. This endpoint has been OBSERVED reporting `total` as the page
         // size (40) rather than the size of the full set: treating it as a
@@ -384,7 +413,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         // truncation we failed to detect, not of an invitation list that
         // genuinely emptied out. Hundreds of rows disappearing is the worst
         // outcome here, so decline the inference and say so.
-        const looksTruncated = doomed.length > 50 && invitations.length < localPending.length / 2;
+        const looksTruncated = doomed.length > 50 && invitations.length < heldBefore / 2;
         if (looksTruncated) {
           debugLog(
             'error',
@@ -394,12 +423,6 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
           await db.invitations.bulkDelete(doomed);
         }
       }
-      const existing = await db.invitations.bulkGet(invitations.map((i) => i.id));
-      const fresh = invitations.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
-      await db.invitations.bulkPut(fresh);
-      // These senders are often richer than the sparse profiles the Messenger
-      // API returns, and they were previously discarded on every sync.
-      await mergeProfiles(profiles);
       return { success: true, data: { count: invitations.length, complete } };
     }
     case 'ACCEPT_INVITATION':
@@ -442,6 +465,9 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         const unseen = batch.filter((i) => !seenIds.has(i.id));
         for (const i of unseen) seenIds.add(i.id);
         sent.push(...unseen);
+        // Show this page now. This is the slowest walk of the three — one
+        // request per ten rows — so buffering it was the longest wait.
+        await storeArrivedPage(db.sentInvitations, unseen);
         // Short by the page's OWN row count, not by how many of them we could
         // read: a full page with one unreadable row is not the end of the list,
         // and treating it as one would also let the prune below run.
@@ -465,9 +491,6 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         );
       }
 
-      const existing = await db.sentInvitations.bulkGet(sent.map((i) => i.id));
-      const fresh = sent.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
-      await db.sentInvitations.bulkPut(fresh);
       return { success: true, data: { count: sent.length, total: total ?? sent.length, complete } };
     }
     case 'WITHDRAW_INVITATION': {

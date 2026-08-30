@@ -41,7 +41,15 @@ export function NetworkView() {
 
   const [filter, setFilter] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
-  const [loading, setLoading] = useState(true);
+  // Per tab, not one flag for all three. The walks run concurrently and the
+  // Sent one is much the slowest, so a single flag either cleared while Sent
+  // was still fetching or held the other two back — and the tab the user is
+  // looking at is the only one whose progress they can see.
+  const [loading, setLoading] = useState<Record<NetworkTab, boolean>>({
+    invitations: true,
+    connections: true,
+    sent: true,
+  });
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const nextStartRef = useRef(PAGE);
@@ -59,6 +67,8 @@ export function NetworkView() {
     const note = (tab: NetworkTab) => <T extends { success: boolean; error?: string }>(res: T): T => {
       if (cancelled) return res;
       setFailed((prev) => (res.success ? prev : { ...prev, [tab]: res.error || 'Request failed' }));
+      // This tab's walk is done, whatever the others are still doing.
+      setLoading((prev) => ({ ...prev, [tab]: false }));
       return res;
     };
     const fail = (tab: NetworkTab) => (err: unknown) =>
@@ -75,7 +85,9 @@ export function NetworkView() {
         })
         .catch(fail('connections')),
     ]).finally(() => {
-      if (!cancelled) setLoading(false);
+      // Belt and braces: a walk that neither resolved nor rejected through
+      // `note` must not leave a spinner up forever.
+      if (!cancelled) setLoading({ invitations: false, connections: false, sent: false });
     });
     return () => {
       cancelled = true;
@@ -362,7 +374,7 @@ export function NetworkView() {
           </header>
 
           <div className="flex-1 overflow-y-auto">
-            {loading && rowCount === 0 ? (
+            {loading[networkTab] && rowCount === 0 ? (
               <ListLoadingIndicator label="Loading your network..." />
             ) : networkTab === 'invitations' ? (
               filteredInvitations.length === 0 ? (
@@ -419,6 +431,11 @@ export function NetworkView() {
                   </button>
                 )}
               </>
+            )}
+            {/* Rows land page by page now, so keep saying so instead of going
+                quiet the moment the first ten appear. */}
+            {loading[networkTab] && rowCount > 0 && (
+              <ListLoadingIndicator label="Loading more..." />
             )}
           </div>
         </div>
