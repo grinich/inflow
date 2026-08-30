@@ -100,7 +100,7 @@ describe('connections auto-pagination', () => {
     serveConnections(95);
     render(<NetworkView />);
 
-    await waitFor(() => expect(screen.getByText('Connection 0')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('Connection 0').length).toBeGreaterThan(0));
     expect(await testDb.connections.count()).toBe(40);
 
     // Sentinel enters the viewport twice — the rest of the list follows.
@@ -113,7 +113,7 @@ describe('connections auto-pagination', () => {
   it('keeps loading as the keyboard selection nears the end', async () => {
     serveConnections(95);
     render(<NetworkView />);
-    await waitFor(() => expect(screen.getByText('Connection 0')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('Connection 0').length).toBeGreaterThan(0));
 
     // J past row 40 used to dead-end; the selection nearing the tail now pulls
     // the next page in.
@@ -141,7 +141,7 @@ describe('connections auto-pagination', () => {
   it('does not fetch the same page twice when both triggers fire', async () => {
     serveConnections(200);
     render(<NetworkView />);
-    await waitFor(() => expect(screen.getByText('Connection 0')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('Connection 0').length).toBeGreaterThan(0));
 
     const before = sendBridgeMessage.mock.calls.filter((c) => c[0].type === 'FETCH_CONNECTIONS').length;
     // Sentinel and keyboard reach for the next page in the same tick.
@@ -159,7 +159,7 @@ describe('connections auto-pagination', () => {
   it('stops auto-loading while a filter is active', async () => {
     serveConnections(200);
     render(<NetworkView />);
-    await waitFor(() => expect(screen.getByText('Connection 0')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('Connection 0').length).toBeGreaterThan(0));
 
     await userEvent.type(screen.getByPlaceholderText('Filter… ( / )'), 'Connection 1');
     const after = sendBridgeMessage.mock.calls.filter((c) => c[0].type === 'FETCH_CONNECTIONS').length;

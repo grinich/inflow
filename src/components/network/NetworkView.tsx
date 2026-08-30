@@ -4,8 +4,11 @@ import { db } from '@/db/database';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { useUIStore, type NetworkTab } from '@/store/ui-store';
 import { useNetworkActions } from '@/hooks/useNetworkActions';
+import { useResizableSidebar } from '@/hooks/useResizableSidebar';
 import { InvitationRow } from './InvitationRow';
 import { ConnectionRow } from './ConnectionRow';
+import { InvitationDetail } from './InvitationDetail';
+import { ConnectionDetail } from './ConnectionDetail';
 
 type SortMode = 'recent' | 'name';
 const PAGE = 40;
@@ -17,6 +20,7 @@ export function NetworkView() {
   const setSelectedIndex = useUIStore((s) => s.setNetworkSelectedIndex);
   const setAppView = useUIStore((s) => s.setAppView);
   const actions = useNetworkActions();
+  const { width: sidebarWidth, isDragging: isDraggingSidebar, onDividerMouseDown, onDividerDoubleClick } = useResizableSidebar();
 
   const [filter, setFilter] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
@@ -212,95 +216,131 @@ export function NetworkView() {
     },
   ];
 
+  const selectedInvitation = filteredInvitations[selectedIndex];
+  const selectedConnection = filteredConnections[selectedIndex];
+
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-surface text-fg">
-      <header className="flex items-center gap-1 border-b border-edge px-4 py-2">
-        <button
-          onClick={() => setAppView('inbox')}
-          className="mr-2 shrink-0 rounded px-2 py-1 text-sm text-fg-secondary hover:bg-surface-hover"
-          title="Back to inbox (Esc)"
-        >
-          ← Inbox
-        </button>
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setNetworkTab(tab.id)}
-            title={`${tab.label} (${tab.key})`}
-            className={`shrink-0 rounded px-3 py-1 text-sm font-medium ${networkTab === tab.id ? 'bg-surface-active text-fg-strong' : 'text-fg-secondary hover:bg-surface-hover'}`}
-          >
-            {tab.label}
-            {tab.count && <span className="ml-1.5 text-xs text-fg-muted">{tab.count}</span>}
-          </button>
-        ))}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          {networkTab === 'connections' && (
-            <select
-              value={sortMode}
-              onChange={(e) => setSortMode(e.target.value as SortMode)}
-              className="rounded border border-edge bg-surface px-2 py-1 text-xs text-fg-secondary"
-            >
-              <option value="recent">Recently added</option>
-              <option value="name">Name A–Z</option>
-            </select>
-          )}
-          <input
-            ref={filterRef}
-            value={filter}
-            onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
-            placeholder="Filter… ( / )"
-            className="w-48 rounded border border-edge bg-transparent px-2 py-1 text-sm outline-none placeholder:text-fg-muted"
-          />
-        </div>
-      </header>
-
-      <div className="flex-1 overflow-y-auto">
-        {loading && rowCount === 0 ? (
-          <p className="p-6 text-sm text-fg-muted">Loading your network…</p>
-        ) : networkTab === 'invitations' ? (
-          filteredInvitations.length === 0 ? (
-            <p className="p-6 text-sm text-fg-muted">No pending invitations.</p>
-          ) : (
-            filteredInvitations.map((inv, i) => (
-              <InvitationRow
-                key={inv.id}
-                invitation={inv}
-                selected={i === selectedIndex}
-                onAccept={() => actions.acceptInvitation(inv)}
-                onIgnore={() => actions.ignoreInvitation(inv)}
-                onOpenProfile={() => actions.openProfile(inv)}
-              />
-            ))
-          )
-        ) : (
-          <>
-            {filteredConnections.map((conn, i) => (
-              <ConnectionRow
-                key={conn.profileUrn}
-                connection={conn}
-                selected={i === selectedIndex}
-                onMessage={() => actions.messageConnection(conn)}
-                onOpenProfile={() => actions.openProfile(conn)}
-              />
-            ))}
-            {filteredConnections.length === 0 && (
-              <p className="p-6 text-sm text-fg-muted">No connections synced yet.</p>
-            )}
-            <div ref={sentinelRef} aria-hidden />
-            {hasMore && !filter && (
-              // Auto-loading covers the normal path; the button stays as the
-              // fallback for when the observer never fires (no
-              // IntersectionObserver, or a list too short to scroll).
+      {/* Two panes, same shape as the inbox: list left, selected person right. */}
+      <div className="flex min-h-0 flex-1">
+        <div style={{ width: sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
+          <header className="border-b border-edge px-3 py-2">
+            <div className="flex items-center gap-1">
               <button
-                onClick={() => void loadMore()}
-                disabled={loadingMore}
-                className="m-4 rounded border border-edge px-4 py-2 text-sm text-fg-secondary hover:bg-surface-hover disabled:opacity-50"
+                onClick={() => setAppView('inbox')}
+                className="mr-1 shrink-0 rounded px-2 py-1 text-sm text-fg-secondary hover:bg-surface-hover"
+                title="Back to inbox (Esc)"
               >
-                {loadingMore ? 'Loading…' : 'Load more connections'}
+                ← Inbox
               </button>
+              {TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setNetworkTab(tab.id)}
+                  title={`${tab.label} (${tab.key})`}
+                  className={`shrink-0 rounded px-2.5 py-1 text-sm font-medium ${networkTab === tab.id ? 'bg-surface-active text-fg-strong' : 'text-fg-secondary hover:bg-surface-hover'}`}
+                >
+                  {tab.label}
+                  {tab.count && <span className="ml-1.5 text-xs text-fg-muted">{tab.count}</span>}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                ref={filterRef}
+                value={filter}
+                onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
+                placeholder="Filter… ( / )"
+                className="min-w-0 flex-1 rounded border border-edge bg-transparent px-2 py-1 text-sm outline-none placeholder:text-fg-muted"
+              />
+              {networkTab === 'connections' && (
+                <select
+                  value={sortMode}
+                  onChange={(e) => setSortMode(e.target.value as SortMode)}
+                  className="shrink-0 rounded border border-edge bg-surface px-2 py-1 text-xs text-fg-secondary"
+                >
+                  <option value="recent">Recently added</option>
+                  <option value="name">Name A–Z</option>
+                </select>
+              )}
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-y-auto">
+            {loading && rowCount === 0 ? (
+              <p className="p-6 text-sm text-fg-muted">Loading your network…</p>
+            ) : networkTab === 'invitations' ? (
+              filteredInvitations.length === 0 ? (
+                <p className="p-6 text-sm text-fg-muted">No pending invitations.</p>
+              ) : (
+                filteredInvitations.map((inv, i) => (
+                  <InvitationRow
+                    key={inv.id}
+                    invitation={inv}
+                    selected={i === selectedIndex}
+                    onSelect={() => setSelectedIndex(i)}
+                  />
+                ))
+              )
+            ) : (
+              <>
+                {filteredConnections.map((conn, i) => (
+                  <ConnectionRow
+                    key={conn.profileUrn}
+                    connection={conn}
+                    selected={i === selectedIndex}
+                    onSelect={() => setSelectedIndex(i)}
+                  />
+                ))}
+                {filteredConnections.length === 0 && (
+                  <p className="p-6 text-sm text-fg-muted">No connections synced yet.</p>
+                )}
+                <div ref={sentinelRef} aria-hidden />
+                {hasMore && !filter && (
+                  // Auto-loading covers the normal path; the button stays as the
+                  // fallback for when the observer never fires (no
+                  // IntersectionObserver, or a list too short to scroll).
+                  <button
+                    onClick={() => void loadMore()}
+                    disabled={loadingMore}
+                    className="m-4 rounded border border-edge px-4 py-2 text-sm text-fg-secondary hover:bg-surface-hover disabled:opacity-50"
+                  >
+                    {loadingMore ? 'Loading…' : 'Load more connections'}
+                  </button>
+                )}
+              </>
             )}
-          </>
-        )}
+          </div>
+        </div>
+
+        {/* Resize handle — same divider as the inbox, sharing its stored width. */}
+        <div
+          onMouseDown={onDividerMouseDown}
+          onDoubleClick={onDividerDoubleClick}
+          title="Drag to resize · double-click to reset"
+          className={`group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize ${isDraggingSidebar ? 'bg-blue-500/40' : ''}`}
+        >
+          <div className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isDraggingSidebar ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-500/60'}`} />
+        </div>
+
+        <div className="flex h-full min-w-0 flex-1 flex-col">
+          {networkTab === 'invitations' ? (
+            selectedInvitation ? (
+              <InvitationDetail
+                invitation={selectedInvitation}
+                onAccept={() => actions.acceptInvitation(selectedInvitation)}
+                onIgnore={() => actions.ignoreInvitation(selectedInvitation)}
+                onOpenProfile={() => actions.openProfile(selectedInvitation)}
+              />
+            ) : null
+          ) : selectedConnection ? (
+            <ConnectionDetail
+              connection={selectedConnection}
+              onMessage={() => actions.messageConnection(selectedConnection)}
+              onOpenProfile={() => actions.openProfile(selectedConnection)}
+            />
+          ) : null}
+        </div>
       </div>
 
       <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">
