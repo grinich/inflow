@@ -322,18 +322,20 @@ export function NetworkView() {
               >
                 ← Inbox
               </button>
-              {/* Separate pills rather than one joined track: three tabs of
-                  quite different lengths read better spaced than butted up. */}
-              <div className="flex shrink-0 items-center gap-1">
+              {/* Character-for-character the inbox's folder selector. The
+                  selected pill is `bg-surface`, which only reads as selected
+                  against the track's `bg-surface-input` — so the two go
+                  together; a spaced-out version loses the selected state. */}
+              <div className="flex shrink-0 rounded-md bg-surface-input p-0.5">
                 {TABS.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setNetworkTab(tab.id)}
                     title={`${tab.label} (${tab.key})`}
-                    className={`cursor-pointer rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                    className={`cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
                       networkTab === tab.id
-                        ? 'bg-surface-input text-fg-strong'
-                        : 'text-fg-muted hover:bg-surface-hover hover:text-fg-secondary'
+                        ? 'bg-surface text-fg-strong shadow-sm'
+                        : 'text-fg-muted hover:text-fg-secondary'
                     }`}
                   >
                     {tab.label}

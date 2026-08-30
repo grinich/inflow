@@ -38,6 +38,30 @@ describe('regression #157: the two headers are the same height', () => {
     expect(INBOX).toMatch(/className="flex min-h-6 items-center/);
   });
 
+  // The tabs drifted twice: first to their own pill shape, then to a spaced
+  // layout that dropped the track — and the selected pill is `bg-surface`,
+  // which only reads as selected against the track's `bg-surface-input`.
+  it('wraps the tabs in the same track', () => {
+    const track = /className="flex shrink-0 rounded-md bg-surface-input p-0\.5"/;
+    expect(NETWORK).toMatch(track);
+    expect(INBOX).toMatch(/rounded-md bg-surface-input p-0\.5/);
+  });
+
+  it('gives selected and unselected tabs the same treatment as the inbox', () => {
+    const selected = /'bg-surface text-fg-strong shadow-sm'/;
+    const unselected = /'text-fg-muted hover:text-fg-secondary'/;
+    for (const source of [NETWORK, INBOX]) {
+      expect(source).toMatch(selected);
+      expect(source).toMatch(unselected);
+    }
+  });
+
+  it('sizes the tab buttons the same', () => {
+    const size = /cursor-pointer rounded px-1\.5 py-0\.5 text-\[11px\] font-medium transition-colors/;
+    expect(NETWORK).toMatch(size);
+    expect(INBOX).toMatch(size);
+  });
+
   it('spaces the search field by the shell gap, not an ad-hoc margin', () => {
     // An `mt-2` on the filter row would stack with the shell's gap-2 and push
     // the field lower than the inbox's.
