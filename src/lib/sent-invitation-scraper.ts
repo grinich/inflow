@@ -196,25 +196,39 @@ function renderedRows(html: string, names: string[], now: number): Map<string, R
   return rows;
 }
 
-/** name → avatar url, from the image envelopes in the JSON island. */
-function avatars(text: string): Map<string, string> {
+// The island's escaping depth is NOT uniform — some objects arrive as `\"`
+// and others as `\\\"` — so JSON.parse succeeds on roughly half of them and
+// silently fails on the rest. That is what left every other row without a
+// face. These read the two strings an avatar needs straight off the raw text
+// with `\\*` in place of a fixed depth, which no amount of re-escaping breaks.
+const A11Y_TEXT = /a11yText\\*"\s*:\s*\\*"((?:[^"\\]|\\[^"])*)/g;
+const ROOT_URL = /rootUrl\\*"\s*:\s*\\*"(https:\/\/[^"\\]+)/;
+const RENDITION = /width\\*"\s*:\s*(\d+)[^]{0,80}?suffixUrl\\*"\s*:\s*\\*"([^"\\]+)/g;
+
+/** How far past an a11yText to look for its image; one envelope is ~1.2KB. */
+const ENVELOPE_WINDOW = 2000;
+
+/** name → avatar url, read off the raw page. */
+function avatars(source: string): Map<string, string> {
   const out = new Map<string, string>();
-  for (const img of objectsContaining(text, '"a11yText"')) {
-    const label = str(img.a11yText);
-    const rootUrl = str(img.renderPayload?.rootUrl ?? img.rootUrl);
-    const renditions = img.renderPayload?.imageRenditions ?? img.imageRenditions;
-    if (!label || !rootUrl || !Array.isArray(renditions) || !renditions.length) continue;
-    // Smallest rendition at or above 100px, else the largest available —
-    // matching pickArtifact's rule for Voyager's vectorImage.
-    const sorted = [...renditions].sort((a, b) => (a?.width || 0) - (b?.width || 0));
-    const pick = sorted.find((a) => (a?.width || 0) >= 100) || sorted[sorted.length - 1];
-    const suffix = str(pick?.suffixUrl);
-    if (suffix) out.set(label, rootUrl + suffix);
+  A11Y_TEXT.lastIndex = 0;
+  for (const match of source.matchAll(A11Y_TEXT)) {
+    const label = match[1].replace(/\\u2019/g, '\u2019');
+    const window = source.slice(match.index ?? 0, (match.index ?? 0) + ENVELOPE_WINDOW);
+    const rootUrl = window.match(ROOT_URL)?.[1];
+    if (!rootUrl) continue;
+    const renditions = [...window.matchAll(RENDITION)]
+      .map((r) => ({ width: Number(r[1]), suffix: r[2] }))
+      .sort((a, b) => a.width - b.width);
+    if (!renditions.length) continue;
+    // Smallest at or above 100px, else the largest — pickArtifact's rule.
+    const pick = renditions.find((r) => r.width >= 100) ?? renditions[renditions.length - 1];
+    if (pick.suffix) out.set(label, rootUrl + pick.suffix);
   }
   return out;
 }
 
-/** a11yText is the name plus decoration ("Ada Lovelace, profile photo"). */
+/** a11yText is the name plus decoration ("Ada Lovelace\u2019s profile picture"). */
 function avatarFor(name: string, byLabel: Map<string, string>): string {
   const exact = byLabel.get(name);
   if (exact) return exact;
@@ -249,7 +263,7 @@ export function scrapeSentInvitations(
   const names = [...source.matchAll(WITHDRAW_LABEL)].map((m) => m[1]);
 
   const rendered = renderedRows(source, names, now);
-  const byLabel = avatars(text);
+  const byLabel = avatars(source);
 
   const invitations: SentInvitation[] = [];
   const seen = new Set<string>();

@@ -68,6 +68,15 @@ describe('scrapeSentInvitations', () => {
     expect(byName().get('Alberto Parrella')!.sentAt).toBe(NOW - 15 * 60_000);
   });
 
+  it('gives every row an avatar, whatever its escaping depth', () => {
+    // The bug: the island mixes escaping depths, JSON.parse succeeded on about
+    // half the envelopes and failed silently on the rest, and every other row
+    // in the list rendered a grey initial instead of a face.
+    const withAvatars = scrape().invitations.filter((i) => i.pictureUrl);
+
+    expect(withAvatars).toHaveLength(4);
+  });
+
   it('reads the avatar out of the image envelope', () => {
     // Smallest rendition at or above 100px, matching pickArtifact's rule.
     expect(byName().get('Alberto Parrella')!.pictureUrl).toBe(

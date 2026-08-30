@@ -78,9 +78,17 @@ page showing everything:
   to the next person. Anchor on
   `aria-label="Withdraw invitation sent to <name>"`, never on class names.
 - **avatar** — back in the JSON island, but in a separate envelope keyed by
-  `a11yText` ("<name>, profile photo") with `rootUrl` +
+  `a11yText` ("<name>\u2019s profile picture") with `rootUrl` +
   `imageRenditions[{width,height,suffixUrl}]`. Note `imageRenditions`, not
   Voyager's `artifacts`. Join to the row by name.
+
+  **The island's escaping depth is not uniform.** Some objects arrive as `\"`
+  and others as `\\\"` within the same document — the raw bytes read
+  `a11yText\\\":\\\"Kevin Kwok\u2019s profile picture\\\"`. Any fixed
+  number of unescaping passes therefore corrupts whichever half does not match
+  it, `JSON.parse` succeeds on about half the envelopes and fails silently on
+  the rest, and every other row loses its face. Read these with regexes that
+  put `\\*` where the escaping goes, rather than parsing the object.
 
 The timestamp is only ever a rounded relative phrase, so any absolute value
 is an approximation of when the page was read.

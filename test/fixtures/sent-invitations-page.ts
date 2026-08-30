@@ -37,10 +37,16 @@ function actionPayload(r: Row): string {
   return json.replace(/"/g, '\\"');
 }
 
-/** The avatar envelope, keyed by a11yText as the real page keys it. */
-function avatarPayload(r: Row): string {
+/**
+ * The avatar envelope, keyed by a11yText as the real page keys it.
+ *
+ * `deep` doubles the escaping. The live island mixes depths — some objects
+ * arrive as \" and others as \\\" — which is what used to leave every other
+ * row without a face, so the fixture mixes them too.
+ */
+function avatarPayload(r: Row, deep = false): string {
   const json = JSON.stringify({
-    a11yText: `${r.first} ${r.last}, profile photo`,
+    a11yText: `${r.first} ${r.last}\u2019s profile picture`,
     shape: 'CIRCLE',
     imageId: 'img-' + r.id,
     renderPayload: {
@@ -53,7 +59,8 @@ function avatarPayload(r: Row): string {
       assetUrn: 'urn:li:digitalmediaAsset:' + r.id,
     },
   });
-  return json.replace(/"/g, '\\"');
+  const escaped = json.replace(/"/g, '\\"');
+  return deep ? escaped.replace(/\\"/g, '\\\\\\"') : escaped;
 }
 
 /**
@@ -76,7 +83,11 @@ function markup(r: Row): string {
 
 export function buildSentPage(rows: Row[], total = 311): string {
   const island = rows
-    .map((r) => `{${actionPayload(r)}}{${r.avatar === false ? '' : avatarPayload(r)}}`)
+    .map((r, i) => {
+      // Alternate the escaping depth, as the live page does.
+      const avatar = r.avatar === false ? '' : avatarPayload(r, i % 2 === 1);
+      return `{${actionPayload(r)}}{${avatar}}`;
+    })
     .join('');
   return (
     '<!DOCTYPE html><html><body>' +
