@@ -115,6 +115,16 @@ describe('regression #156: the Sent tab', () => {
     expect(screen.queryByText('Ignore')).toBeNull();
   });
 
+  it('does not explain itself when the list is short', async () => {
+    // It used to footnote "Showing 10 of 310 — LinkedIn only hands over the
+    // first page", which stopped being true once paging landed. A count that
+    // disagrees with the list is a bug to fix, not a caption to write.
+    await renderSent();
+
+    expect(screen.queryByText(/Showing \d+ of/)).toBeNull();
+    expect(screen.queryByText(/hands over the first page/)).toBeNull();
+  });
+
   it('counts the outstanding requests on the tab', async () => {
     await renderSent();
 

@@ -409,11 +409,6 @@ export function NetworkView() {
                       onSelect={() => setSelectedIndex(i)}
                     />
                   ))}
-                  {sentTotal !== null && sentTotal > sentInvitations.length && (
-                    <p className="p-4 text-xs text-fg-muted">
-                      Showing {sentInvitations.length} of {sentTotal}.
-                    </p>
-                  )}
                 </>
               )
             ) : (
