@@ -161,7 +161,7 @@ describe('connections auto-pagination', () => {
     render(<NetworkView />);
     await waitFor(() => expect(screen.getAllByText('Connection 0').length).toBeGreaterThan(0));
 
-    await userEvent.type(screen.getByPlaceholderText('Filter… ( / )'), 'Connection 1');
+    await userEvent.type(screen.getByPlaceholderText(/^Filter connections/), 'Connection 1');
     const after = sendBridgeMessage.mock.calls.filter((c) => c[0].type === 'FETCH_CONNECTIONS').length;
     observerCallbacks.forEach((cb) => cb([{ isIntersecting: true }]));
 

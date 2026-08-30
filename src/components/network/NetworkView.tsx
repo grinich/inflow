@@ -147,7 +147,24 @@ export function NetworkView() {
       // SELECT counts as an editable control (same list as useKeyboard): the sort
       // dropdown needs its own Arrow keys to change options.
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
-      if (e.metaKey || e.ctrlKey) return;
+
+      // ⌘↵ / ⌘I act on the selected invitation. Handled ahead of both the
+      // modifier bail-out below and the editable-control check, because a
+      // chorded shortcut is unambiguous — the point of holding a modifier is
+      // that it still works while you are typing in the filter box.
+      if (e.metaKey || e.ctrlKey) {
+        if (networkTab !== 'invitations') return;
+        const inv = filteredInvitations[useUIStore.getState().networkSelectedIndex];
+        if (!inv) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          actions.acceptInvitation(inv);
+        } else if (e.key === 'i' || e.key === 'I') {
+          e.preventDefault();
+          actions.ignoreInvitation(inv);
+        }
+        return;
+      }
       if (isInput) {
         if (e.key === 'Escape') (target as HTMLElement).blur();
         if (e.key === 'Enter') (target as HTMLElement).blur();
@@ -233,26 +250,48 @@ export function NetworkView() {
               >
                 ← Inbox
               </button>
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setNetworkTab(tab.id)}
-                  title={`${tab.label} (${tab.key})`}
-                  className={`shrink-0 rounded px-2.5 py-1 text-sm font-medium ${networkTab === tab.id ? 'bg-surface-active text-fg-strong' : 'text-fg-secondary hover:bg-surface-hover'}`}
-                >
-                  {tab.label}
-                  {tab.count && <span className="ml-1.5 text-xs text-fg-muted">{tab.count}</span>}
-                </button>
-              ))}
+              {/* Same segmented control as the inbox's Focused/Other/Archived. */}
+              <div className="flex shrink-0 rounded-md bg-surface-input p-0.5">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setNetworkTab(tab.id)}
+                    title={`${tab.label} (${tab.key})`}
+                    className={`cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors ${
+                      networkTab === tab.id
+                        ? 'bg-surface text-fg-strong shadow-sm'
+                        : 'text-fg-muted hover:text-fg-secondary'
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.count && <span className="ml-1 text-fg-muted">{tab.count}</span>}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <input
-                ref={filterRef}
-                value={filter}
-                onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
-                placeholder="Filter… ( / )"
-                className="min-w-0 flex-1 rounded border border-edge bg-transparent px-2 py-1 text-sm outline-none placeholder:text-fg-muted"
-              />
+              {/* Same field as the inbox search box, down to the `/` hint. */}
+              <div className="relative min-w-0 flex-1">
+                <input
+                  ref={filterRef}
+                  value={filter}
+                  onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
+                  placeholder={networkTab === 'invitations' ? 'Filter invitations...' : 'Filter connections...'}
+                  className="w-full rounded-lg bg-surface-input px-3 py-1.5 pr-8 text-sm text-fg placeholder-fg-faint outline-none ring-1 ring-ring-muted transition-colors focus:ring-blue-500/50"
+                />
+                {filter ? (
+                  <button
+                    onClick={() => { setFilter(''); setSelectedIndex(0); filterRef.current?.focus(); }}
+                    className="absolute right-2 top-1/2 flex -translate-y-1/2 cursor-pointer items-center gap-1 text-[10px] text-fg-muted hover:text-fg-secondary"
+                  >
+                    clear
+                  </button>
+                ) : (
+                  <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-edge bg-surface px-1.5 py-0.5 text-[10px] font-medium leading-none text-fg-muted">
+                    /
+                  </kbd>
+                )}
+              </div>
               {networkTab === 'connections' && (
                 <select
                   value={sortMode}

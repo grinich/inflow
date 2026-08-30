@@ -73,17 +73,19 @@ export function InvitationDetail({ invitation, onAccept, onIgnore, onOpenProfile
         <div className="mx-auto flex max-w-md gap-3">
           <button
             onClick={onIgnore}
-            title="Ignore (X)"
-            className="flex-1 rounded-full border border-edge py-2 text-sm font-medium text-fg-secondary hover:bg-surface-hover"
+            title="Ignore (⌘I, or X)"
+            className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full border border-edge py-2 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
           >
             Ignore
+            <kbd className="rounded border border-edge bg-surface px-1 py-px font-mono text-[10px] font-normal text-fg-faint">⌘I</kbd>
           </button>
           <button
             onClick={onAccept}
-            title="Accept (Enter)"
-            className="flex-1 rounded-full bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            title="Accept (⌘↵, or Enter)"
+            className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-blue-600 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
           >
             Accept
+            <kbd className="rounded border border-white/25 bg-white/10 px-1 py-px font-mono text-[10px] font-normal text-white/80">⌘↵</kbd>
           </button>
         </div>
       </div>
