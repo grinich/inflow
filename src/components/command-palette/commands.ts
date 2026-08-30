@@ -7,6 +7,8 @@ export interface Command {
 
 export function buildCommands(actions: {
   archiveSelected: () => void;
+  /** True in the Archived tab, where `archiveSelected` restores to Focused. */
+  selectedInArchive: boolean;
   moveToOtherOrFocusedSelected: () => void;
   selectedInOther: boolean;
   moveToSpamSelected: () => void;
@@ -37,7 +39,15 @@ export function buildCommands(actions: {
   checkForUpdate: () => void;
 }): Command[] {
   return [
-    { id: 'archive', label: 'Archive conversation', shortcut: 'E', action: actions.archiveSelected },
+    {
+      id: 'archive',
+      // In the Archived tab this slot un-archives, so it has to say so. It read
+      // "Archive conversation" there — describing the opposite of what it did,
+      // and leaving nothing for a search on "focused" to match.
+      label: actions.selectedInArchive ? 'Move to Focused' : 'Archive conversation',
+      shortcut: 'E',
+      action: actions.archiveSelected,
+    },
     {
       id: 'move-to-other',
       label: actions.selectedInOther ? 'Move to Focused' : 'Move to Other',

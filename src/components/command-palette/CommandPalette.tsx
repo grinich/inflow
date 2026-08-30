@@ -44,6 +44,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       if (inboxTab === 'archived') moveToFocused(selectedConv);
       else archiveConversation(selectedConv);
     },
+    selectedInArchive: inboxTab === 'archived',
     moveToOtherOrFocusedSelected: () => {
       if (!selectedConv) return;
       // A conversation already in Other moves back to Focused (mirrors the 'o' shortcut).

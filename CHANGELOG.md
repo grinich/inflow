@@ -4,6 +4,17 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **Moving a conversation out of Archive from the command palette** — the
+  palette's archive entry already restored a conversation to Focused when you
+  were in the Archived tab, matching `E`, but it still called itself *Archive
+  conversation* there. So the Archive tab offered a command describing the
+  opposite of what it did, and searching the palette for "focused" turned up
+  only *Go to Focused inbox*. It now reads *Move to Focused*, like the thread
+  header already did.
+
 ## [0.6.1] - 2026-08-29
 
 ### Added
