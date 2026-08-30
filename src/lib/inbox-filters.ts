@@ -22,6 +22,25 @@ export function isFocusedConversation(
   return isFocusedCategory(c.category);
 }
 
+/**
+ * Whether a conversation will appear in a given tab's list — mirroring the
+ * per-tab queries in useConversations, which are the authority.
+ *
+ * Used to tell "this row is gone" apart from "this row is not listed YET". A
+ * row written a moment ago is in the database before the live query reports
+ * it, and treating that gap as removal makes the app recover from a selection
+ * that was perfectly good.
+ */
+export function belongsToTab(
+  c: Pick<Conversation, 'archived' | 'category'>,
+  tab: 'focused' | 'other' | 'archived' | 'spam'
+): boolean {
+  if (tab === 'archived') return c.archived === 1;
+  if (tab === 'spam') return c.category === 'SPAM';
+  if (tab === 'other') return c.category === 'SECONDARY_INBOX';
+  return c.archived !== 1 && isFocusedCategory(c.category);
+}
+
 /** Count unread Focused-tab conversations (drives the toolbar badge). */
 export async function countUnreadFocused(db: {
   conversations: { where(index: string): { equals(v: number): { filter(f: (c: Conversation) => boolean): { count(): Promise<number> } } } };

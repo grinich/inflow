@@ -233,6 +233,32 @@ describe('accepting an invitation, end to end', () => {
     expect(await testDb.conversations.get(PLACEHOLDER)).toBeUndefined();
   }, 20_000);
 
+  it('never leaves a previous person selected', async () => {
+    // The reported failure, and the worst one: the inbox came up with whoever
+    // was showing before still selected, so the reply being typed became a
+    // draft to them. The placeholder is written to the database a beat before
+    // the live query lists it, and App's reconciliation read that gap as
+    // "removed" and recovered onto the old row.
+    await testDb.conversations.put({
+      id: 'someone-else', participantUrns: ['urn:li:fsd_profile:ACoAAAother'],
+      participantNames: ['Someone Else'], participantPictures: [''],
+      lastMessage: 'earlier', lastActivityAt: 1_749_000_000_000,
+      read: 1, archived: 0, category: 'PRIMARY_INBOX',
+    } as Conversation);
+    useUIStore.setState({ selectedConversationId: 'someone-else', selectedIndex: 0 });
+    threadArrivesAfterMs = 700;
+    await openNetworkView();
+
+    await pressEnter();
+
+    // Never the other person, at any point — not while waiting, not after.
+    for (let i = 0; i < 12; i++) {
+      await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+      expect(useUIStore.getState().selectedConversationId).not.toBe('someone-else');
+    }
+    expect(useUIStore.getState().selectedConversationId).toBe('conv-accepted');
+  }, 20_000);
+
   it('stays on the network list when the request had no note', async () => {
     await testDb.invitations.put(invitation({ message: '' }));
     await openNetworkView();

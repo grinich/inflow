@@ -23,6 +23,8 @@ import { useUIStore } from '@/store/ui-store';
 import { consumeComposeParam, consumeConversationParam, isEmbeddedInShell } from '@/lib/launch-params';
 import { onShellOpenConversation } from '@/lib/shell-messages';
 import { navigateToConversation } from '@/lib/navigate-to-conversation';
+import { belongsToTab } from '@/lib/inbox-filters';
+import { db } from '@/db/database';
 
 export function App() {
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -180,17 +182,37 @@ export function App() {
       if (idx !== -1) {
         store.setSelectedIndex(idx);
       } else {
-        // Selected conversation was removed (archived/deleted/spam/etc.)
-        // Select the conversation at the same position, or the last one
-        const fallbackIdx = Math.min(store.selectedIndex, conversations.length - 1);
-        const fallback = conversations[fallbackIdx];
-        if (fallback && fallback.draft !== 1) {
-          store.openThread(fallback.id, fallbackIdx);
-        } else {
-          // Fallback was a draft — find next non-draft
-          const first = firstNonDraft();
-          if (first) store.openThread(first.conv.id, first.idx);
-        }
+        // Absent from the list means one of two things, and they need opposite
+        // responses: the conversation was removed (archived, deleted, marked
+        // spam) and we should move on — or it was written a beat ago and the
+        // live query has not reported it yet, in which case it is about to
+        // appear and recovering would throw away a perfectly good selection.
+        //
+        // Recovering from the second case is how accepting an invitation could
+        // land on whoever was showing before, so the reply being typed became
+        // a draft to them. Check the database before giving up on it.
+        let cancelled = false;
+        void (async () => {
+          const row = db ? await db.conversations.get(selectedConversationId) : undefined;
+          if (cancelled) return;
+          const current = useUIStore.getState();
+          // Still there and headed for this tab — wait for the list. With a
+          // search or filter active the list is a narrower thing than the tab,
+          // so a row can be legitimately excluded and waiting would strand the
+          // selection; recover as before.
+          if (row && !current.searchQuery && belongsToTab(row, current.inboxTab)) return;
+          if (current.selectedConversationId !== selectedConversationId) return;
+          const fallbackIdx = Math.min(current.selectedIndex, conversations.length - 1);
+          const fallback = conversations[fallbackIdx];
+          if (fallback && fallback.draft !== 1) {
+            current.openThread(fallback.id, fallbackIdx);
+          } else {
+            // Fallback was a draft — find next non-draft
+            const first = firstNonDraft();
+            if (first) current.openThread(first.conv.id, first.idx);
+          }
+        })();
+        return () => { cancelled = true; };
       }
     }
   }, [conversations, selectedConversationId]);

@@ -235,7 +235,9 @@ export function useNetworkActions() {
     // effect restores it a tick later, which would take the selection straight
     // back off the placeholder — and then nothing would ever select the
     // accepted thread. navigateToConversation clears this for the same reason.
-    useUIStore.setState({ _pendingRestore: null });
+    // A leftover search would hide the placeholder from the list just as
+    // surely, so it goes too.
+    useUIStore.setState({ _pendingRestore: null, searchQuery: '' });
     store.openThread(placeholderId, 0);
     focusComposer();
     return { id: placeholderId, placeholder: true };
