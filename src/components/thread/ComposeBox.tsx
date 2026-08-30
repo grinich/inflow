@@ -233,6 +233,23 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
       return () => document.removeEventListener('inflow:attach-files', onAttach);
     }, [conversationId]);
 
+    // Cmd+K (useKeyboard) discards the unsent draft. The composer owns the
+    // in-memory copy, so it must clear its own state — deleting the stored row
+    // alone would leave the periodic saver to write the old text right back.
+    // The refs are cleared eagerly too: the interval reads them, and a tick
+    // landing between this handler and the re-render would resurrect the draft.
+    useEffect(() => {
+      function onDiscard() {
+        bodyRef.current = '';
+        attachmentsRef.current = [];
+        setBody('');
+        setAttachments([]);
+        persistDraft(conversationId, '', [], true);
+      }
+      document.addEventListener('inflow:discard-draft', onDiscard);
+      return () => document.removeEventListener('inflow:discard-draft', onDiscard);
+    }, [conversationId, persistDraft]);
+
     // Periodically save draft to IndexedDB and notify ConversationRow
     useEffect(() => {
       const timer = setInterval(() => {
@@ -604,6 +621,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             placeholder="Reply..."
             rows={2}
             data-compose-input=""
+            data-has-attachments={attachments.length > 0 ? '' : undefined}
             data-emoji-open={emojiOpen ? '' : undefined}
             data-autocomplete-open={autocomplete.isOpen || undefined}
             className={`max-h-40 w-full resize-none rounded-lg px-3 py-2 text-sm text-fg placeholder-fg-faint outline-none transition-colors ${autocomplete.isOpen ? 'bg-transparent ring-0' : 'bg-surface-input ring-1 ring-ring-muted focus:ring-blue-500/50'}`}

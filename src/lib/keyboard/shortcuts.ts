@@ -39,6 +39,7 @@ export const shortcutDefinitions: ShortcutDef[] = [
   { key: 'Enter', display: '↵', context: 'Compose', group: 'Compose', description: 'Send message' },
   { key: 'Enter', display: '⌘↵', context: 'Compose', group: 'Compose', description: 'Send + Archive', meta: true },
   { key: 'Enter', display: '⇧↵', context: 'Compose', group: 'Compose', description: 'New line', shift: true },
+  { key: 'k', display: '⌘K', context: 'Compose', group: 'Compose', description: 'Discard draft', meta: true },
 
   // Global
   { key: 'c', display: 'C', context: 'Global', group: 'Global', description: 'Compose new message' },
