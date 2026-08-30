@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Companion to 144: the commands that survive on the Network route have to
+// Companion to 148: the commands that survive on the Network route have to
 // LEAVE it. "Go back to inbox" used to call closeThread() only, and the tab
 // commands only set inboxTab — either way Network stayed on screen and the
 // action landed somewhere the user couldn't see.

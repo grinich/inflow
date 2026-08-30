@@ -25,7 +25,7 @@ beforeEach(() => {
   useUIStore.setState({ appView: 'inbox', inboxTab: 'focused', searchQuery: '' });
 });
 
-describe('regression #149: the Network button', () => {
+describe('regression #153: the Network button', () => {
   it('opens the network view', () => {
     const { getByText } = renderHeader();
 

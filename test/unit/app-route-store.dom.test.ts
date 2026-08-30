@@ -25,10 +25,11 @@ describe('ui-store ↔ URL hash routing', () => {
     expect(window.location.hash).toBe('#/network');
   });
 
-  it('setAppView("inbox") writes #/inbox to the URL', () => {
+  it('setAppView("inbox") writes the inbox route to the URL', () => {
     useUIStore.getState().setAppView('network');
     useUIStore.getState().setAppView('inbox');
-    expect(window.location.hash).toBe('#/inbox');
+    // The inbox hash names its tab now that tabs are routed too.
+    expect(window.location.hash).toBe('#/inbox/focused');
   });
 
   it('a hash change (back/forward) updates the store', async () => {
