@@ -162,15 +162,43 @@ describe('invitation walk resilience', () => {
     expect(await testDb.invitations.count()).toBe(420);
   });
 
-  it('stops as soon as paging.total is satisfied', async () => {
+  // `paging.total` is only trusted in the direction of fetching MORE. An
+  // earlier attempt at this used it as a stop condition, which cost a
+  // 382-invitation account everything past the first page: the endpoint
+  // reported `total` as the page size, so the walk stopped at 40, called
+  // itself complete, and the prune deleted the other 342.
+  it('does not stop at a paging.total that only describes the page', async () => {
+    fetchInvitationsRaw.mockImplementation(async (start: number) =>
+      page(start, Math.max(0, Math.min(PAGE, 382 - start)), { total: PAGE })
+    );
+
+    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
+
+    expect(await testDb.invitations.count()).toBe(382);
+  });
+
+  it('does not delete stored invitations when a truncated walk claims completeness', async () => {
+    await testDb.invitations.bulkPut(
+      Array.from({ length: 382 }, (_, i) => inv(`inv-${i}`))
+    );
+    // One short page that (wrongly) reads as the whole list.
+    fetchInvitationsRaw.mockResolvedValueOnce(page(0, 3));
+
+    await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
+
+    // Would have pruned 379 rows. The guard declines and logs instead.
+    expect(await testDb.invitations.count()).toBe(382);
+  });
+
+  it('keeps walking past a short page when paging.total says there is more', async () => {
     fetchInvitationsRaw
-      .mockResolvedValueOnce(page(0, PAGE, { total: 60 }))
-      .mockResolvedValueOnce(page(40, 20, { total: 60 }));
+      .mockResolvedValueOnce(page(0, 30, { total: 45 }))
+      .mockResolvedValueOnce(page(30, 15, { total: 45 }));
 
     await handleMessage({ type: 'FETCH_INVITATIONS' } as any);
 
     expect(fetchInvitationsRaw).toHaveBeenCalledTimes(2);
-    expect(await testDb.invitations.count()).toBe(60);
+    expect(await testDb.invitations.count()).toBe(45);
   });
 
   it('feeds sender profiles to the shared profile cache', async () => {

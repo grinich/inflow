@@ -318,8 +318,8 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       const PAGE = 40;
       // 382 invitations already sits inside the old 10-page (400) cap, which
       // would have started silently truncating within a few weeks. This ceiling
-      // is a runaway stop, not an expected limit — the walk normally ends on
-      // paging.total or a short page long before reaching it.
+      // is a runaway stop, not an expected limit — the walk normally ends on a
+      // short page long before reaching it.
       const MAX_PAGES = 50;
       const invitations: Invitation[] = [];
       const profiles: Profile[] = [];
@@ -347,13 +347,23 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         for (const i of unseen) seenIds.add(i.id);
         invitations.push(...unseen);
         profiles.push(...batchProfiles);
-        // Stop on the SERVER's page size, not the normalized count: a full page
-        // where some entities failed to parse is not the end of the list.
-        if (total !== null && invitations.length >= total) {
-          complete = true;
+        // `paging.total` is only ever trusted in the direction of fetching
+        // MORE. Treating it as a stop condition cost a 382-invitation account
+        // all but the first page: if the endpoint reports `total` as the page
+        // size rather than the full set, the walk stops at 40, calls itself
+        // complete, and the prune below deletes the rest. It may only withhold
+        // the completeness claim or extend the walk, never end it.
+        const serverSaysMore = total !== null && invitations.length < total;
+        // A page that repeats what we've already seen means the server is
+        // ignoring `start`; we have to stop either way, but it is not proof
+        // that we saw everything.
+        if (unseen.length === 0) {
+          complete = !serverSaysMore;
           break;
         }
-        if (rawCount < PAGE || unseen.length === 0) {
+        // Stop on the SERVER's page size, not the normalized count: a full page
+        // where some entities failed to parse is not the end of the list.
+        if (rawCount < PAGE && !serverSaysMore) {
           complete = true;
           break;
         }
@@ -364,9 +374,21 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       if (complete) {
         const serverIds = new Set(invitations.map((i) => i.id));
         const localPending = await db.invitations.where('status').equals('pending').toArray();
-        await db.invitations.bulkDelete(
-          localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id)
-        );
+        const doomed = localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id);
+        // Last line of defence. A walk that calls itself complete after
+        // returning far less than we already had is the signature of a
+        // truncation we failed to detect, not of an invitation list that
+        // genuinely emptied out. Hundreds of rows disappearing is the worst
+        // outcome here, so decline the inference and say so.
+        const looksTruncated = doomed.length > 50 && invitations.length < localPending.length / 2;
+        if (looksTruncated) {
+          debugLog(
+            'error',
+            `FETCH_INVITATIONS declined to prune ${doomed.length} rows: fetched only ${invitations.length} but hold ${localPending.length}`
+          );
+        } else {
+          await db.invitations.bulkDelete(doomed);
+        }
       }
       const existing = await db.invitations.bulkGet(invitations.map((i) => i.id));
       const fresh = invitations.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
