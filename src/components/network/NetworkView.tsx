@@ -15,6 +15,20 @@ import { ConnectionDetail } from './ConnectionDetail';
 type SortMode = 'recent' | 'name';
 const PAGE = 40;
 
+/**
+ * An empty list pane. A failed load must not look like an empty one — that is
+ * how a dead endpoint went unnoticed.
+ */
+function EmptyPane({ failure, empty }: { failure?: string; empty: string }) {
+  if (!failure) return <p className="p-6 text-sm text-fg-muted">{empty}</p>;
+  return (
+    <div className="p-6 text-sm">
+      <p className="text-fg-secondary">Couldn't load this list.</p>
+      <p className="mt-1 break-words text-xs text-fg-muted">{failure}</p>
+    </div>
+  );
+}
+
 export function NetworkView() {
   const networkTab = useUIStore((s) => s.networkTab);
   const setNetworkTab = useUIStore((s) => s.setNetworkTab);
@@ -32,14 +46,33 @@ export function NetworkView() {
   const nextStartRef = useRef(PAGE);
   const filterRef = useRef<HTMLInputElement>(null);
 
+  // Which tabs failed to load, so an empty list can say why. Every one of
+  // these results used to be discarded, which meant a fetch that returned
+  // nothing and a fetch that failed outright rendered identically — the Sent
+  // tab reported "no requests waiting on a reply" while its endpoint was
+  // answering 400 on every call.
+  const [failed, setFailed] = useState<Partial<Record<NetworkTab, string>>>({});
+
   useEffect(() => {
     let cancelled = false;
+    const note = (tab: NetworkTab) => <T extends { success: boolean; error?: string }>(res: T): T => {
+      if (cancelled) return res;
+      setFailed((prev) => (res.success ? prev : { ...prev, [tab]: res.error || 'Request failed' }));
+      return res;
+    };
+    const fail = (tab: NetworkTab) => (err: unknown) =>
+      note(tab)({ success: false, error: String(err) } as { success: boolean; error?: string; data?: any });
+
     Promise.allSettled([
-      sendBridgeMessage({ type: 'FETCH_INVITATIONS' }),
-      sendBridgeMessage({ type: 'FETCH_SENT_INVITATIONS' }),
-      sendBridgeMessage({ type: 'FETCH_CONNECTIONS' }).then((res) => {
-        if (!cancelled && res.success) setHasMore(Boolean(res.data?.hasMore));
-      }),
+      sendBridgeMessage({ type: 'FETCH_INVITATIONS' }).then(note('invitations')).catch(fail('invitations')),
+      sendBridgeMessage({ type: 'FETCH_SENT_INVITATIONS' }).then(note('sent')).catch(fail('sent')),
+      sendBridgeMessage({ type: 'FETCH_CONNECTIONS' })
+        .then(note('connections'))
+        .then((res) => {
+          if (!cancelled && res.success) setHasMore(Boolean(res.data?.hasMore));
+          return res;
+        })
+        .catch(fail('connections')),
     ]).finally(() => {
       if (!cancelled) setLoading(false);
     });
@@ -331,7 +364,7 @@ export function NetworkView() {
               <p className="p-6 text-sm text-fg-muted">Loading your network…</p>
             ) : networkTab === 'invitations' ? (
               filteredInvitations.length === 0 ? (
-                <p className="p-6 text-sm text-fg-muted">No pending invitations.</p>
+                <EmptyPane failure={failed.invitations} empty="No pending invitations." />
               ) : (
                 filteredInvitations.map((inv, i) => (
                   <InvitationRow
@@ -344,7 +377,7 @@ export function NetworkView() {
               )
             ) : networkTab === 'sent' ? (
               filteredSent.length === 0 ? (
-                <p className="p-6 text-sm text-fg-muted">No requests waiting on a reply.</p>
+                <EmptyPane failure={failed.sent} empty="No requests waiting on a reply." />
               ) : (
                 filteredSent.map((inv, i) => (
                   <SentInvitationRow
@@ -366,7 +399,7 @@ export function NetworkView() {
                   />
                 ))}
                 {filteredConnections.length === 0 && (
-                  <p className="p-6 text-sm text-fg-muted">No connections synced yet.</p>
+                  <EmptyPane failure={failed.connections} empty="No connections synced yet." />
                 )}
                 <div ref={sentinelRef} aria-hidden />
                 {hasMore && !filter && (

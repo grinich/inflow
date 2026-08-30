@@ -43,8 +43,24 @@ export async function respondToInvitation(
 }
 
 /**
- * Invitations *I* sent that are still outstanding — the same endpoint as the
- * received list, flipped to `q=sentInvitation`.
+ * BROKEN — `q=sentInvitation` answers 400. Verified against a live account on
+ * 2026-08-30, along with every other REST route that looked plausible:
+ *
+ *   relationships/invitationViews?q=sentInvitation        400
+ *   relationships/invitationViews?q=sent                  400
+ *   relationships/invitations?q=sent                      400
+ *   relationships/sentInvitationViews                     404
+ *   relationships/dash/invitations?q=sent                 404
+ *   relationships/dash/invitationViews?q=sent             404
+ *
+ * `q=receivedInvitation` on the same path still returns 200, so the endpoint
+ * lives — LinkedIn has moved sent invitations off it. Their own Sent page
+ * (/mynetwork/invitation-manager/sent/) is server-driven UI now and makes no
+ * Voyager call at all; the rows are rendered into the document, which does
+ * carry invitationId and profileUrn but no sharedSecret.
+ *
+ * Left in place, unused, until we decide whether to scrape that page. Do not
+ * wire it back to the UI as-is: it cannot return anything.
  */
 export async function fetchSentInvitationsRaw(start = 0, count = 40): Promise<any> {
   const res = await voyagerFetch(
