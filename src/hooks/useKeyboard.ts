@@ -4,6 +4,7 @@ import { useOptimisticAction } from './useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
 import type { Conversation } from '@/types/conversation';
+import { otherSlotTarget } from '@/lib/conversation-move';
 
 export function useKeyboard(conversations: Conversation[], composeRef: React.RefObject<HTMLTextAreaElement | null>) {
   const conversationsRef = useRef(conversations);
@@ -305,7 +306,7 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
           ? convs.find((c) => c.id === store.selectedConversationId)
           : convs[store.selectedIndex];
         if (conv) {
-          if (conv.category === 'SECONDARY_INBOX') act.moveToFocused(conv);
+          if (otherSlotTarget(conv, store.inboxTab) === 'focused') act.moveToFocused(conv);
           else act.moveToOther(conv);
         }
         return;

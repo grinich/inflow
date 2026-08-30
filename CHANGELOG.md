@@ -14,6 +14,13 @@ All notable changes to inflow are documented here. This project follows
   opposite of what it did, and searching the palette for "focused" turned up
   only *Go to Focused inbox*. It now reads *Move to Focused*, like the thread
   header already did.
+- **`E` and `O` no longer do the same thing in Archive** — a conversation
+  archived out of Other kept that category while sitting in Archive, so the
+  slot that offers *Move to Focused* for an Other conversation offered it
+  again there, next to the one that already restores to Focused. The command
+  palette, the right-click menu and the thread header each listed *Move to
+  Focused* twice, and `O` did nothing `E` didn't. In Archive, `O` now restores
+  to Other, so the two keys are the two ways back out.
 
 ## [0.6.1] - 2026-08-29
 

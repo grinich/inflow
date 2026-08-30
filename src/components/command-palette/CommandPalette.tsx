@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Command } from 'cmdk';
 import { useUIStore } from '@/store/ui-store';
+import { otherSlotTarget } from '@/lib/conversation-move';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { isDemoMode, enableDemoMode, disableDemoMode } from '@/lib/demo-mode';
@@ -47,11 +48,11 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
     selectedInArchive: inboxTab === 'archived',
     moveToOtherOrFocusedSelected: () => {
       if (!selectedConv) return;
-      // A conversation already in Other moves back to Focused (mirrors the 'o' shortcut).
-      if (selectedConv.category === 'SECONDARY_INBOX') moveToFocused(selectedConv);
+      // Mirrors the 'o' shortcut; see otherSlotTarget for the rule.
+      if (otherSlotTarget(selectedConv, inboxTab) === 'focused') moveToFocused(selectedConv);
       else moveToOther(selectedConv);
     },
-    selectedInOther: selectedConv?.category === 'SECONDARY_INBOX',
+    selectedInOther: selectedConv ? otherSlotTarget(selectedConv, inboxTab) === 'focused' : false,
     moveToSpamSelected: () => {
       // Route through the confirmation modal, like the keyboard shortcut does.
       if (selectedConv) useUIStore.getState().setSpamConfirmId(selectedConv.id);

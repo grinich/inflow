@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import type { Conversation } from '@/types/conversation';
+import { otherSlotTarget, moveTargetLabel } from '@/lib/conversation-move';
 
 interface ConversationContextMenuProps {
   conversation: Conversation;
@@ -83,10 +84,10 @@ export function ConversationContextMenu({ conversation, x, y, onClose }: Convers
       onSelect: () => actions.starConversation(conversation),
     },
     {
-      label: conversation.category === 'SECONDARY_INBOX' ? 'Move to Focused' : 'Move to Other',
+      label: moveTargetLabel(otherSlotTarget(conversation, inboxTab)),
       shortcut: 'O',
       onSelect: () =>
-        conversation.category === 'SECONDARY_INBOX'
+        otherSlotTarget(conversation, inboxTab) === 'focused'
           ? actions.moveToFocused(conversation)
           : actions.moveToOther(conversation),
     },
