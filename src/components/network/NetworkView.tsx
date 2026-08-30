@@ -409,8 +409,7 @@ export function NetworkView() {
                   ))}
                   {sentTotal !== null && sentTotal > sentInvitations.length && (
                     <p className="p-4 text-xs text-fg-muted">
-                      Showing {sentInvitations.length} of {sentTotal}. LinkedIn only hands over
-                      the first page of sent requests.
+                      Showing {sentInvitations.length} of {sentTotal}.
                     </p>
                   )}
                 </>

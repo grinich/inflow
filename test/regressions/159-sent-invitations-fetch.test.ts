@@ -1,8 +1,10 @@
-// FETCH_SENT_INVITATIONS against LinkedIn's invitation-manager page.
+// FETCH_SENT_INVITATIONS walks LinkedIn's invitation manager: page one as
+// HTML, the rest through the pagination action its infinite scroll uses,
+// cursored on a plain offset.
 //
-// The page hands over a handful of rows out of hundreds, so the pruning rule
-// that suits the received list — delete anything the server did not return —
-// would wipe almost everything here on every sync.
+// Pruning is only safe once that walk finishes. A partial read — a later page
+// failing, or the runaway stop tripping — must not be mistaken for "these
+// invitations are gone", or a sync would wipe hundreds of rows.
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
 import type { SentInvitation } from '@/types/network';
@@ -23,9 +25,11 @@ vi.mock('../../entrypoints/background/api/relationships', () => ({
 }));
 
 const fetchSentInvitationsPage = vi.fn();
+const fetchSentInvitationsAt = vi.fn();
 const withdrawSentInvitation = vi.fn();
 vi.mock('../../entrypoints/background/api/sent-invitations', () => ({
   fetchSentInvitationsPage: (...a: any[]) => fetchSentInvitationsPage(...a),
+  fetchSentInvitationsAt: (...a: any[]) => fetchSentInvitationsAt(...a),
   withdrawSentInvitation: (...a: any[]) => withdrawSentInvitation(...a),
 }));
 
@@ -106,9 +110,17 @@ afterEach(async () => {
   await Dexie.delete(testDb.name);
 });
 
+/** A full page of 10, so the walk keeps going. */
+function fullPage(from: number, total?: number) {
+  return page(
+    Array.from({ length: 10 }, (_, i) => [String(from + i), 'P' + (from + i), 'Last'] as [string, string, string]),
+    total ?? 311
+  );
+}
+
 describe('FETCH_SENT_INVITATIONS', () => {
-  it('stores the rows the page embedded', async () => {
-    fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy'], ['2', 'Steve', 'Hamrick']], 309));
+  it('stores the rows from page one', async () => {
+    fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy'], ['2', 'Steve', 'Hamrick']], 2));
 
     const res = await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
 
@@ -116,28 +128,48 @@ describe('FETCH_SENT_INVITATIONS', () => {
     expect(await testDb.sentInvitations.count()).toBe(2);
   });
 
-  it('reports the real total, not the number of rows', async () => {
-    fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy']], 309));
-
-    const res = await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
-
-    expect((res.data as any).total).toBe(309);
-    expect((res.data as any).count).toBe(1);
-  });
-
-  it('does not prune the hundreds of rows the page never covered', async () => {
-    // The whole hazard of this endpoint: 2 rows returned, 300 held locally.
-    await testDb.sentInvitations.bulkPut(
-      Array.from({ length: 300 }, (_, i) => stored('old-' + i))
-    );
-    fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy']], 309));
+  it('walks past the first page', async () => {
+    // The whole point: 311 outstanding, 10 per page.
+    fetchSentInvitationsPage.mockResolvedValueOnce(fullPage(0));
+    fetchSentInvitationsAt
+      .mockResolvedValueOnce(fullPage(10))
+      .mockResolvedValueOnce(page([['20', 'Last', 'One']], 311));
 
     await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
 
-    expect(await testDb.sentInvitations.count()).toBe(301);
+    expect(fetchSentInvitationsAt.mock.calls.map((c) => c[0])).toEqual([10, 20]);
+    expect(await testDb.sentInvitations.count()).toBe(21);
   });
 
-  it('prunes once the page plainly covers everything', async () => {
+  it('stops once it has as many as the heading claimed', async () => {
+    fetchSentInvitationsPage.mockResolvedValueOnce(fullPage(0, 20));
+    fetchSentInvitationsAt.mockResolvedValueOnce(fullPage(10, 20));
+
+    await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
+
+    expect(fetchSentInvitationsAt).toHaveBeenCalledTimes(1);
+    expect(await testDb.sentInvitations.count()).toBe(20);
+  });
+
+  it('stops instead of looping when a page repeats what it already has', async () => {
+    fetchSentInvitationsPage.mockResolvedValueOnce(fullPage(0));
+    fetchSentInvitationsAt.mockResolvedValue(fullPage(0));
+
+    await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
+
+    expect(fetchSentInvitationsAt).toHaveBeenCalledTimes(1);
+    expect(await testDb.sentInvitations.count()).toBe(10);
+  });
+
+  it('reports the real total from the heading', async () => {
+    fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy']], 311));
+
+    const res = await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
+
+    expect((res.data as any).total).toBe(311);
+  });
+
+  it('prunes what a completed walk did not return', async () => {
     await testDb.sentInvitations.put(stored('gone'));
     fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy']], 1));
 
@@ -147,7 +179,32 @@ describe('FETCH_SENT_INVITATIONS', () => {
     expect(await testDb.sentInvitations.get('1')).toBeTruthy();
   });
 
-  it('lets a failed page fetch reject rather than reporting an empty list', async () => {
+  it('prunes nothing when a later page failed', async () => {
+    // The dangerous case: a partial read looks exactly like a shrunken list.
+    await testDb.sentInvitations.bulkPut(
+      Array.from({ length: 300 }, (_, i) => stored('old-' + i))
+    );
+    fetchSentInvitationsPage.mockResolvedValueOnce(fullPage(0));
+    fetchSentInvitationsAt.mockRejectedValueOnce(new Error('429'));
+
+    const res = await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
+
+    expect((res.data as any).complete).toBe(false);
+    expect(await testDb.sentInvitations.count()).toBe(310);
+  });
+
+  it('keeps the pages it already read when a later one fails', async () => {
+    fetchSentInvitationsPage.mockResolvedValueOnce(fullPage(0));
+    fetchSentInvitationsAt
+      .mockResolvedValueOnce(fullPage(10))
+      .mockRejectedValueOnce(new Error('429'));
+
+    await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
+
+    expect(await testDb.sentInvitations.count()).toBe(20);
+  });
+
+  it('lets a failed first page reject rather than reporting an empty list', async () => {
     // handleMessage rethrows; the onMessage listener turns that into
     // {success:false, error}, which is what NetworkView renders. Reporting
     // zero sent invitations here would be the dangerous outcome.
@@ -159,7 +216,7 @@ describe('FETCH_SENT_INVITATIONS', () => {
 
   it('keeps a locally withdrawn row withdrawn when the page still lists it', async () => {
     await testDb.sentInvitations.put({ ...stored('1'), status: 'withdrawn' });
-    fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy']], 309));
+    fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy']], 1));
 
     await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
 

@@ -119,3 +119,29 @@ export const SENT_ROWS: Row[] = [
 ];
 
 export const SENT_PAGE = buildSentPage(SENT_ROWS);
+
+/**
+ * Pages after the first come back as an RSC component tree instead of HTML:
+ * the same strings, but in `"children":["…"]`, with the withdraw control
+ * standing as a deferred `$Lxx` reference — and the note BEFORE that reference
+ * rather than after it, the reverse of the markup's order.
+ */
+export function buildSentRscPage(rows: Row[]): string {
+  const parts = rows.map((r, i) => {
+    const name = `${r.first} ${r.last}`;
+    const bits = [
+      `{"children":["${name}"]}`,
+      r.headline ? `{"children":["${r.headline}"]}` : '',
+      `{"children":["Sent ${r.sentAgo ?? '3 days'} ago"]}`,
+      r.note ? `{"children":["${r.note}"]}` : '',
+      `{"children":["$L${(0x34 + i).toString(16)}"]}`,
+      `{"aria-label":"Withdraw invitation sent to ${name}"}`,
+      `{${actionPayload(r).replace(/\\"/g, '"')}}`,
+      r.avatar === false ? '' : `{${avatarPayload(r).replace(/\\"/g, '"')}}`,
+    ];
+    return bits.filter(Boolean).join(',');
+  });
+  return '3:[' + parts.join(',') + ']\n';
+}
+
+export const SENT_RSC_PAGE = buildSentRscPage(SENT_ROWS);

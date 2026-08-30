@@ -23,8 +23,8 @@ import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
 import { fetchInvitationsRaw, fetchConnectionsRaw, respondToInvitation } from './api/relationships';
-import { fetchSentInvitationsPage, withdrawSentInvitation } from './api/sent-invitations';
-import { scrapeSentInvitations } from '@/lib/sent-invitation-scraper';
+import { fetchSentInvitationsPage, fetchSentInvitationsAt, withdrawSentInvitation } from './api/sent-invitations';
+import { scrapeSentInvitations, SENT_PAGE_SIZE } from '@/lib/sent-invitation-scraper';
 import { normalizeInvitations, normalizeConnections, invitationPaging } from '@/lib/network-normalizer';
 import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
 import { applyPendingReceipts, consumePendingReceipts } from './realtime/pending-receipts';
@@ -41,7 +41,7 @@ import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression
 import { getSSEStatus } from './realtime/sse-client';
 import { checkForUpdate } from './update-check';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
-import type { Invitation } from '@/types/network';
+import type { Invitation, SentInvitation } from '@/types/network';
 import type { Profile } from '@/types/profile';
 
 /**
@@ -411,20 +411,49 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       return { success: true };
     }
     case 'FETCH_SENT_INVITATIONS': {
-      // Not a paginated Voyager walk like the received list — LinkedIn serves
-      // sent invitations only as HTML from its own invitation manager, which
-      // embeds the first page of rows plus the real total. See
-      // docs/linkedin-sent-invitations.md.
-      const html = await fetchSentInvitationsPage();
-      const { invitations: sent, total } = scrapeSentInvitations(html);
+      // Page one is the invitation-manager HTML; the rest come from the same
+      // pagination action its infinite scroll uses, cursored on a plain
+      // offset. See docs/linkedin-sent-invitations.md.
+      const MAX_PAGES = 60; // 600 requests — a runaway stop, not a ceiling
+      const sent: SentInvitation[] = [];
+      const seenIds = new Set<string>();
+      let total: number | null = null;
+      let complete = false;
 
-      // Prune only what the page actually covered. It carries a handful of
-      // rows out of hundreds, so anything not in it is almost always simply
-      // further down the list — never absence.
-      const serverIds = new Set(sent.map((i) => i.id));
-      const localPending = await db.sentInvitations.where('status').equals('pending').toArray();
-      const covered = total !== null && localPending.length <= sent.length;
-      if (covered) {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        let source: string;
+        try {
+          source = page === 0
+            ? await fetchSentInvitationsPage()
+            : await fetchSentInvitationsAt(page * SENT_PAGE_SIZE);
+        } catch (err) {
+          // Page one failing means we have nothing and should say so. Later
+          // pages failing just caps the walk — keep what we already read.
+          if (page === 0) throw err;
+          debugLog('error', `FETCH_SENT_INVITATIONS stopped at page ${page}: ${String(err)}`);
+          break;
+        }
+        const { invitations: batch, total: pageTotal } = scrapeSentInvitations(source);
+        total ??= pageTotal; // only the first page carries the heading
+        const unseen = batch.filter((i) => !seenIds.has(i.id));
+        for (const i of unseen) seenIds.add(i.id);
+        sent.push(...unseen);
+        // A short page, or one that repeats what we have, is the end.
+        if (batch.length < SENT_PAGE_SIZE || unseen.length === 0) {
+          complete = true;
+          break;
+        }
+        if (total !== null && sent.length >= total) {
+          complete = true;
+          break;
+        }
+      }
+
+      // Now that the walk covers everything, pruning is meaningful again —
+      // but only when it actually finished.
+      if (complete) {
+        const serverIds = new Set(sent.map((i) => i.id));
+        const localPending = await db.sentInvitations.where('status').equals('pending').toArray();
         await db.sentInvitations.bulkDelete(
           localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id)
         );
@@ -433,7 +462,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       const existing = await db.sentInvitations.bulkGet(sent.map((i) => i.id));
       const fresh = sent.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
       await db.sentInvitations.bulkPut(fresh);
-      return { success: true, data: { count: sent.length, total } };
+      return { success: true, data: { count: sent.length, total: total ?? sent.length, complete } };
     }
     case 'WITHDRAW_INVITATION': {
       const inv = await db.sentInvitations.get(msg.invitationId);

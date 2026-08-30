@@ -85,8 +85,38 @@ page showing everything:
 The timestamp is only ever a rounded relative phrase, so any absolute value
 is an approximation of when the page was read.
 
-Only the first ~10 rows are embedded. Paging past them means driving the SDUI
-stream, which was not worked out.
+Only the first 10 rows are in the document. The rest come from the same
+pagination action the page's infinite scroll uses.
+
+## Paging
+
+```
+POST https://www.linkedin.com/flagship-web/rsc-action/actions/pagination
+     ?sduiid=com.linkedin.sdui.pagers.mynetwork.scribeSentInvitationManagerList
+Content-Type: application/json
+csrf-token: <JSESSIONID>
+```
+
+The cursor is a plain offset — `clientArguments.payload.invitationStartIndex`,
+stepping 0, 10, 20 — inside a fixed envelope naming the pager, the screen and
+the enums (`PendingInvitationDirection_SENT`,
+`GenericInvitationType_CONNECTION`, `FilterCriteria_UNKNOWN`, phase
+`Invitations`). LinkedIn's client sends nine headers; **csrf-token is the only
+one the server requires**, the rest are tracking. Verified by replaying the
+call with startIndex 200 and getting rows back.
+
+The response is **not** HTML. It is an RSC component tree, and it differs from
+page one in three ways that all matter to a parser:
+
+- text sits in `"children":["…"]`, so tag-stripping returns nothing
+- `aria-label` is a JSON key (`"aria-label":"…"`), not an HTML attribute
+- the withdraw control is a deferred chunk reference (`$L34`), and **the note
+  comes before it** — the reverse of the markup, where the note trails the
+  button
+
+There is no `People (N)` heading after page one, so the total is first-page
+only. Stop on a short page, on a page that repeats what you have, or on
+reaching the heading's total.
 
 ## Withdrawing
 

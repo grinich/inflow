@@ -2,9 +2,10 @@ import {
   scrapeSentInvitations,
   scrapeSentTotal,
   buildWithdrawBody,
+  buildPaginationBody,
   relativeToTimestamp,
 } from '@/lib/sent-invitation-scraper';
-import { SENT_PAGE, buildSentPage } from '../fixtures/sent-invitations-page';
+import { SENT_PAGE, SENT_RSC_PAGE, buildSentPage } from '../fixtures/sent-invitations-page';
 import type { SentInvitation } from '@/types/network';
 
 /** Fixed clock: "Sent 3 days ago" has to resolve somewhere deterministic. */
@@ -220,5 +221,78 @@ describe('buildWithdrawBody', () => {
       profileUrn: 'ACoAAAaaa',
       inviteeVanityName: 'alberto-parrella',
     });
+  });
+});
+
+// Pages after the first arrive as an RSC component tree, not HTML. The
+// tag-stripping that reads page one returns nothing here, and the note sits
+// on the other side of the withdraw control — so both shapes are exercised.
+describe('scrapeSentInvitations on a pagination response', () => {
+  const rsc = () => scrapeSentInvitations(SENT_RSC_PAGE, NOW);
+  const rscByName = () => new Map(rsc().invitations.map((i) => [i.name, i]));
+
+  it('reads the same rows out of the component tree', () => {
+    expect(rsc().invitations.map((i) => i.name)).toEqual([
+      'Alberto Parrella',
+      'Chirag Patel',
+      'Steve Hamrick',
+      'Julie Cockle',
+    ]);
+  });
+
+  it('reads headline, sent time and note', () => {
+    const alberto = rscByName().get('Alberto Parrella')!;
+
+    expect(alberto.headline).toBe('Product at Apple - Claris | Enterprise and Consumer Products');
+    expect(alberto.sentAt).toBe(NOW - 15 * 60_000);
+    expect(alberto.message).toBe(
+      "Hey Alberto - I'm the founder of WorkOS. would love to connect and chat sometime"
+    );
+  });
+
+  it('does not let a note leak across rows here either', () => {
+    // In this shape the note PRECEDES the $L reference, the opposite of the
+    // markup — so a rule tuned to one order silently misreads the other.
+    expect(rscByName().get('Steve Hamrick')!.message).toBe('');
+    expect(rscByName().get('Chirag Patel')!.message).toBe(
+      'Hi Chirag - would love to chat sometime about identity.'
+    );
+  });
+
+  it('keeps ids and avatars', () => {
+    const alberto = rscByName().get('Alberto Parrella')!;
+
+    expect(alberto.id).toBe('7498810568384856065');
+    expect(alberto.pictureUrl).toBe('https://media.licdn.com/dms/image/v2/100/alberto-parrella.jpg');
+  });
+
+  it('reports no total — only the first page carries the heading', () => {
+    expect(rsc().total).toBeNull();
+  });
+});
+
+describe('buildPaginationBody', () => {
+  it('cursors on a plain offset', () => {
+    const body = JSON.parse(buildPaginationBody(30));
+
+    expect(body.clientArguments.payload.invitationStartIndex).toBe(30);
+    expect(body.paginationRequest.requestedArguments.payload.invitationStartIndex).toBe(30);
+  });
+
+  it('asks for sent connection invitations', () => {
+    const p = JSON.parse(buildPaginationBody(0)).clientArguments.payload;
+
+    expect(p.invitationDirectionEnum).toBe('PendingInvitationDirection_SENT');
+    expect(p.invitationTypeEnum).toEqual(['GenericInvitationType_CONNECTION']);
+  });
+
+  it('names the pager the server expects', () => {
+    const body = JSON.parse(buildPaginationBody(0));
+
+    expect(body.pagerId).toBe('com.linkedin.sdui.pagers.mynetwork.scribeSentInvitationManagerList');
+    expect(body.paginationRequest.pagerId).toBe(body.pagerId);
+    expect(body.clientArguments.screenId).toBe(
+      'com.linkedin.sdui.flagshipnav.mynetwork.invitations.InvitationSentWithType'
+    );
   });
 });

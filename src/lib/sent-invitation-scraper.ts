@@ -17,8 +17,12 @@
 import type { SentInvitation } from '@/types/network';
 
 const WITHDRAW_MARKER = 'INVITATION_MANAGER_WITHDRAW';
-const WITHDRAW_LABEL = /aria-label="Withdraw invitation sent to ([^"]+)"/g;
+// The first page is HTML, where this is an attribute; later pages come back as
+// an RSC component tree, where it is a JSON key. Same phrase either way.
+const WITHDRAW_LABEL = /(?:aria-label="|"aria-label":")Withdraw invitation sent to ((?:[^"\\]|\\.)*)"/g;
 const SENT_AGO = /^Sent\s+(.+)\s+ago$/;
+/** A deferred RSC chunk reference, e.g. `$L34`. Stands where the button sits. */
+const LAZY_REF = /^\$L[0-9a-f]+$/i;
 
 /**
  * The document escapes its JSON for embedding in a JS string literal, so the
@@ -106,9 +110,27 @@ export function relativeToTimestamp(phrase: string, now: number): number {
   return now - n * unit;
 }
 
-/** Visible text of the document, in order, tags removed. */
-function textLines(html: string): string[] {
-  return html
+/**
+ * Visible text in order, from either shape the page comes in.
+ *
+ * Page one is server-rendered HTML. Every page after it is an RSC component
+ * tree, where the same strings sit in `"children":["…"]` — so the tag-stripping
+ * that works on the first would return nothing on the rest.
+ */
+function textLines(source: string): string[] {
+  if (source.includes('"children":["')) {
+    return [...source.matchAll(/"children":\["((?:[^"\\]|\\.)*)"\]/g)]
+      .map((m) => {
+        try { return JSON.parse('"' + m[1] + '"'); } catch { return m[1]; }
+      })
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return fromMarkup(source);
+}
+
+function fromMarkup(markup: string): string[] {
+  return markup
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]*>/g, '\n')
@@ -156,20 +178,20 @@ function renderedRows(html: string, names: string[], now: number): Map<string, R
     const nextAt = at.slice(r + 1).find((i) => i > start);
     const end = nextAt ?? Math.min(lines.length, start + 8);
 
-    let headline = '';
     let sentAt = 0;
-    let message = '';
-    let seenWithdraw = false;
+    const free: string[] = [];
     for (let i = start + 1; i < end; i++) {
       const line = lines[i];
-      if (line === 'Withdraw') { seenWithdraw = true; continue; }
+      // The button sits between the fields in both shapes — literal text in
+      // the HTML, a deferred chunk reference in the RSC tree. Its position
+      // differs (the note trails it in HTML, precedes it in RSC), so skip it
+      // and rely on order among the real strings instead.
+      if (line === 'Withdraw' || LAZY_REF.test(line)) continue;
       const sent = line.match(SENT_AGO);
       if (sent) { sentAt = relativeToTimestamp(sent[1], now); continue; }
-      // Before the button: the headline. After it: the note.
-      if (!seenWithdraw) { if (!headline) headline = line; }
-      else if (!message) message = line;
+      free.push(line);
     }
-    rows.set(names[r], { headline, sentAt, message });
+    rows.set(names[r], { headline: free[0] ?? '', sentAt, message: free[1] ?? '' });
   }
   return rows;
 }
@@ -201,6 +223,9 @@ function avatarFor(name: string, byLabel: Map<string, string>): string {
   }
   return '';
 }
+
+/** Rows LinkedIn returns per page, first page included. */
+export const SENT_PAGE_SIZE = 10;
 
 export interface ScrapedSentInvitations {
   invitations: SentInvitation[];
@@ -267,6 +292,55 @@ export function scrapeSentTotal(html: string): number | null {
  * through would be rejected. The two `guidedFlow*` state keys are part of the
  * server's contract even though they carry no data of ours.
  */
+/**
+ * The body behind the invitation manager's infinite scroll.
+ *
+ * The cursor is a plain offset (`invitationStartIndex`), so pages are just
+ * 0, 10, 20… The rest is a fixed envelope; the enums and the pager id are the
+ * server's contract, captured from a live request.
+ */
+export function buildPaginationBody(startIndex: number): string {
+  const pagerId = 'com.linkedin.sdui.pagers.mynetwork.scribeSentInvitationManagerList';
+  const payload = {
+    invitationDirectionEnum: 'PendingInvitationDirection_SENT',
+    invitationTypeEnum: ['GenericInvitationType_CONNECTION'],
+    invitationClassificationTypes: [],
+    filterCriteriaEnum: 'FilterCriteria_UNKNOWN',
+    highlightedInvitationIds: [],
+    suggestionsEnabled: false,
+    paginateSuggestions: false,
+    phase: 'Invitations',
+    invitationStartIndex: startIndex,
+  };
+  const requestedArguments = {
+    $type: 'proto.sdui.actions.requests.RequestedArguments',
+    requestedStateKeys: [],
+    payload,
+    requestMetadata: { $type: 'proto.sdui.common.RequestMetadata' },
+    states: [],
+    screenId: 'com.linkedin.sdui.flagshipnav.mynetwork.invitations.InvitationSentWithType',
+    knownTemplateIds: [],
+  };
+  return JSON.stringify({
+    pagerId,
+    clientArguments: requestedArguments,
+    paginationRequest: {
+      $type: 'proto.sdui.actions.requests.PaginationRequest',
+      pagerId,
+      trigger: {
+        $case: 'itemDistanceTrigger',
+        itemDistanceTrigger: {
+          $type: 'proto.sdui.actions.requests.ItemDistanceTrigger',
+          preloadDistance: 3,
+          preloadLength: 250,
+        },
+      },
+      retryCount: 2,
+      requestedArguments,
+    },
+  });
+}
+
 export function buildWithdrawBody(invitation: SentInvitation): string {
   const requestId = 'com.linkedin.sdui.requests.mynetwork.addaWithdrawInvitation';
   const [firstName = '', ...rest] = invitation.name.split(' ');
