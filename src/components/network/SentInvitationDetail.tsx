@@ -48,12 +48,9 @@ export function SentInvitationDetail({ invitation, onWithdraw, onOpenProfile }: 
                 {invitation.message}
               </div>
             ) : (
-              // Not "you sent this without a note" — we genuinely cannot tell.
-              // LinkedIn renders the note but keeps it out of the payload the
-              // page embeds, so claiming there wasn't one would be a guess.
-              <p className="text-center text-sm text-fg-muted">
-                LinkedIn doesn't say whether you attached a note to this one.
-              </p>
+              // The page renders a note whenever there was one, so its absence
+              // is real information rather than a gap in what we can read.
+              <p className="text-center text-sm text-fg-muted">You sent this without a note.</p>
             )}
           </div>
         </div>

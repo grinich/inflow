@@ -39,12 +39,12 @@ export interface SentInvitation {
   headline: string;
   pictureUrl: string;
   publicId: string;
-  /**
-   * Always '' for now. LinkedIn renders the note you sent, but only inside
-   * content-hashed markup — it is not in the page's embedded payload.
-   */
+  /** The note attached to the request ('' when none was sent) */
   message: string;
-  /** Always 0 for now, for the same reason as `message`. */
+  /**
+   * Approximate: LinkedIn only publishes a rounded relative phrase ("3 days
+   * ago"), so this is that phrase resolved against the time it was read.
+   */
   sentAt: number;
   status: 'pending' | 'withdrawn';
 }

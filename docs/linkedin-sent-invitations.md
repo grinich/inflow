@@ -64,10 +64,26 @@ So each row yields the invitation id, the profile urn, the public id
 (`inviteeVanityName`) and the name. The total comes from the literal
 `People (309)` in the same document.
 
-**Not** present: `sharedSecret` (the received-invitation accept/ignore calls
-need one; withdraw does not), the headline, and the note that was sent with
-the request. Headline and "Sent N days ago" are rendered as text but only
-inside markup whose class names are content-hashed.
+**Not** present in that payload: `sharedSecret` (the received-invitation
+accept/ignore calls need one; withdraw does not), the headline, the note, the
+timestamp and the avatar.
+
+Those live in the other half of the document, and reading the JSON island
+alone is what produced a first version showing bare names against a LinkedIn
+page showing everything:
+
+- **headline, "Sent N ago", the note** — server-rendered markup. Per row the
+  visible text runs `name → headline → Sent N ago → Withdraw → note`. The note
+  comes *after* the button, so it trails its own row; read naively it attaches
+  to the next person. Anchor on
+  `aria-label="Withdraw invitation sent to <name>"`, never on class names.
+- **avatar** — back in the JSON island, but in a separate envelope keyed by
+  `a11yText` ("<name>, profile photo") with `rootUrl` +
+  `imageRenditions[{width,height,suffixUrl}]`. Note `imageRenditions`, not
+  Voyager's `artifacts`. Join to the row by name.
+
+The timestamp is only ever a rounded relative phrase, so any absolute value
+is an approximation of when the page was read.
 
 Only the first ~10 rows are embedded. Paging past them means driving the SDUI
 stream, which was not worked out.

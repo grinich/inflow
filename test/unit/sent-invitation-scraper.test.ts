@@ -2,76 +2,84 @@ import {
   scrapeSentInvitations,
   scrapeSentTotal,
   buildWithdrawBody,
+  relativeToTimestamp,
 } from '@/lib/sent-invitation-scraper';
+import { SENT_PAGE, buildSentPage } from '../fixtures/sent-invitations-page';
 import type { SentInvitation } from '@/types/network';
 
-/**
- * A row exactly as the invitation-manager page embeds it: JSON escaped for a
- * JS string literal, nested inside the surrounding action object. Copied from
- * a live capture (docs/linkedin-sent-invitations.md) with the ids shortened.
- */
-function embeddedRow(opts: {
-  id: string;
-  first: string;
-  last: string;
-  vanity: string;
-  profile: string;
-}) {
-  return (
-    '\\"title\\":\\"Withdraw invitation\\",\\"url\\":\\"\\",\\"clearBackStack\\":false,' +
-    '\\"requestedArguments\\":{\\"$type\\":\\"proto.sdui.actions.requests.RequestedArguments\\",' +
-    '\\"requestedStateKeys\\":[],\\"payload\\":{' +
-    `\\"profileUrn\\":\\"${opts.profile}\\",` +
-    '\\"queryName\\":\\"ProfileMemberRelationshipRefreshById\\",' +
-    '\\"trackingActionType\\":\\"INVITATION_MANAGER_WITHDRAW\\",' +
-    '\\"invitationType\\":1,\\"inviterActionType\\":2,' +
-    `\\"inviteeVanityName\\":\\"${opts.vanity}\\",` +
-    `\\"firstName\\":\\"${opts.first}\\",\\"lastName\\":\\"${opts.last}\\",` +
-    '\\"cardRef\\":{\\"key\\":\\"auto-component-07c4dce6\\"},' +
-    `\\"invitationUrn\\":{\\"invitationId\\":\\"${opts.id}\\"}},` +
-    '\\"requestMetadata\\":{\\"$type\\":\\"proto.sdui.common.RequestMetadata\\"}}'
-  );
-}
+/** Fixed clock: "Sent 3 days ago" has to resolve somewhere deterministic. */
+const NOW = 1_750_000_000_000;
+const DAY = 86_400_000;
 
-const PAGE =
-  '<!DOCTYPE html><html><body><div>People (309)</div>' +
-  '<script>self.__next_f.push([1,"' +
-  embeddedRow({ id: '7498810568384856065', first: 'Dillon', last: 'Mulroy', vanity: 'dillon-mulroy', profile: 'ACoAAAaaa' }) +
-  embeddedRow({ id: '7498540000000000000', first: 'Steve', last: 'Hamrick', vanity: 'stevehamrick', profile: 'ACoAAAbbb' }) +
-  '"])</script></body></html>';
+const scrape = (html: string = SENT_PAGE) => scrapeSentInvitations(html, NOW);
+const byName = (html?: string) =>
+  new Map(scrape(html).invitations.map((i) => [i.name, i]));
 
 describe('scrapeSentInvitations', () => {
-  it('reads every row the page embedded', () => {
-    const { invitations } = scrapeSentInvitations(PAGE);
+  it('reads every row on the page', () => {
+    const { invitations } = scrape();
 
-    expect(invitations).toHaveLength(2);
-    expect(invitations.map((i) => i.name)).toEqual(['Dillon Mulroy', 'Steve Hamrick']);
+    expect(invitations.map((i) => i.name)).toEqual([
+      'Alberto Parrella',
+      'Chirag Patel',
+      'Steve Hamrick',
+      'Julie Cockle',
+    ]);
   });
 
   it('keeps the fields a withdraw needs', () => {
-    const [dillon] = scrapeSentInvitations(PAGE).invitations;
+    const alberto = byName().get('Alberto Parrella')!;
 
-    expect(dillon.id).toBe('7498810568384856065');
-    expect(dillon.publicId).toBe('dillon-mulroy');
-    expect(dillon.toUrn).toBe('urn:li:fsd_profile:ACoAAAaaa');
-    expect(dillon.status).toBe('pending');
+    expect(alberto.id).toBe('7498810568384856065');
+    expect(alberto.publicId).toBe('alberto-parrella');
+    expect(alberto.toUrn).toBe('urn:li:fsd_profile:ACoAAAaaa');
+    expect(alberto.status).toBe('pending');
   });
 
-  it('leaves the note and timestamp empty rather than inventing them', () => {
-    // Both are rendered by LinkedIn but absent from the embedded payload.
-    const [dillon] = scrapeSentInvitations(PAGE).invitations;
+  // The four fields below live only in the rendered markup, not in the JSON
+  // island. An earlier version parsed the island alone and shipped a list of
+  // bare names against a LinkedIn page showing all of this.
+  it('reads the headline out of the rendered markup', () => {
+    expect(byName().get('Alberto Parrella')!.headline).toBe(
+      'Product at Apple - Claris | Enterprise and Consumer Products'
+    );
+    expect(byName().get('Steve Hamrick')!.headline).toBe('VP, Product Management at Slack');
+  });
 
-    expect(dillon.message).toBe('');
-    expect(dillon.sentAt).toBe(0);
-    expect(dillon.headline).toBe('');
+  it('reads the note that was sent with the request', () => {
+    expect(byName().get('Alberto Parrella')!.message).toBe(
+      "Hey Alberto - I'm the founder of WorkOS. would love to connect and chat sometime"
+    );
+  });
+
+  it('does not let a note leak onto the row after it', () => {
+    // The note renders AFTER the withdraw button, so it trails its own row —
+    // read naively it would attach to the next person.
+    expect(byName().get('Chirag Patel')!.message).toBe(
+      'Hi Chirag - would love to chat sometime about identity.'
+    );
+    expect(byName().get('Steve Hamrick')!.message).toBe('');
+    expect(byName().get('Julie Cockle')!.message).toBe('');
+  });
+
+  it('turns the relative sent time into a timestamp', () => {
+    expect(byName().get('Steve Hamrick')!.sentAt).toBe(NOW - 3 * DAY);
+    expect(byName().get('Alberto Parrella')!.sentAt).toBe(NOW - 15 * 60_000);
+  });
+
+  it('reads the avatar out of the image envelope', () => {
+    // Smallest rendition at or above 100px, matching pickArtifact's rule.
+    expect(byName().get('Alberto Parrella')!.pictureUrl).toBe(
+      'https://media.licdn.com/dms/image/v2/100/alberto-parrella.jpg'
+    );
   });
 
   it('reads the real total, not the row count', () => {
-    const { invitations, total } = scrapeSentInvitations(PAGE);
+    const { invitations, total } = scrape();
 
-    // The page embeds a handful of rows out of hundreds.
-    expect(invitations).toHaveLength(2);
-    expect(total).toBe(309);
+    // The page carries a handful of rows out of hundreds.
+    expect(invitations).toHaveLength(4);
+    expect(total).toBe(311);
   });
 
   it('handles a thousands separator in the total', () => {
@@ -83,38 +91,73 @@ describe('scrapeSentInvitations', () => {
     expect(scrapeSentTotal('<div>nothing here</div>')).toBeNull();
   });
 
+  it('keeps a row whose avatar envelope is missing', () => {
+    const page = buildSentPage([
+      { id: '1', first: 'Ada', last: 'Lovelace', vanity: 'ada', profile: 'ACoAAA1', headline: 'Analyst', avatar: false },
+    ]);
+
+    const [ada] = scrape(page).invitations;
+
+    expect(ada.name).toBe('Ada Lovelace');
+    expect(ada.pictureUrl).toBe('');
+    expect(ada.headline).toBe('Analyst');
+  });
+
+  it('keeps a row that has no headline', () => {
+    const page = buildSentPage([
+      { id: '1', first: 'Ada', last: 'Lovelace', vanity: 'ada', profile: 'ACoAAA1', sentAgo: '2 weeks' },
+    ]);
+
+    const [ada] = scrape(page).invitations;
+
+    expect(ada.headline).toBe('');
+    expect(ada.sentAt).toBe(NOW - 14 * DAY);
+  });
+
   it('skips a row whose payload will not parse, keeping the rest', () => {
-    const broken = PAGE.replace(
-      '\\"invitationUrn\\":{\\"invitationId\\":\\"7498810568384856065\\"}}',
-      '\\"invitationUrn\\":{{{ mangled'
+    const broken = SENT_PAGE.replace(
+      '\\"invitationId\\":\\"7498810568384856065\\"',
+      '\\"invitationId\\":{{{ mangled'
     );
 
-    const { invitations } = scrapeSentInvitations(broken);
-
-    expect(invitations.map((i) => i.name)).toEqual(['Steve Hamrick']);
+    expect(scrape(broken).invitations.map((i) => i.name)).not.toContain('Alberto Parrella');
+    expect(scrape(broken).invitations.length).toBe(3);
   });
 
   it('drops a row with no invitation id — it could not be withdrawn anyway', () => {
-    const noId = PAGE.replace('\\"invitationId\\":\\"7498810568384856065\\"', '\\"invitationId\\":\\"\\"');
+    const noId = SENT_PAGE.replace(
+      '\\"invitationId\\":\\"7498810568384856065\\"',
+      '\\"invitationId\\":\\"\\"'
+    );
 
-    expect(scrapeSentInvitations(noId).invitations).toHaveLength(1);
-  });
-
-  it('deduplicates rows repeated in the payload', () => {
-    const twice = PAGE.replace('</script>', embeddedRow({
-      id: '7498810568384856065', first: 'Dillon', last: 'Mulroy', vanity: 'dillon-mulroy', profile: 'ACoAAAaaa',
-    }) + '</script>');
-
-    expect(scrapeSentInvitations(twice).invitations).toHaveLength(2);
+    expect(scrape(noId).invitations).toHaveLength(3);
   });
 
   it('returns nothing on a page it does not recognise', () => {
     // A LinkedIn redesign must yield an empty list, never an exception.
-    expect(scrapeSentInvitations('<html><body>signed out</body></html>')).toEqual({
+    expect(scrape('<html><body>signed out</body></html>')).toEqual({
       invitations: [],
       total: null,
     });
-    expect(scrapeSentInvitations('')).toEqual({ invitations: [], total: null });
+    expect(scrape('')).toEqual({ invitations: [], total: null });
+  });
+});
+
+describe('relativeToTimestamp', () => {
+  it.each([
+    ['15 minutes', NOW - 15 * 60_000],
+    ['1 hour', NOW - 3_600_000],
+    ['3 days', NOW - 3 * DAY],
+    ['2 weeks', NOW - 14 * DAY],
+    ['a day', NOW - DAY],
+    ['about 2 hours', NOW - 2 * 3_600_000],
+  ])('reads %j', (phrase, expected) => {
+    expect(relativeToTimestamp(phrase, NOW)).toBe(expected);
+  });
+
+  it('gives 0 for a phrase it cannot read, rather than a wrong date', () => {
+    expect(relativeToTimestamp('some time', NOW)).toBe(0);
+    expect(relativeToTimestamp('', NOW)).toBe(0);
   });
 });
 
@@ -130,19 +173,20 @@ describe('buildWithdrawBody', () => {
     sentAt: 0,
     status: 'pending',
   };
+  const payloadOf = (inv: SentInvitation) =>
+    JSON.parse(buildWithdrawBody(inv)).serverRequest.requestedArguments.payload;
 
   it('sends the enums as strings, not the integers the list payload used', () => {
-    // The embedded rows carry inviterActionType: 2 / invitationType: 1, but
-    // the action rejects those — it wants the named constants.
-    const body = JSON.parse(buildWithdrawBody(invitation));
-    const payload = body.serverRequest.requestedArguments.payload;
+    // The rows carry inviterActionType: 2 / invitationType: 1, but the action
+    // rejects those — it wants the named constants.
+    const payload = payloadOf(invitation);
 
     expect(payload.inviterActionType).toBe('InviterActionType_WITHDRAW');
     expect(payload.invitationType).toBe('GenericInvitationType_CONNECTION');
   });
 
   it('identifies the invitation and the person', () => {
-    const payload = JSON.parse(buildWithdrawBody(invitation)).serverRequest.requestedArguments.payload;
+    const payload = payloadOf(invitation);
 
     expect(payload.invitationUrn).toEqual({ invitationId: '7498540000000000000' });
     expect(payload.inviteeVanityName).toBe('stevehamrick');
@@ -162,20 +206,19 @@ describe('buildWithdrawBody', () => {
   });
 
   it('splits a multi-word surname onto lastName', () => {
-    const payload = JSON.parse(
-      buildWithdrawBody({ ...invitation, name: 'Ana Maria de Souza' })
-    ).serverRequest.requestedArguments.payload;
-
-    expect(payload.firstName).toBe('Ana');
-    expect(payload.lastName).toBe('Maria de Souza');
+    expect(payloadOf({ ...invitation, name: 'Ana Maria de Souza' })).toMatchObject({
+      firstName: 'Ana',
+      lastName: 'Maria de Souza',
+    });
   });
 
   it('round-trips a scraped row into a withdraw body', () => {
-    const [dillon] = scrapeSentInvitations(PAGE).invitations;
+    const alberto = byName().get('Alberto Parrella')!;
 
-    const payload = JSON.parse(buildWithdrawBody(dillon)).serverRequest.requestedArguments.payload;
-
-    expect(payload.invitationUrn.invitationId).toBe('7498810568384856065');
-    expect(payload.profileUrn).toBe('ACoAAAaaa');
+    expect(payloadOf(alberto)).toMatchObject({
+      invitationUrn: { invitationId: '7498810568384856065' },
+      profileUrn: 'ACoAAAaaa',
+      inviteeVanityName: 'alberto-parrella',
+    });
   });
 });

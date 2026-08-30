@@ -80,13 +80,12 @@ describe('regression #156: the Sent tab', () => {
     expect(screen.getByText('Would love to trade notes.')).toBeTruthy();
   });
 
-  it('does not claim there was no note when it cannot tell', async () => {
+  it('says so when there was no note', async () => {
     await renderSent();
     useUIStore.setState({ networkSelectedIndex: 1 });
 
-    // The note is rendered by LinkedIn but absent from the payload we parse,
-    // so "you sent this without a note" would be a guess presented as fact.
-    await waitFor(() => expect(screen.getByText(/doesn't say whether you attached a note/)).toBeTruthy());
+    // The page renders a note whenever one exists, so absence is real.
+    await waitFor(() => expect(screen.getByText(/sent this without a note/)).toBeTruthy());
   });
 
   it('withdraws from the button', async () => {

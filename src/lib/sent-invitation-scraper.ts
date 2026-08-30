@@ -1,31 +1,35 @@
 // Sent invitations are not on Voyager any more — see
 // docs/linkedin-sent-invitations.md. The only source is LinkedIn's own
-// invitation-manager page, which embeds the rows as escaped JSON inside its
-// server-rendered HTML.
+// invitation-manager page, which carries the data in two different places:
 //
-// Everything here treats the payload as hostile: this is a rendering pipeline,
-// not a versioned API, so a shape we don't recognise must yield fewer rows
-// rather than an exception.
+//   * a JSON island in <script>, holding the withdraw action's payload
+//     (invitation id, profile urn, vanity name) and the avatar envelopes
+//   * the server-rendered markup, holding the headline, the "Sent N ago"
+//     line and the note — none of which appear in the JSON
+//
+// So a row is assembled from both halves, joined on the person's name. The
+// markup is read as a stream of text anchored on the withdraw control's
+// aria-label, never on CSS: class names here are content-hashed and change on
+// every LinkedIn deploy.
+//
+// Everything treats the payload as hostile. A shape we don't recognise must
+// cost us a field or a row, never an exception.
 import type { SentInvitation } from '@/types/network';
 
-/** The marker LinkedIn puts on every withdraw action in the embedded payload. */
 const WITHDRAW_MARKER = 'INVITATION_MANAGER_WITHDRAW';
+const WITHDRAW_LABEL = /aria-label="Withdraw invitation sent to ([^"]+)"/g;
+const SENT_AGO = /^Sent\s+(.+)\s+ago$/;
 
 /**
- * The document escapes the JSON for embedding in a JS string literal, so the
+ * The document escapes its JSON for embedding in a JS string literal, so the
  * bytes read `\"profileUrn\":\"…\"`. Unescape only what the embedding added.
  */
 function unescapeEmbedded(html: string): string {
   return html.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 }
 
-/**
- * Pull the balanced `{...}` object containing `index`, scanning outwards from
- * it. Brace counting rather than a regex: the payloads nest several levels and
- * contain braces inside strings.
- */
+/** The balanced `{...}` containing `index`, found by counting braces. */
 function enclosingObject(text: string, index: number): string | null {
-  // Walk back to the opening brace of the object this index sits in.
   let depth = 0;
   let start = -1;
   for (let i = index; i >= 0; i--) {
@@ -37,7 +41,6 @@ function enclosingObject(text: string, index: number): string | null {
     }
   }
   if (start === -1) return null;
-
   depth = 0;
   for (let i = start; i < text.length; i++) {
     const c = text[i];
@@ -50,76 +53,202 @@ function enclosingObject(text: string, index: number): string | null {
   return null;
 }
 
+/** Every balanced object containing `marker`, parsed, skipping the unparseable. */
+function objectsContaining(text: string, marker: string): any[] {
+  const out: any[] = [];
+  let from = 0;
+  for (;;) {
+    const hit = text.indexOf(marker, from);
+    if (hit === -1) break;
+    from = hit + marker.length;
+    const raw = enclosingObject(text, hit);
+    if (!raw) continue;
+    try {
+      out.push(JSON.parse(raw));
+    } catch {
+      // Unrecognised shape: skip this one, keep the rest.
+    }
+  }
+  return out;
+}
+
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
-/** urn tail → `urn:li:fsd_profile:<id>`, matching the rest of the app. */
 function toProfileUrn(raw: string): string {
   if (!raw) return '';
   const id = raw.includes(':') ? raw.split(':').pop()! : raw;
   return id ? `urn:li:fsd_profile:${id}` : '';
 }
 
+const UNIT_MS: Record<string, number> = {
+  second: 1000,
+  minute: 60_000,
+  hour: 3_600_000,
+  day: 86_400_000,
+  week: 604_800_000,
+  month: 2_592_000_000, // 30d — LinkedIn's own rounding is coarser than this
+  year: 31_536_000_000,
+};
+
+/**
+ * "3 days" → an absolute timestamp. The page only ever gives a rounded
+ * relative phrase, so this is approximate by construction — good enough to
+ * sort by and to render as "3 days ago" again, which is all it is used for.
+ */
+export function relativeToTimestamp(phrase: string, now: number): number {
+  const m = String(phrase || '').match(/^(?:about\s+)?(a|an|\d+)\s+([a-z]+?)s?$/i);
+  if (!m) return 0;
+  const n = /^(a|an)$/i.test(m[1]) ? 1 : Number(m[1]);
+  const unit = UNIT_MS[m[2].toLowerCase()];
+  if (!Number.isFinite(n) || !unit) return 0;
+  return now - n * unit;
+}
+
+/** Visible text of the document, in order, tags removed. */
+function textLines(html: string): string[] {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, '\n')
+    .replace(/&amp;/g, '&')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+interface RenderedRow {
+  headline: string;
+  sentAt: number;
+  message: string;
+}
+
+/**
+ * Read headline / sent time / note out of the rendered markup.
+ *
+ * Per row the text runs: name, headline, "Sent N ago", "Withdraw", and then
+ * the note if there was one — the note is rendered *after* the button, which
+ * is why it belongs to the row before it rather than the one that follows.
+ */
+function renderedRows(html: string, names: string[], now: number): Map<string, RenderedRow> {
+  const lines = textLines(html);
+  const rows = new Map<string, RenderedRow>();
+
+  // Where each name appears, scanning forward so repeated names stay in order.
+  const at: number[] = [];
+  let cursor = 0;
+  for (const name of names) {
+    const i = lines.indexOf(name, cursor);
+    at.push(i);
+    if (i >= 0) cursor = i + 1;
+  }
+
+  for (let r = 0; r < names.length; r++) {
+    const start = at[r];
+    if (start < 0) continue;
+    // Up to the next row's name, or a bounded window for the last row.
+    const nextAt = at.slice(r + 1).find((i) => i > start);
+    const end = nextAt ?? Math.min(lines.length, start + 8);
+
+    let headline = '';
+    let sentAt = 0;
+    let message = '';
+    let seenWithdraw = false;
+    for (let i = start + 1; i < end; i++) {
+      const line = lines[i];
+      if (line === 'Withdraw') { seenWithdraw = true; continue; }
+      const sent = line.match(SENT_AGO);
+      if (sent) { sentAt = relativeToTimestamp(sent[1], now); continue; }
+      // Before the button: the headline. After it: the note.
+      if (!seenWithdraw) { if (!headline) headline = line; }
+      else if (!message) message = line;
+    }
+    rows.set(names[r], { headline, sentAt, message });
+  }
+  return rows;
+}
+
+/** name → avatar url, from the image envelopes in the JSON island. */
+function avatars(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const img of objectsContaining(text, '"a11yText"')) {
+    const label = str(img.a11yText);
+    const rootUrl = str(img.renderPayload?.rootUrl ?? img.rootUrl);
+    const renditions = img.renderPayload?.imageRenditions ?? img.imageRenditions;
+    if (!label || !rootUrl || !Array.isArray(renditions) || !renditions.length) continue;
+    // Smallest rendition at or above 100px, else the largest available —
+    // matching pickArtifact's rule for Voyager's vectorImage.
+    const sorted = [...renditions].sort((a, b) => (a?.width || 0) - (b?.width || 0));
+    const pick = sorted.find((a) => (a?.width || 0) >= 100) || sorted[sorted.length - 1];
+    const suffix = str(pick?.suffixUrl);
+    if (suffix) out.set(label, rootUrl + suffix);
+  }
+  return out;
+}
+
+/** a11yText is the name plus decoration ("Ada Lovelace, profile photo"). */
+function avatarFor(name: string, byLabel: Map<string, string>): string {
+  const exact = byLabel.get(name);
+  if (exact) return exact;
+  for (const [label, url] of byLabel) {
+    if (label.startsWith(name) || label.includes(name)) return url;
+  }
+  return '';
+}
+
 export interface ScrapedSentInvitations {
   invitations: SentInvitation[];
   /**
    * Every outstanding request, from the "People (N)" heading — far more than
-   * the handful of rows the document embeds.
+   * the handful of rows the document carries.
    */
   total: number | null;
 }
 
-/**
- * Parse the sent-invitations page.
- *
- * Rows are found by their withdraw marker rather than by CSS, because the
- * class names are content-hashed and change on every LinkedIn deploy while the
- * payload keys have to stay stable for their own client to work.
- */
-export function scrapeSentInvitations(html: string): ScrapedSentInvitations {
-  const text = unescapeEmbedded(String(html || ''));
+export function scrapeSentInvitations(
+  html: string,
+  now: number = Date.now()
+): ScrapedSentInvitations {
+  const source = String(html || '');
+  const text = unescapeEmbedded(source);
+
+  // Names in row order, from the withdraw control. This is also the join key
+  // between the JSON island and the rendered markup.
+  WITHDRAW_LABEL.lastIndex = 0;
+  const names = [...source.matchAll(WITHDRAW_LABEL)].map((m) => m[1]);
+
+  const rendered = renderedRows(source, names, now);
+  const byLabel = avatars(text);
+
   const invitations: SentInvitation[] = [];
   const seen = new Set<string>();
-
-  let from = 0;
-  for (;;) {
-    const hit = text.indexOf(WITHDRAW_MARKER, from);
-    if (hit === -1) break;
-    from = hit + WITHDRAW_MARKER.length;
-
-    const raw = enclosingObject(text, hit);
-    if (!raw) continue;
-    let payload: any;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      continue; // Unrecognised shape: skip this row, keep the rest.
-    }
-
-    const id = str(payload?.invitationUrn?.invitationId);
+  for (const action of objectsContaining(text, WITHDRAW_MARKER)) {
+    const id = str(action?.invitationUrn?.invitationId);
     if (!id || seen.has(id)) continue;
-
-    const first = str(payload.firstName);
-    const last = str(payload.lastName);
-    const name = `${first} ${last}`.trim();
     seen.add(id);
+
+    const name = `${str(action.firstName)} ${str(action.lastName)}`.trim();
+    const extra = rendered.get(name);
     invitations.push({
       id,
-      toUrn: toProfileUrn(str(payload.profileUrn)),
+      toUrn: toProfileUrn(str(action.profileUrn)),
       name: name || 'LinkedIn Member',
-      // The page renders the headline and the note you sent, but only inside
-      // content-hashed markup — neither is in the payload.
-      headline: '',
-      pictureUrl: '',
-      publicId: str(payload.inviteeVanityName),
-      message: '',
-      sentAt: 0,
+      headline: extra?.headline ?? '',
+      pictureUrl: avatarFor(name, byLabel),
+      publicId: str(action.inviteeVanityName),
+      message: extra?.message ?? '',
+      sentAt: extra?.sentAt ?? 0,
       status: 'pending',
     });
   }
 
-  return { invitations, total: scrapeSentTotal(text) };
+  return { invitations, total: scrapeSentTotal(source) };
 }
 
 /** The `People (309)` heading — the only place the real total appears. */
