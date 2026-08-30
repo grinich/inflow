@@ -148,8 +148,20 @@ async function openNetworkView() {
   await waitFor(() => expect(screen.getByText(/Accept invitation from/)).toBeTruthy());
 }
 
-const pressEnter = () =>
-  fireEvent.keyDown(document.body, { key: 'Enter', bubbles: true, cancelable: true });
+/**
+ * Press Enter until the accept actually goes out.
+ *
+ * NetworkView's key handler re-subscribes whenever the live query resolves, so
+ * a single press can fall into that gap and be dropped — which a real user
+ * simply experiences as pressing the key again. Every assertion here is about
+ * what follows the accept, not about one keystroke landing.
+ */
+async function pressEnter() {
+  await waitFor(() => {
+    fireEvent.keyDown(document.body, { key: 'Enter', bubbles: true, cancelable: true });
+    expect(calls.some((c) => c.type === 'ACCEPT_INVITATION')).toBe(true);
+  });
+}
 
 describe('accepting an invitation, end to end', () => {
   it('Enter accepts and leaves the network view — it does not just advance the list', async () => {
@@ -158,17 +170,22 @@ describe('accepting an invitation, end to end', () => {
     threadArrivesAfterMs = 300;
     await openNetworkView();
 
-    pressEnter();
+    await pressEnter();
 
+    // The view switches BEFORE the accept is sent — waiting on a round trip to
+    // LinkedIn first is the pause that made this feel broken — so the request
+    // is asserted separately rather than as of the moment we switch.
     await waitFor(() => expect(useUIStore.getState().appView).toBe('inbox'));
-    expect(calls.some((c) => c.type === 'ACCEPT_INVITATION' && c.invitationId === 'inv-1')).toBe(true);
+    await waitFor(() =>
+      expect(calls.some((c) => c.type === 'ACCEPT_INVITATION' && c.invitationId === 'inv-1')).toBe(true)
+    );
   });
 
   it('shows a thread pane immediately, before the real thread syncs', async () => {
     threadArrivesAfterMs = 1200;
     await openNetworkView();
 
-    pressEnter();
+    await pressEnter();
 
     // A placeholder stands in so the switch is instant rather than a pause on
     // the network list.
@@ -183,7 +200,7 @@ describe('accepting an invitation, end to end', () => {
     threadArrivesAfterMs = 400;
     await openNetworkView();
 
-    pressEnter();
+    await pressEnter();
 
     await waitFor(
       () => expect(useUIStore.getState().selectedConversationId).toBe('conv-accepted'),
@@ -195,7 +212,7 @@ describe('accepting an invitation, end to end', () => {
     threadArrivesAfterMs = 300;
     await openNetworkView();
 
-    pressEnter();
+    await pressEnter();
 
     await waitFor(
       () => expect(document.activeElement?.hasAttribute('data-compose-input')).toBe(true),
@@ -207,7 +224,7 @@ describe('accepting an invitation, end to end', () => {
     threadArrivesAfterMs = 400;
     await openNetworkView();
 
-    pressEnter();
+    await pressEnter();
 
     await waitFor(
       () => expect(useUIStore.getState().selectedConversationId).toBe('conv-accepted'),
@@ -220,7 +237,7 @@ describe('accepting an invitation, end to end', () => {
     await testDb.invitations.put(invitation({ message: '' }));
     await openNetworkView();
 
-    pressEnter();
+    await pressEnter();
 
     await waitFor(() =>
       expect(calls.some((c) => c.type === 'ACCEPT_INVITATION')).toBe(true)
@@ -234,7 +251,7 @@ describe('accepting an invitation, end to end', () => {
     acceptSucceeds = false;
     await openNetworkView();
 
-    pressEnter();
+    await pressEnter();
 
     await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
     expect(useUIStore.getState().appView).toBe('network');

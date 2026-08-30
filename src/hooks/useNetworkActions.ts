@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
+import { navigateToConversation } from '@/lib/navigate-to-conversation';
 import type { Invitation, SentInvitation, Connection } from '@/types/network';
 import type { Conversation } from '@/types/conversation';
 
@@ -85,9 +86,22 @@ export function useNetworkActions() {
    */
   const acceptInvitation = useCallback(
     async (inv: Invitation) => {
+      if (!inv.message) {
+        await respond(inv, 'accept');
+        return;
+      }
+      // Move first. Accepting is a network round trip to LinkedIn, and waiting
+      // on it before switching is the pause the user feels — the optimistic
+      // update has already taken the row out of the list by now anyway.
+      const placeholderId = await beginJump(inv);
       const accepted = await respond(inv, 'accept');
-      if (!accepted || !inv.message) return;
-      await openThreadWith(inv);
+      if (!accepted) {
+        // Put them back where they were; respond() has already restored the row.
+        await db.conversations.delete(placeholderId).catch(() => {});
+        useUIStore.getState().setAppView('network');
+        return;
+      }
+      await settleJump(inv, placeholderId);
     },
     [respond]
   );
@@ -164,22 +178,25 @@ export function useNetworkActions() {
    * delay. If it never lands, fall through to a draft so the reply can still
    * be typed and sent; the send reuses the real thread.
    */
-  const openThreadWith = useCallback(async (inv: Invitation) => {
-    const store = useUIStore.getState();
-    store.setAppView('inbox');
-    store.setInboxTab('focused');
+  /**
+   * Show something for this person at once, and return the placeholder's id.
+   *
+   * If the real thread is already here, that is what opens. Otherwise a draft
+   * stands in — same person, same header, a reply box to type into — so the
+   * switch is instant rather than a pause on the network list.
+   */
+  const beginJump = useCallback(async (inv: Invitation): Promise<string> => {
+    // Both paths leave the network view. navigateToConversation picks the
+    // right inbox tab but knows nothing about the top-level view.
+    useUIStore.getState().setAppView('inbox');
 
     const existing = await findThread(inv.fromUrn);
     if (existing) {
-      store.openThread(existing.id, 0);
+      await navigateToConversation(existing.id);
       focusComposer();
-      return;
+      return existing.id;
     }
 
-    // Accepting is what creates the thread, so it is not here yet — and
-    // waiting on it before switching left the user staring at the network list
-    // for a second or more. Stand a placeholder in its place immediately: same
-    // person, same header, a reply box they can already type into.
     const memberId = inv.fromUrn.split(':').pop()!;
     const placeholderId = `draft-${memberId}`;
     await db.conversations.put({
@@ -194,23 +211,33 @@ export function useNetworkActions() {
       category: 'PRIMARY_INBOX',
       draft: 1,
     } as Conversation);
+    const store = useUIStore.getState();
+    store.setInboxTab('focused');
+    // setInboxTab remembers the selection that tab had and App's auto-select
+    // effect restores it a tick later, which would take the selection straight
+    // back off the placeholder — and then nothing would ever select the
+    // accepted thread. navigateToConversation clears this for the same reason.
+    useUIStore.setState({ _pendingRestore: null });
     store.openThread(placeholderId, 0);
     focusComposer();
+    return placeholderId;
+  }, []);
+
+  /** Wait for the thread the accept created, then put them in it. */
+  const settleJump = useCallback(async (inv: Invitation, placeholderId: string) => {
+    if (placeholderId !== `draft-${inv.fromUrn.split(':').pop()}`) return; // already real
 
     sendBridgeMessage({ type: 'BURST_DISCOVER', category: 'PRIMARY_INBOX' }).catch(() => {});
     const deadline = Date.now() + 15_000;
     let real = await findThread(inv.fromUrn);
     while (!real && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 400));
-      // Stop watching the moment the user moves on. Without this the loop runs
-      // for its full fifteen seconds and then reaches into a view they have
-      // long since left.
-      const now = useUIStore.getState();
-      if (now.appView !== 'inbox' || now.selectedConversationId !== placeholderId) return;
+      // Only leaving the inbox counts as moving on. Selection alone does not:
+      // the auto-select effect reassigns it for its own reasons, and treating
+      // that as intent is what left the accepted thread unselected.
+      if (useUIStore.getState().appView !== 'inbox') return;
       real = await findThread(inv.fromUrn);
     }
-    // Never arrived: leave them on the placeholder rather than yanking it
-    // away. Sending from it reuses the real thread anyway.
     if (!real) return;
 
     // Carry anything typed while waiting. Losing a half-written reply to a
@@ -221,11 +248,8 @@ export function useNetworkActions() {
       await db.draftAttachments.delete(placeholderId);
     }
 
-    // Only move if they are still on the placeholder; they may have navigated.
-    if (useUIStore.getState().selectedConversationId === placeholderId) {
-      useUIStore.getState().openThread(real.id, 0);
-      focusComposer();
-    }
+    await navigateToConversation(real.id);
+    focusComposer();
     await db.conversations.delete(placeholderId);
   }, []);
 

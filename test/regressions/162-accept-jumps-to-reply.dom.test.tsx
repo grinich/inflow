@@ -136,18 +136,39 @@ describe('regression #162: accepting an invitation with a note', () => {
     expect(await testDb.draftAttachments.get('draft-ACoAAAsender')).toBeUndefined();
   });
 
-  it('leaves the user alone if they navigated away while waiting', async () => {
+  it('stops watching once the user leaves the inbox', async () => {
+    // Selection alone is NOT treated as leaving: App's auto-select effect
+    // reassigns it for its own reasons — restoring a tab's remembered thread,
+    // filling an empty selection — and reading that as intent is precisely
+    // what left the accepted thread unselected.
     setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
     const accept = actions().acceptInvitation(invitation('Hi Michael'));
 
     await waitFor(() =>
       expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
     );
-    useUIStore.getState().openThread('somewhere-else', 0);
+    useUIStore.getState().setAppView('network');
 
     await accept;
 
-    expect(useUIStore.getState().selectedConversationId).toBe('somewhere-else');
+    expect(useUIStore.getState().appView).toBe('network');
+    expect(useUIStore.getState().selectedConversationId).not.toBe('conv-late');
+  });
+
+  it('still lands on the thread when something reassigns the selection', async () => {
+    // The reported failure: the message arrived and nothing selected it,
+    // because the selection had been taken off the placeholder meanwhile.
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+    const accept = actions().acceptInvitation(invitation('Hi Michael'));
+
+    await waitFor(() =>
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
+    );
+    useUIStore.getState().openThread('something-the-app-picked', 0);
+
+    await accept;
+
+    expect(useUIStore.getState().selectedConversationId).toBe('conv-late');
   });
 
   it('never drops the reply into a group thread', async () => {
