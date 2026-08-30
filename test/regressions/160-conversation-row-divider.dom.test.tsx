@@ -55,6 +55,36 @@ describe('regression #160: rows are separated in both lists', () => {
     expect(row.className).toContain('bg-surface-active');
   });
 
+  it('insets the avatar the same in both lists', () => {
+    // The conversation row reserves a 16px column for the unread/star mark
+    // before the avatar. Network rows had no equivalent, so their avatars sat
+    // further left and the two lists did not line up.
+    const { container } = render(
+      <InvitationRow invitation={invitation} selected={false} onSelect={() => {}} />
+    );
+    const networkRow = container.querySelector('[data-network-row]')!;
+
+    for (const row of [networkRow, renderConversationRow()]) {
+      expect(row.className).toContain('gap-1.5');
+      expect(row.className).toContain('py-3');
+      expect(row.className).toContain('pl-1.5');
+      expect(row.querySelector('.w-4.shrink-0')).toBeTruthy();
+    }
+  });
+
+  it('does not bold the name in the network list', () => {
+    // Over in the inbox, weight means unread. Bolding every network name
+    // borrows that meaning to say nothing.
+    const { container } = render(
+      <InvitationRow invitation={invitation} selected={false} onSelect={() => {}} />
+    );
+    const name = [...container.querySelectorAll('span')].find((el) => el.textContent === 'Grace Hopper')!;
+
+    expect(name.className).not.toContain('font-semibold');
+    expect(name.className).toContain('text-sm');
+    expect(name.className).toContain('text-fg-secondary');
+  });
+
   it('uses the same divider the network list uses', () => {
     const { container } = render(
       <InvitationRow invitation={invitation} selected={false} onSelect={() => {}} />

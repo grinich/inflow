@@ -289,10 +289,11 @@ export function NetworkView() {
       <div className="flex min-h-0 flex-1">
         <div style={{ width: sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
           {/* Same shell as ConversationListHeader — identical padding, gap and
-              first-row height — so the header does not change height and the
-              search field does not jump when you cross between the two views. */}
+              a fixed first-row height — so the header does not change size and
+              the search field does not move when you cross between views. See
+              the note there for why the height is fixed rather than a floor. */}
           <header className="flex flex-col gap-2 border-b border-edge px-4 py-3">
-            <div className="flex min-h-6 items-center gap-2">
+            <div className="flex h-7 items-center gap-2">
               <button
                 onClick={() => setAppView('inbox')}
                 className="mr-1 shrink-0 cursor-pointer rounded px-2 py-1 text-[11px] font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
@@ -320,12 +321,27 @@ export function NetworkView() {
                   </button>
                 ))}
               </div>
+              {networkTab === 'connections' && (
+                <select
+                  value={sortMode}
+                  onChange={(e) => setSortMode(e.target.value as SortMode)}
+                  // Shorter than the row, so the sort control can never be
+                  // what decides this row's height.
+                  className="ml-auto h-6 shrink-0 cursor-pointer rounded-md bg-surface-input px-2 text-[11px] font-medium text-fg-muted outline-none transition-colors hover:text-fg-secondary"
+                >
+                  <option value="recent">Recently added</option>
+                  <option value="name">Name A–Z</option>
+                </select>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              {/* Same field as the inbox search box, down to the `/` hint. */}
-              <div className="relative min-w-0 flex-1">
+            {/* Byte-for-byte the inbox's search row: a bare `relative`
+                wrapper holding the field. Anything else here — a flex row, a
+                sibling control — changes the field's width or the row's
+                height, and the box visibly moves as you cross between views. */}
+            <div className="relative">
                 <input
                   ref={filterRef}
+                  type="text"
                   value={filter}
                   onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
                   placeholder={`Filter ${networkTab === 'invitations' ? 'invitations' : networkTab === 'sent' ? 'sent requests' : 'connections'}...`}
@@ -343,17 +359,6 @@ export function NetworkView() {
                     /
                   </kbd>
                 )}
-              </div>
-              {networkTab === 'connections' && (
-                <select
-                  value={sortMode}
-                  onChange={(e) => setSortMode(e.target.value as SortMode)}
-                  className="shrink-0 rounded border border-edge bg-surface px-2 py-1 text-xs text-fg-secondary"
-                >
-                  <option value="recent">Recently added</option>
-                  <option value="name">Name A–Z</option>
-                </select>
-              )}
             </div>
           </header>
 

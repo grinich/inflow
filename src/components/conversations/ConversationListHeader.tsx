@@ -148,10 +148,13 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
     // @container enables the width-based visibility below: with the sidebar
     // now resizable, secondary controls yield space before the row overflows.
     <div className="@container flex flex-col gap-2 border-b border-edge px-4 py-3">
-      {/* min-h-6 is the h1's line box. NetworkView's header pins the same
-          height, so the two headers stay the same size and the search field
-          below them does not move when you switch views. */}
-      <div className="flex min-h-6 items-center justify-between gap-2">
+      {/* A fixed height, not a floor. A floor only holds while both rows have
+          the same tallest child, and they do not: this row's is the compose
+          button (a 16px icon and a kbd inside p-1, ~25px), where the network
+          header's is a 21px pill. That difference moved the search field a
+          couple of pixels every time you crossed between views. h-7 clears
+          every child in both, so neither row's content decides its height. */}
+      <div className="flex h-7 items-center justify-between gap-2">
         <div className="flex items-center gap-2">
         {/* Links to the marketing site; target=_top escapes the inflow.im/app
             shell iframe (and is a plain same-tab navigation when standalone). */}

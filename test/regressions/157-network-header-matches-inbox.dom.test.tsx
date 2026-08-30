@@ -31,11 +31,14 @@ describe('regression #157: the two headers are the same height', () => {
     expect(shellClasses(NETWORK)).toEqual(shellClasses(INBOX));
   });
 
-  it('both put a floor under the first row', () => {
-    // Without this the network row is shorter: the inbox row is sized by an
-    // h1 at text-base, which the network header has no equivalent of.
-    expect(NETWORK).toMatch(/className="flex min-h-6 items-center/);
-    expect(INBOX).toMatch(/className="flex min-h-6 items-center/);
+  it('fixes the first row height rather than flooring it', () => {
+    // A floor holds only while both rows share a tallest child, and they do
+    // not: the inbox's is the compose button (~25px), the network's a 21px
+    // pill. The field below then sat a couple of pixels higher on one side.
+    expect(NETWORK).toMatch(/className="flex h-7 items-center/);
+    expect(INBOX).toMatch(/className="flex h-7 items-center/);
+    expect(NETWORK).not.toMatch(/min-h-6/);
+    expect(INBOX).not.toMatch(/min-h-6/);
   });
 
   // The tabs drifted twice: first to their own pill shape, then to a spaced
@@ -60,6 +63,34 @@ describe('regression #157: the two headers are the same height', () => {
     const size = /cursor-pointer rounded px-1\.5 py-0\.5 text-\[11px\] font-medium transition-colors/;
     expect(NETWORK).toMatch(size);
     expect(INBOX).toMatch(size);
+  });
+
+  // The field looked identical but sat in a different box: the network's was
+  // inside a flex row sharing space with the sort control, so it was narrower
+  // on one tab and the row's height was decided by whichever child was
+  // tallest. Crossing between views moved it.
+  it('puts the field in the same bare wrapper', () => {
+    const wrapper = /<div className="relative">\s*<input/;
+    expect(NETWORK).toMatch(wrapper);
+    expect(INBOX).toMatch(wrapper);
+  });
+
+  it('gives the field no siblings that could resize it', () => {
+    // A flex row here is what made the field narrower on the Connections tab.
+    expect(NETWORK).not.toMatch(/relative min-w-0 flex-1/);
+  });
+
+  it('uses the same field classes', () => {
+    const field =
+      /className="w-full rounded-lg bg-surface-input px-3 py-1\.5 pr-8 text-sm text-fg placeholder-fg-faint outline-none ring-1 ring-ring-muted transition-colors focus:ring-blue-500\/50"/;
+    expect(NETWORK).toMatch(field);
+    expect(INBOX).toMatch(field);
+  });
+
+  it('caps the sort control so it cannot set the tab row height', () => {
+    // It moved up beside the tabs; h-6 is the row's min-h-6, so it can sit
+    // there without deciding anything.
+    expect(NETWORK).toMatch(/ml-auto h-6 shrink-0 cursor-pointer/);
   });
 
   it('spaces the search field by the shell gap, not an ad-hoc margin', () => {
