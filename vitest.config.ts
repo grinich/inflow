@@ -2,6 +2,11 @@ import { defineConfig } from 'vitest/config';
 import { resolve } from 'node:path';
 
 export default defineConfig({
+  // Mirrors the build-time flag from wxt.config.ts. Tests run against the
+  // production shape: localhost is not a shell origin.
+  define: {
+    __INFLOW_LOCAL_SHELL__: 'false',
+  },
   resolve: {
     alias: {
       '@/': resolve(__dirname, 'src') + '/',

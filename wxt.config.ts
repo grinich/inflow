@@ -15,6 +15,17 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 // cannot inherit a sideloaded user's conversations.
 const isStoreBuild = process.env.INFLOW_STORE_BUILD === '1';
 
+// The app is framed by the inflow.im/app shell, which Chrome only permits for
+// origins listed below. Testing that shell locally (`npm run dev:shell`, then
+// `npx vercel dev` in site/) means letting localhost frame the app too — an
+// explicit opt-in, never a release, because shipping it would let any page on
+// localhost embed the app and talk to the extension.
+const localShell = process.env.INFLOW_LOCAL_SHELL === '1';
+const SHELL_MATCHES = [
+  'https://inflow.im/*',
+  ...(localShell ? ['http://localhost/*', 'http://127.0.0.1/*'] : []),
+];
+
 // Pins the extension ID for unpacked installs so updates preserve IndexedDB +
 // chrome.storage.local data regardless of install path. The matching private key
 // (inflow-signing-key.pem) is gitignored and only needed for .crx signing.
@@ -64,13 +75,20 @@ export default defineConfig({
     // widening them lets other sites embed the app (UI redressing) or probe
     // for the extension. No `use_dynamic_url` — the shell needs a stable URL.
     web_accessible_resources: [
-      { resources: ['app.html'], matches: ['https://inflow.im/*'] },
+      { resources: ['app.html'], matches: SHELL_MATCHES },
     ],
     // Lets the shell discover the installed extension ID via a PING message
     // (see entrypoints/background/external-messages.ts — nothing else answers).
-    externally_connectable: { matches: ['https://inflow.im/*'] },
+    externally_connectable: { matches: SHELL_MATCHES },
   },
   vite: () => ({
+    // `dev:shell` runs `wxt build`, which is production mode — so
+    // import.meta.env.DEV is false there and cannot gate the localhost shell
+    // support. This flag tracks the same opt-in the manifest above uses, so
+    // the manifest and the code that honours it can never disagree.
+    define: {
+      __INFLOW_LOCAL_SHELL__: JSON.stringify(localShell),
+    },
     plugins: [tailwindcss()],
     resolve: {
       alias: {

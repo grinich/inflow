@@ -1,7 +1,7 @@
 {
   "name": "inflow",
   "version": "0.6.1",
-  "description": "A better inbox for LinkedIn messaging — a Chrome extension.",
+  "description": "A better inbox for LinkedIn messaging \u2014 a Chrome extension.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -15,7 +15,9 @@
     "postinstall": "wxt prepare",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "dev:shell": "INFLOW_LOCAL_SHELL=1 wxt build",
+    "site:dev": "cd site && vercel dev --listen 8765"
   },
   "dependencies": {
     "@wxt-dev/module-react": "^1.2.2",

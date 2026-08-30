@@ -492,6 +492,22 @@ html,body{height:100%;overflow:hidden}
     } catch (_) {}
   }
 
+  // The app's hash lives on a chrome-extension:// URL the user never sees, and
+  // a reload of this page rebuilds the frame from scratch. Mirror the route
+  // here so the address bar shows it and the next load can restore it.
+  window.addEventListener('message', function (event) {
+    if (!extensionId || event.origin !== 'chrome-extension://' + extensionId) return;
+    var data = event.data;
+    if (!data || data.type !== 'ROUTE_CHANGED' || typeof data.hash !== 'string') return;
+    if (!ROUTE_HASH.test(data.hash)) return;
+    if (data.hash === location.hash) return;
+    // replaceState, not pushState: the frame's own hash changes already add
+    // entries to the joint session history, so back/forward works without us.
+    try {
+      history.replaceState(null, '', location.pathname + location.search + data.hash);
+    } catch (_) {}
+  });
+
   function connectUnreadPort(id) {
     var port;
     try {
@@ -532,7 +548,23 @@ html,body{height:100%;overflow:hidden}
       pendingConversation = null;
     }
     var query = qs.toString();
-    return 'chrome-extension://' + id + '/app.html' + (query ? '?' + query : '');
+    // The fragment carries the app's route (#/inbox/archived, #/network, ...).
+    // A launch param rather than a postMessage, for the same reason as ?c=:
+    // the frame is still booting, so there is no listener yet, but its own URL
+    // is readable the moment it mounts.
+    return 'chrome-extension://' + id + '/app.html' +
+      (query ? '?' + query : '') +
+      routeHash();
+  }
+
+  // The route the app told us about, kept in this page's own URL so a reload
+  // can hand it straight back. Anything not shaped like a route is ignored —
+  // it ends up in the address bar and in the frame's src.
+  var ROUTE_HASH = /^#\/[A-Za-z0-9/?&=_-]*$/;
+
+  function routeHash() {
+    var hash = location.hash || '';
+    return ROUTE_HASH.test(hash) ? hash : '';
   }
 
   function embed(id) {

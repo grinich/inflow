@@ -1,6 +1,17 @@
 import { create } from 'zustand';
 import type { Message } from '@/types/message';
 import { isDemoMode as checkDemoMode } from '@/lib/demo-mode';
+import { publishRouteToShell } from '@/lib/shell-messages';
+import {
+  readAppRouteFromLocation,
+  writeAppRouteToLocation,
+  subscribeToAppRouteHash,
+  appRouteToHash,
+  locationHasRoute,
+  queryHasUnread,
+  setUnreadInQuery,
+  type AppRoute,
+} from '@/lib/app-route';
 
 export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system';
@@ -127,6 +138,15 @@ applyTheme(initialTheme);
 // Restore view on load
 const initialView = getStoredView();
 
+// The nav state — which inbox tab, and whether the unread filter is on — is
+// routed by the URL hash (see lib/app-route). Read it on load so a reload or a
+// deep link lands exactly where it left off. The URL wins over the
+// localStorage-restored tab when it carries one; a bare `app.html` falls back
+// to the stored tab.
+const initialRoute = readAppRouteFromLocation();
+const initialInboxTab = locationHasRoute() ? initialRoute.inboxTab : initialView.inboxTab;
+const initialSearchQuery = initialRoute.unread ? 'is:unread' : '';
+
 // Listen for system theme changes (guarded — jsdom/node may lack matchMedia)
 if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -146,9 +166,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   toast: null,
   lastUndoAction: null,
   lastUndoConversationId: null,
-  searchQuery: '',
+  searchQuery: initialSearchQuery,
   theme: initialTheme,
-  inboxTab: initialView.inboxTab,
+  inboxTab: initialInboxTab,
   lightboxImageUrl: null,
   lightboxVideoUrl: null,
   deleteConfirmId: null,
@@ -255,3 +275,46 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ theme: next });
   },
 }));
+
+// ── URL ↔ store ────────────────────────────────────────────────────────────
+// One place owns every hash write. Doing it per-setter means each new piece of
+// nav state has to remember to route itself, and setSearchQuery — which the
+// unread filter rides on — fires on every keystroke.
+
+function routeOf(state: { inboxTab: InboxTab; searchQuery: string }): AppRoute {
+  return { inboxTab: state.inboxTab, unread: queryHasUnread(state.searchQuery) };
+}
+
+function syncRoute(route: AppRoute, opts: { replace?: boolean; force?: boolean }) {
+  writeAppRouteToLocation(route, opts);
+  // Inside the inflow.im/app iframe the hash above is on a URL nobody sees and
+  // that a reload rebuilds from scratch — the shell has to mirror it.
+  publishRouteToShell(appRouteToHash(route));
+}
+
+// Put the route in the URL on first load, so a bare `app.html` still shows
+// where you are and a reload keeps it. Replaces, so it adds no history entry.
+syncRoute(routeOf(useUIStore.getState()), { replace: true, force: true });
+
+useUIStore.subscribe((state, prev) => {
+  const route = routeOf(state);
+  const previous = routeOf(prev);
+  if (appRouteToHash(route) === appRouteToHash(previous)) return;
+  // A tab change is a destination and belongs in history. Toggling unread only
+  // filters the tab you are already on, and typing in the search box can flip
+  // it repeatedly — so it replaces rather than stacking up.
+  syncRoute(route, { replace: route.inboxTab === previous.inboxTab });
+});
+
+// Back/forward, or an edited URL, changes the hash without going through the
+// setters — mirror it back into the store. The writes above no-op when the
+// hash already matches, so this never ping-pongs.
+subscribeToAppRouteHash((route) => {
+  const store = useUIStore.getState();
+  if (route.inboxTab !== store.inboxTab) store.setInboxTab(route.inboxTab);
+  // Read after setInboxTab, which clears the query on a tab change.
+  const current = useUIStore.getState().searchQuery;
+  if (route.unread !== queryHasUnread(current)) {
+    store.setSearchQuery(setUnreadInQuery(current, route.unread));
+  }
+});

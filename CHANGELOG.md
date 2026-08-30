@@ -22,6 +22,18 @@ All notable changes to inflow are documented here. This project follows
   Focused* twice, and `O` did nothing `E` didn't. In Archive, `O` now restores
   to Other, so the two keys are the two ways back out.
 
+### Added
+- **Reloading keeps your place** — which tab you are on, and whether the unread
+  filter is on, now live in the URL: `#/inbox/archived`, `#/inbox/other?unread`.
+  ⌘R off Archive used to drop you back on Focused. Back and forward step
+  through tabs too, and any of these addresses can be bookmarked. Toggling
+  unread doesn't pile up history entries, and what you type in the search box
+  stays out of the URL.
+
+  This works through inflow.im/app as well, where the app runs in an iframe: it
+  hands its route to the page around it, which keeps it in the address bar and
+  gives it back on the next load.
+
 ## [0.6.1] - 2026-08-29
 
 ### Added

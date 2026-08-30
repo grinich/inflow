@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo, useCallback } from 'react';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
+import { queryHasUnread, setUnreadInQuery } from '@/lib/app-route';
 import { sendBridgeMessage } from '@/lib/bridge';
 
 const FILTER_SUGGESTIONS = [
@@ -53,14 +54,10 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
   }
 
   // Unread quick-filter: toggles the `is:unread` token in the search query.
-  const unreadActive = /(^|\s)is:unread(\s|$)/i.test(searchQuery);
+  // Shared with the router, which mirrors the token as `?unread`.
+  const unreadActive = queryHasUnread(searchQuery);
   function toggleUnread() {
-    if (unreadActive) {
-      setSearchQuery(searchQuery.replace(/\bis:unread\b/gi, '').replace(/\s{2,}/g, ' ').trim());
-    } else {
-      const trimmed = searchQuery.trim();
-      setSearchQuery(trimmed ? `${trimmed} is:unread` : 'is:unread');
-    }
+    setSearchQuery(setUnreadInQuery(searchQuery, !unreadActive));
   }
 
   // Extract the current token (last space-separated word) from the input

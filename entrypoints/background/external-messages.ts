@@ -16,10 +16,25 @@ import { db } from '@/db/database';
 
 const ALLOWED_ORIGIN = 'https://inflow.im';
 
+// A dev build may be framed by `vercel dev` on localhost — see the
+// INFLOW_LOCAL_SHELL note in wxt.config.ts. The manifest gates who can reach
+// us at all; this gates who we answer. Both have to agree, or the shell's
+// discovery PING is received and silently dropped ("the message port closed
+// before a response was received"). Empty in a production build.
+const DEV_ORIGINS = __INFLOW_LOCAL_SHELL__
+  ? [/^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/]
+  : [];
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  if (origin === ALLOWED_ORIGIN) return true;
+  return DEV_ORIGINS.some((re) => re.test(origin));
+}
+
 export function setupExternalMessageRouter(): void {
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     // Belt and braces on top of the manifest's externally_connectable match.
-    if (sender.origin !== ALLOWED_ORIGIN) return;
+    if (!isAllowedOrigin(sender.origin)) return;
     if (message?.type === 'PING') {
       sendResponse({
         ok: true,
@@ -46,7 +61,7 @@ const shellPorts = new Map<chrome.runtime.Port, { canNotify: boolean }>();
  */
 export function setupExternalPortRouter(): void {
   chrome.runtime.onConnectExternal.addListener((port) => {
-    if (port.sender?.origin !== ALLOWED_ORIGIN || port.name !== UNREAD_PORT_NAME) {
+    if (!isAllowedOrigin(port.sender?.origin) || port.name !== UNREAD_PORT_NAME) {
       port.disconnect();
       return;
     }
