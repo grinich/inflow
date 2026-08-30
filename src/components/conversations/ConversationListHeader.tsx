@@ -214,6 +214,15 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
         >
           Unread
         </button>
+
+        {/* Network view — the same destination as the G N chord. */}
+        <button
+          onClick={() => useUIStore.getState().setAppView('network')}
+          title="Network — invitations and connections (G N)"
+          className="cursor-pointer rounded-md bg-surface-input px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:text-fg-secondary"
+        >
+          Network
+        </button>
         </div>
 
         <button

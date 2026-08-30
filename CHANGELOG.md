@@ -29,7 +29,9 @@ All notable changes to inflow are documented here. This project follows
   Invitations and Connections, `J` / `K` move, `/` filters, `Enter` accepts
   an invitation or messages a connection, `D` / `X` / `⌫` ignores, `P` opens
   the profile, and `Esc` returns to the inbox. It has its own address
-  (`#/network`), so reloads and deep links land on it.
+  (`#/network`), so reloads and deep links land on it, and a **Network**
+  button sits beside the Unread filter for anyone who would rather not learn
+  the chord.
 - **Reloading keeps your place** — which tab you are on, and whether the unread
   filter is on, now live in the URL: `#/inbox/archived`, `#/inbox/other?unread`.
   ⌘R off Archive used to drop you back on Focused. Back and forward step
