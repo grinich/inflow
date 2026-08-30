@@ -83,7 +83,7 @@ async function renderNetwork() {
   await waitFor(() => expect(screen.getByText(/Accept invitation from/)).toBeTruthy());
 }
 
-describe('regression #155: the invitation actions and their hints', () => {
+describe('regression #165: the invitation actions and their hints', () => {
   it('accepts the selected invitation on Enter', async () => {
     await renderNetwork();
 
@@ -141,7 +141,7 @@ describe('regression #155: the invitation actions and their hints', () => {
   });
 });
 
-describe('regression #155: Tab is left to the browser', () => {
+describe('regression #165: Tab is left to the browser', () => {
   it('does not switch tabs, and does not swallow the keypress', async () => {
     // Tab moves focus between controls; a keyboard-driven app that steals it
     // strands anyone navigating the header. 1/2/3 switch tabs instead — and
