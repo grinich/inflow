@@ -52,6 +52,11 @@ All notable changes to inflow are documented here. This project follows
   worth knowing: only the first page of requests is listed (the count is the
   true total), and the note you attached isn't available, so inflow won't
   pretend to know whether there was one.
+- **Accepting a request with a note drops you into the reply** — the note is
+  the first message of the thread LinkedIn creates when you accept, so inflow
+  opens that thread and puts the cursor in the reply box. Accepting a request
+  without a note leaves you on the list, so triaging a run of them is
+  uninterrupted.
 - **Mutual connections on each invitation** — opening a request shows the same
   *"Viren Baraiya and 62 other mutual connections"* line LinkedIn does, faces
   and all, under the bio. It is usually what decides a request, and it rides

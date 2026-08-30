@@ -18,14 +18,39 @@ function tabForConversation(c: Pick<Conversation, 'archived' | 'category'>): Inb
   return 'focused';
 }
 
+/** The most recent real 1:1 thread with this person, if we have one. */
+async function findThread(profileUrn: string) {
+  const convs = await db.conversations.toArray();
+  // Strictly 1:1 — `participantUrns` excludes the viewer, so a group thread
+  // containing this person has length >= 2. Matching loosely could drop the
+  // message into a group and send it to an extra recipient.
+  return convs
+    .filter((c) => c.draft !== 1 && c.participantUrns.length === 1 && c.participantUrns[0] === profileUrn)
+    .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
+}
+
+/** Put the cursor in the reply box once the thread pane has mounted. */
+function focusComposer(attempts = 20) {
+  const store = useUIStore.getState();
+  store.setComposeActive(true);
+  const tick = (left: number) => {
+    const el = document.querySelector<HTMLTextAreaElement>('[data-compose-input]');
+    if (el) { el.focus(); return; }
+    // ThreadView mounts a frame or two after the route changes; keep looking
+    // briefly rather than firing once into an empty pane.
+    if (left > 0) requestAnimationFrame(() => tick(left - 1));
+  };
+  tick(attempts);
+}
+
 export function useNetworkActions() {
   const showToast = useUIStore((s) => s.showToast);
 
   const respond = useCallback(
-    async (inv: Invitation, action: 'accept' | 'ignore') => {
+    async (inv: Invitation, action: 'accept' | 'ignore'): Promise<boolean> => {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         showToast({ message: `You're offline — can't respond to invitations right now` });
-        return;
+        return false;
       }
       const newStatus = action === 'accept' ? 'accepted' : 'ignored';
       // Optimistic — row leaves the pending list immediately
@@ -37,14 +62,30 @@ export function useNetworkActions() {
       if (!res.success) {
         await db.invitations.update(inv.id, { status: 'pending' }); // revert
         showToast({ message: `Couldn't ${action} ${inv.name}'s invitation` });
-        return;
+        return false;
       }
       showToast({ message: action === 'accept' ? `Connected with ${inv.name}` : `Ignored ${inv.name}'s invitation` });
+      return true;
     },
     [showToast]
   );
 
-  const acceptInvitation = useCallback((inv: Invitation) => respond(inv, 'accept'), [respond]);
+  /**
+   * Accepting an invitation that came with a note drops you into the reply.
+   *
+   * The note IS the first message of the thread LinkedIn creates on accept, so
+   * the natural next act is answering it — and the thread is nowhere near the
+   * network view. Only when there is a note: accepting a bare request leaves
+   * you on the list to keep triaging.
+   */
+  const acceptInvitation = useCallback(
+    async (inv: Invitation) => {
+      const accepted = await respond(inv, 'accept');
+      if (!accepted || !inv.message) return;
+      await openThreadWith(inv);
+    },
+    [respond]
+  );
 
   /** Withdraw a request I sent. Optimistic, with the same revert-on-failure. */
   const withdrawInvitation = useCallback(
@@ -107,6 +148,55 @@ export function useNetworkActions() {
     };
     await db.conversations.put(draftConv);
     store.setSelectedConversationId(draftConv.id);
+    store.setComposeNewActive(true);
+  }, []);
+
+  /**
+   * Show the thread with this person and focus the reply box.
+   *
+   * Accepting is what creates the thread, so it is usually not synced yet —
+   * ask for a discovery pass and watch the table for it rather than guessing a
+   * delay. If it never lands, fall through to a draft so the reply can still
+   * be typed and sent; the send reuses the real thread.
+   */
+  const openThreadWith = useCallback(async (inv: Invitation) => {
+    const store = useUIStore.getState();
+    store.setAppView('inbox');
+    store.setInboxTab('focused');
+
+    let thread = await findThread(inv.fromUrn);
+    if (!thread) {
+      sendBridgeMessage({ type: 'BURST_DISCOVER', category: 'PRIMARY_INBOX' }).catch(() => {});
+      const deadline = Date.now() + 8000;
+      while (!thread && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 400));
+        thread = await findThread(inv.fromUrn);
+      }
+    }
+
+    if (thread) {
+      store.openThread(thread.id, 0);
+      focusComposer();
+      return;
+    }
+
+    // Nothing arrived — open a draft so the reply is still typeable. Their note
+    // won't be above it, which is worth the trade against a dead end.
+    const memberId = inv.fromUrn.split(':').pop()!;
+    const draft: Conversation = {
+      id: `draft-${memberId}`,
+      participantUrns: [inv.fromUrn],
+      participantNames: [inv.name],
+      participantPictures: [inv.pictureUrl],
+      lastMessage: '',
+      lastActivityAt: Date.now(),
+      read: 1,
+      archived: 0,
+      category: 'PRIMARY_INBOX',
+      draft: 1,
+    };
+    await db.conversations.put(draft);
+    store.setSelectedConversationId(draft.id);
     store.setComposeNewActive(true);
   }, []);
 
