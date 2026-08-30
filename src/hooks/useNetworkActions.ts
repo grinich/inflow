@@ -19,14 +19,24 @@ function tabForConversation(c: Pick<Conversation, 'archived' | 'category'>): Inb
   return 'focused';
 }
 
-/** The most recent real 1:1 thread with this person, if we have one. */
+/**
+ * The most recent real 1:1 thread with this person, if we have one.
+ *
+ * Indexed on participantUrns rather than scanning: the accept flow calls this
+ * every 400ms while it waits for a new thread to sync, and loading every
+ * conversation each time is fine at fifty and ruinous at several thousand.
+ * The multiEntry index narrows it to the handful of threads this person is in.
+ */
 async function findThread(profileUrn: string) {
-  const convs = await db.conversations.toArray();
+  const withPerson = await db.conversations
+    .where('participantUrns')
+    .equals(profileUrn)
+    .toArray();
   // Strictly 1:1 — `participantUrns` excludes the viewer, so a group thread
   // containing this person has length >= 2. Matching loosely could drop the
   // message into a group and send it to an extra recipient.
-  return convs
-    .filter((c) => c.draft !== 1 && c.participantUrns.length === 1 && c.participantUrns[0] === profileUrn)
+  return withPerson
+    .filter((c) => c.draft !== 1 && c.participantUrns.length === 1)
     .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
 }
 
@@ -149,15 +159,10 @@ export function useNetworkActions() {
    */
   const messageConnection = useCallback(async (conn: Connection) => {
     const store = useUIStore.getState();
-    const convs = await db.conversations.toArray();
-    // Strictly 1:1 — `participantUrns` excludes the viewer, so a group thread
-    // containing this person has length >= 2. Matching loosely could drop the
-    // message into a group and send it to an extra recipient.
-    // Of the duplicate 1:1 threads LinkedIn can create for one person, take the
-    // most recent: that's the one useConversations keeps when it merges them.
-    const existing = convs
-      .filter((c) => c.draft !== 1 && c.participantUrns.length === 1 && c.participantUrns[0] === conn.profileUrn)
-      .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
+    // Same rule as the accept flow, and the same indexed lookup: strictly 1:1,
+    // most recent of any duplicate threads LinkedIn kept for one person —
+    // which is the one useConversations shows once it merges them.
+    const existing = await findThread(conn.profileUrn);
     store.setAppView('inbox');
     if (existing) {
       store.setInboxTab(tabForConversation(existing)); // before openThread — a tab switch restores that tab's own selection

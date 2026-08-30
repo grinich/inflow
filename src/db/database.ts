@@ -288,6 +288,27 @@ export function applySchema(database: Dexie): void {
     connections: 'profileUrn, connectedAt',
     sentInvitations: 'id, sentAt, status',
   });
+
+  // v15: index participantUrns so "the 1:1 thread with this person" is a
+  // lookup rather than a scan. Finding it used to load and filter every
+  // conversation, which is fine at fifty and not at several thousand — and the
+  // accept flow does it repeatedly while it waits for a new thread to sync.
+  // multiEntry (*): each urn in the array becomes its own key.
+  database.version(15).stores({
+    conversations: 'id, lastActivityAt, archived, read, category, hasAttachments, starred, *participantUrns, [archived+lastActivityAt], [category+lastActivityAt]',
+    messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+    profiles: 'urn, publicId',
+    pendingActions: 'id, type, status, timestamp',
+    imageCache: 'url, cachedAt',
+    postCache: 'urn, cachedAt',
+    syncState: 'category',
+    syncQueue: 'conversationId, status, priority, [status+priority]',
+    draftAttachments: 'conversationId',
+    tombstones: 'conversationId',
+    invitations: 'id, sentAt, status',
+    connections: 'profileUrn, connectedAt',
+    sentInvitations: 'id, sentAt, status',
+  });
 }
 
 function createDatabase(name: string): InflowDatabase {
