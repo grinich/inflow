@@ -86,6 +86,18 @@ async function renderWithInvitations() {
   // The bubble holds the bare note; row previews render it inside “quotes”,
   // so the exact-text query below can only match the detail pane.
   await waitFor(() => expect(screen.getByText('Note from sender 0')).toBeInTheDocument());
+  // The j/k handler re-registers in a passive effect after the rows land. A
+  // press that sneaks in before that flush hits a closure built over an empty
+  // list and clamps the selection to row 0 — a one-frame window in a browser,
+  // but a real one on a starved test worker (this deflakes a ~1-in-3 failure
+  // under a full parallel suite). Nudge until a press moves the selection,
+  // then reset so every test starts from row 0 with a live handler.
+  await waitFor(() => {
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+    expect(useUIStore.getState().networkSelectedIndex).toBeGreaterThan(0);
+  });
+  useUIStore.getState().setNetworkSelectedIndex(0);
+  await waitFor(() => expect(screen.getByText('Note from sender 0')).toBeInTheDocument());
 }
 
 describe('network two-pane layout', () => {
