@@ -12,6 +12,7 @@ import { ConversationContextMenu } from './ConversationContextMenu';
 import { SwipeableRow } from './SwipeableRow';
 import { SyncStatusIndicator } from '../common/SyncStatusIndicator';
 import type { Conversation } from '@/types/conversation';
+import { ListLoadingIndicator } from '@/components/common/ListLoadingIndicator';
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -363,12 +364,7 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
           <div ref={sentinelRef} className="h-1" />
         )}
         {(isSearching || isDiscovering) && (
-          <div className="flex items-center justify-center gap-2 py-3 text-xs text-fg-faint">
-            <svg className="h-3 w-3 animate-spin" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="8" cy="8" r="6" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
-            </svg>
-            {isSearching ? 'Searching LinkedIn...' : 'Loading more...'}
-          </div>
+          <ListLoadingIndicator label={isSearching ? 'Searching LinkedIn...' : 'Loading more...'} />
         )}
       </div>
       {!compact && <div className="flex items-center justify-between border-t border-edge px-4 py-2 text-xs text-fg-faint">

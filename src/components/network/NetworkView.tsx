@@ -11,6 +11,7 @@ import { SentInvitationDetail } from './SentInvitationDetail';
 import { ConnectionRow } from './ConnectionRow';
 import { InvitationDetail } from './InvitationDetail';
 import { ConnectionDetail } from './ConnectionDetail';
+import { ListLoadingIndicator } from '@/components/common/ListLoadingIndicator';
 
 type SortMode = 'recent' | 'name';
 const PAGE = 40;
@@ -362,7 +363,7 @@ export function NetworkView() {
 
           <div className="flex-1 overflow-y-auto">
             {loading && rowCount === 0 ? (
-              <p className="p-6 text-sm text-fg-muted">Loading your network…</p>
+              <ListLoadingIndicator label="Loading your network..." />
             ) : networkTab === 'invitations' ? (
               filteredInvitations.length === 0 ? (
                 <EmptyPane failure={failed.invitations} empty="No pending invitations." />
