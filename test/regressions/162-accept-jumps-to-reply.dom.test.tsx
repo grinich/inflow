@@ -50,6 +50,7 @@ function thread(id: string, over: Partial<Conversation> = {}): Conversation {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  sendBridgeMessage.mockImplementation(async () => ({ success: true }));
   testDb = new Dexie(`TestDB_accept_${Date.now()}_${Math.random()}`);
   applySchema(testDb);
   await testDb.open();
@@ -226,9 +227,45 @@ describe('regression #162: accepting an invitation with a note', () => {
     expect(await testDb.conversations.get('draft-ACoAAAsender')).toBeTruthy();
   }, 20_000);
 
+  it('does not delete a real thread when the accept fails', async () => {
+    // beginJump returns the EXISTING conversation's id when there already is
+    // one, and the failure path used to delete whatever it was handed — which
+    // for that case is a thread the user actually has.
+    await testDb.conversations.put(thread('conv-1'));
+    sendBridgeMessage.mockResolvedValueOnce({ success: false } as any);
+
+    await actions().acceptInvitation(invitation('Hi Michael'));
+
+    expect(await testDb.conversations.get('conv-1')).toBeTruthy();
+  });
+
+  it('lets the newest accept win when two are in flight', async () => {
+    // Two watchers running at once, and whichever resolved last dragged the
+    // user to its own thread — possibly the one they had moved on from.
+    const other = { ...invitation('Second note'), id: 'inv-2', fromUrn: 'urn:li:fsd_profile:ACoAAAsecond', name: 'Second Person' };
+    await testDb.invitations.put(other as any);
+    setTimeout(() => { void testDb.conversations.put(thread('conv-first')); }, 900);
+    setTimeout(() => {
+      void testDb.conversations.put({
+        ...thread('conv-second'), id: 'conv-second', participantUrns: [other.fromUrn],
+      } as any);
+    }, 500);
+
+    const first = actions().acceptInvitation(invitation('Hi Michael'));
+    await waitFor(() =>
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
+    );
+    const second = actions().acceptInvitation(other as any);
+
+    await Promise.all([first, second]);
+
+    // The first one's thread arrives later; it must not steal the view back.
+    expect(useUIStore.getState().selectedConversationId).toBe('conv-second');
+  }, 25_000);
+
   it('does not jump when the accept was rejected', async () => {
     await testDb.conversations.put(thread('conv-1'));
-    sendBridgeMessage.mockResolvedValue({ success: false } as any);
+    sendBridgeMessage.mockResolvedValueOnce({ success: false } as any);
 
     await actions().acceptInvitation(invitation('Hi Michael'));
 

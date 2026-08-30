@@ -49,6 +49,15 @@ function focusComposer(budgetMs = 3000): void {
   tick();
 }
 
+/**
+ * Only the newest jump may steer.
+ *
+ * Accepting a second invitation while the first is still watching for its
+ * thread left two watchers running, and whichever resolved last yanked the
+ * user to its own thread — potentially the one they had moved on from.
+ */
+let jumpToken = 0;
+
 export function useNetworkActions() {
   const showToast = useUIStore((s) => s.showToast);
 
@@ -93,15 +102,19 @@ export function useNetworkActions() {
       // Move first. Accepting is a network round trip to LinkedIn, and waiting
       // on it before switching is the pause the user feels — the optimistic
       // update has already taken the row out of the list by now anyway.
-      const placeholderId = await beginJump(inv);
+      const token = ++jumpToken;
+      const opened = await beginJump(inv);
       const accepted = await respond(inv, 'accept');
       if (!accepted) {
-        // Put them back where they were; respond() has already restored the row.
-        await db.conversations.delete(placeholderId).catch(() => {});
+        // Put them back where they were; respond() has already restored the
+        // row. Only clean up a stand-in WE made — beginJump returns the real
+        // conversation's id when one already existed, and deleting that would
+        // destroy a thread the user actually has.
+        if (opened.placeholder) await db.conversations.delete(opened.id).catch(() => {});
         useUIStore.getState().setAppView('network');
         return;
       }
-      await settleJump(inv, placeholderId);
+      if (opened.placeholder) await settleJump(inv, opened.id, token);
     },
     [respond]
   );
@@ -185,7 +198,7 @@ export function useNetworkActions() {
    * stands in — same person, same header, a reply box to type into — so the
    * switch is instant rather than a pause on the network list.
    */
-  const beginJump = useCallback(async (inv: Invitation): Promise<string> => {
+  const beginJump = useCallback(async (inv: Invitation): Promise<{ id: string; placeholder: boolean }> => {
     // Both paths leave the network view. navigateToConversation picks the
     // right inbox tab but knows nothing about the top-level view.
     useUIStore.getState().setAppView('inbox');
@@ -194,7 +207,7 @@ export function useNetworkActions() {
     if (existing) {
       await navigateToConversation(existing.id);
       focusComposer();
-      return existing.id;
+      return { id: existing.id, placeholder: false };
     }
 
     const memberId = inv.fromUrn.split(':').pop()!;
@@ -220,12 +233,11 @@ export function useNetworkActions() {
     useUIStore.setState({ _pendingRestore: null });
     store.openThread(placeholderId, 0);
     focusComposer();
-    return placeholderId;
+    return { id: placeholderId, placeholder: true };
   }, []);
 
   /** Wait for the thread the accept created, then put them in it. */
-  const settleJump = useCallback(async (inv: Invitation, placeholderId: string) => {
-    if (placeholderId !== `draft-${inv.fromUrn.split(':').pop()}`) return; // already real
+  const settleJump = useCallback(async (inv: Invitation, placeholderId: string, token: number) => {
 
     sendBridgeMessage({ type: 'BURST_DISCOVER', category: 'PRIMARY_INBOX' }).catch(() => {});
     const deadline = Date.now() + 15_000;
@@ -236,9 +248,10 @@ export function useNetworkActions() {
       // the auto-select effect reassigns it for its own reasons, and treating
       // that as intent is what left the accepted thread unselected.
       if (useUIStore.getState().appView !== 'inbox') return;
+      if (token !== jumpToken) return; // a newer accept has taken over
       real = await findThread(inv.fromUrn);
     }
-    if (!real) return;
+    if (!real || token !== jumpToken) return;
 
     // Carry anything typed while waiting, reading it off the textarea rather
     // than out of the database. The composer only autosaves once a second, so

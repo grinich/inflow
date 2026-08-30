@@ -437,13 +437,15 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
           debugLog('error', `FETCH_SENT_INVITATIONS stopped at page ${page}: ${String(err)}`);
           break;
         }
-        const { invitations: batch, total: pageTotal } = scrapeSentInvitations(source);
+        const { invitations: batch, rawCount, total: pageTotal } = scrapeSentInvitations(source);
         total ??= pageTotal; // only the first page carries the heading
         const unseen = batch.filter((i) => !seenIds.has(i.id));
         for (const i of unseen) seenIds.add(i.id);
         sent.push(...unseen);
-        // A short page, or one that repeats what we have, is the end.
-        if (batch.length < SENT_PAGE_SIZE || unseen.length === 0) {
+        // Short by the page's OWN row count, not by how many of them we could
+        // read: a full page with one unreadable row is not the end of the list,
+        // and treating it as one would also let the prune below run.
+        if (rawCount < SENT_PAGE_SIZE || unseen.length === 0) {
           complete = true;
           break;
         }

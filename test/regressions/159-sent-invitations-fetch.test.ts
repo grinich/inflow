@@ -151,6 +151,26 @@ describe('FETCH_SENT_INVITATIONS', () => {
     expect(await testDb.sentInvitations.count()).toBe(20);
   });
 
+  it('keeps walking when a full page has an unreadable row', async () => {
+    // The page held ten rows; one is unreadable, so nine come back. Judging
+    // "end of list" by the nine would stop here and let the prune delete
+    // everything beyond — rawCount is what keeps the walk honest.
+    // One row carries a non-numeric id, so the parser cannot use it — no
+    // string surgery, which kept hitting profileUrn instead of the id.
+    const rows = Array.from(
+      { length: 10 },
+      (_, i) => [i === 5 ? 'not-a-number' : String(100 + i), 'P' + i, 'Last'] as [string, string, string]
+    );
+    const damaged = page(rows, 311);
+    fetchSentInvitationsPage.mockResolvedValueOnce(damaged);
+    fetchSentInvitationsAt.mockResolvedValueOnce(page([['99', 'Last', 'One']], 311));
+
+    await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
+
+    expect(fetchSentInvitationsAt).toHaveBeenCalledTimes(1);
+    expect(await testDb.sentInvitations.count()).toBe(10); // 9 readable + the next page
+  });
+
   it('stops instead of looping when a page repeats what it already has', async () => {
     fetchSentInvitationsPage.mockResolvedValueOnce(fullPage(0));
     fetchSentInvitationsAt.mockResolvedValue(fullPage(0));

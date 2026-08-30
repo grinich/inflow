@@ -68,6 +68,13 @@ describe('scrapeSentInvitations', () => {
     expect(byName().get('Alberto Parrella')!.sentAt).toBe(NOW - 15 * 60_000);
   });
 
+  it('reads every row, whatever its escaping depth', () => {
+    // The island mixes `\"` and `\\\"` within one document. Parsing the row
+    // objects as JSON worked on whichever half matched the assumed depth and
+    // failed silently on the rest — losing whole people from the list.
+    expect(scrape().invitations).toHaveLength(4);
+  });
+
   it('gives every row an avatar, whatever its escaping depth', () => {
     // The bug: the island mixes escaping depths, JSON.parse succeeded on about
     // half the envelopes and failed silently on the rest, and every other row
@@ -124,21 +131,29 @@ describe('scrapeSentInvitations', () => {
     expect(ada.sentAt).toBe(NOW - 14 * DAY);
   });
 
-  it('skips a row whose payload will not parse, keeping the rest', () => {
-    const broken = SENT_PAGE.replace(
-      '\\"invitationId\\":\\"7498810568384856065\\"',
-      '\\"invitationId\\":{{{ mangled'
-    );
+  it('counts the rows the page held, not the ones it could read', () => {
+    // The walk stops on this. Reading it from the readable rows would make a
+    // full page with one bad row look like the end of the list — and the
+    // prune that follows would delete everything past it.
+    const broken = SENT_PAGE.replace('7498810568384856065', 'not-a-number');
+
+    const { invitations, rawCount } = scrape(broken);
+
+    expect(invitations).toHaveLength(3);
+    expect(rawCount).toBe(4);
+  });
+
+  it('skips a row whose id is unreadable, keeping the rest', () => {
+    // Depth-agnostic surgery: the fixture escapes rows at alternating depths,
+    // so matching a particular escaped spelling would quietly corrupt nothing.
+    const broken = SENT_PAGE.replace('7498810568384856065', 'not-a-number');
 
     expect(scrape(broken).invitations.map((i) => i.name)).not.toContain('Alberto Parrella');
     expect(scrape(broken).invitations.length).toBe(3);
   });
 
   it('drops a row with no invitation id — it could not be withdrawn anyway', () => {
-    const noId = SENT_PAGE.replace(
-      '\\"invitationId\\":\\"7498810568384856065\\"',
-      '\\"invitationId\\":\\"\\"'
-    );
+    const noId = SENT_PAGE.replace('7498810568384856065', '');
 
     expect(scrape(noId).invitations).toHaveLength(3);
   });
@@ -147,9 +162,10 @@ describe('scrapeSentInvitations', () => {
     // A LinkedIn redesign must yield an empty list, never an exception.
     expect(scrape('<html><body>signed out</body></html>')).toEqual({
       invitations: [],
+      rawCount: 0,
       total: null,
     });
-    expect(scrape('')).toEqual({ invitations: [], total: null });
+    expect(scrape('')).toEqual({ invitations: [], rawCount: 0, total: null });
   });
 });
 

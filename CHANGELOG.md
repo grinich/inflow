@@ -7,6 +7,12 @@ All notable changes to inflow are documented here. This project follows
 ## [Unreleased]
 
 ### Fixed
+- **Archiving a conversation that was still being created** — the row shown
+  while a newly accepted invitation's thread arrives is a local stand-in, so
+  archiving, starring, moving or deleting it asked LinkedIn about a
+  conversation it had never heard of and failed with *"failed to archive,
+  rolling back"*. Those actions now stay local, and sending still works — that
+  is what turns the stand-in into a real thread.
 - **Moving a conversation out of Archive from the command palette** — the
   palette's archive entry already restored a conversation to Focused when you
   were in the Archived tab, matching `E`, but it still called itself *Archive

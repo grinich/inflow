@@ -202,6 +202,27 @@ function renderedRows(html: string, names: string[], now: number): Map<string, R
 // face. These read the two strings an avatar needs straight off the raw text
 // with `\\*` in place of a fixed depth, which no amount of re-escaping breaks.
 const A11Y_TEXT = /a11yText\\*"\s*:\s*\\*"((?:[^"\\]|\\[^"])*)/g;
+/**
+ * A string field at any escaping depth: `"k":"v"`, `\"k\":\"v\"`, deeper.
+ *
+ * Lazy up to the next (possibly escaped) quote. A greedy character class
+ * cannot tell the backslashes that escape the CLOSING quote from ones inside
+ * the value, and swallows them — `Alberto Parrella` came out `Alberto\ Parrella\`.
+ */
+const field = (name: string) =>
+  new RegExp(`${name}\\\\*"\\s*:\\s*\\\\*"(.*?)\\\\*"`);
+const INVITATION_ID = /invitationId\\*"\s*:\s*\\*"(\d+)/;
+const PROFILE_URN = field('profileUrn');
+const VANITY = field('inviteeVanityName');
+const FIRST_NAME = field('firstName');
+const LAST_NAME = field('lastName');
+
+/** Turn `\u2019` and friends back into characters; drop stray escapes. */
+function decode(raw: string): string {
+  return raw
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\(.)/g, '$1');
+}
 const ROOT_URL = /rootUrl\\*"\s*:\s*\\*"(https:\/\/[^"\\]+)/;
 const RENDITION = /width\\*"\s*:\s*(\d+)[^]{0,80}?suffixUrl\\*"\s*:\s*\\*"([^"\\]+)/g;
 
@@ -244,6 +265,13 @@ export const SENT_PAGE_SIZE = 10;
 export interface ScrapedSentInvitations {
   invitations: SentInvitation[];
   /**
+   * How many rows the page actually contained, before any were dropped for
+   * being unreadable. The walk keys its stop condition off this — comparing
+   * the READABLE count against the page size would read a full page with one
+   * bad row as the end of the list, and then prune everything past it.
+   */
+  rawCount: number;
+  /**
    * Every outstanding request, from the "People (N)" heading — far more than
    * the handful of rows the document carries.
    */
@@ -265,29 +293,53 @@ export function scrapeSentInvitations(
   const rendered = renderedRows(source, names, now);
   const byLabel = avatars(source);
 
+  // Read the row's fields off the raw slice rather than JSON.parse-ing it, for
+  // the same reason the avatars are: escaping depth varies within one document,
+  // so parsing succeeds on some objects and fails silently on others. Here that
+  // would drop whole rows, not just their faces.
   const invitations: SentInvitation[] = [];
   const seen = new Set<string>();
-  for (const action of objectsContaining(text, WITHDRAW_MARKER)) {
-    const id = str(action?.invitationUrn?.invitationId);
+  let from = 0;
+  for (;;) {
+    const hit = source.indexOf(WITHDRAW_MARKER, from);
+    if (hit === -1) break;
+    from = hit + WITHDRAW_MARKER.length;
+
+    // The action holds profileUrn before the marker and the rest after it, so
+    // read each side separately — and stop at the next row's marker. Letting
+    // the search run on would let a row whose own id is unreadable pick up its
+    // neighbour's, which is worse than dropping it: a Withdraw button wired to
+    // the wrong person.
+    const nextHit = source.indexOf(WITHDRAW_MARKER, from);
+    const forward = source.slice(hit, Math.min(nextHit === -1 ? source.length : nextHit, hit + 900));
+    const back = source.slice(Math.max(0, hit - 600), hit);
+
+    const id = forward.match(INVITATION_ID)?.[1];
     if (!id || seen.has(id)) continue;
     seen.add(id);
 
-    const name = `${str(action.firstName)} ${str(action.lastName)}`.trim();
+    const first = decode(forward.match(FIRST_NAME)?.[1] ?? '');
+    const last = decode(forward.match(LAST_NAME)?.[1] ?? '');
+    const name = `${first} ${last}`.trim();
     const extra = rendered.get(name);
     invitations.push({
       id,
-      toUrn: toProfileUrn(str(action.profileUrn)),
+      toUrn: toProfileUrn(decode(back.match(PROFILE_URN)?.[1] ?? '')),
       name: name || 'LinkedIn Member',
       headline: extra?.headline ?? '',
       pictureUrl: avatarFor(name, byLabel),
-      publicId: str(action.inviteeVanityName),
+      publicId: decode(forward.match(VANITY)?.[1] ?? ''),
       message: extra?.message ?? '',
       sentAt: extra?.sentAt ?? 0,
       status: 'pending',
     });
   }
 
-  return { invitations, total: scrapeSentTotal(source) };
+  return {
+    invitations,
+    rawCount: (source.match(new RegExp(WITHDRAW_MARKER, 'g')) || []).length,
+    total: scrapeSentTotal(source),
+  };
 }
 
 /** The `People (309)` heading — the only place the real total appears. */

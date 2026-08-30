@@ -120,9 +120,15 @@ export async function ensureCookieRule(): Promise<void> {
         // is the invitation-manager page itself and the RSC action behind its
         // Withdraw button. Referer points at that page rather than /messaging/,
         // because the RSC action is only meaningful as a navigation from it.
+        //
+        // Scoped by path, NOT by domain. When several modifyHeaders rules match
+        // one request the highest priority wins the header, so a rule matching
+        // all of www.linkedin.com would have set this Referer on every Voyager
+        // call and the realtime stream too — rewriting a header on every
+        // request the extension makes, to say it came from a page it did not.
         {
           id: 3,
-          priority: 3,
+          priority: 1,
           action: {
             type: MODIFY,
             requestHeaders: [
@@ -139,7 +145,7 @@ export async function ensureCookieRule(): Promise<void> {
             ],
           },
           condition: {
-            requestDomains: ['www.linkedin.com'],
+            regexFilter: '^https://www\\.linkedin\\.com/(mynetwork|flagship-web)/',
             resourceTypes: [XHR, OTHER],
             initiatorDomains: [extDomain],
           },

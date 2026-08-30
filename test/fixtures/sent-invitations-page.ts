@@ -20,8 +20,14 @@ interface Row {
   avatar?: boolean;
 }
 
-/** The withdraw action payload, escaped as the page embeds it. */
-function actionPayload(r: Row): string {
+/**
+ * The withdraw action payload, escaped as the page embeds it.
+ *
+ * `deep` doubles the escaping, because the live island mixes depths within one
+ * document — the same thing that used to cost every other row its avatar. Here
+ * it would cost the whole row.
+ */
+function actionPayload(r: Row, deep = false): string {
   const json = JSON.stringify({
     profileUrn: r.profile,
     queryName: 'ProfileMemberRelationshipRefreshById',
@@ -34,7 +40,8 @@ function actionPayload(r: Row): string {
     cardRef: { key: 'auto-component-07c4dce6' },
     invitationUrn: { invitationId: r.id },
   });
-  return json.replace(/"/g, '\\"');
+  const escaped = json.replace(/"/g, '\\"');
+  return deep ? escaped.replace(/\\"/g, '\\\\\\"') : escaped;
 }
 
 /**
@@ -85,8 +92,10 @@ export function buildSentPage(rows: Row[], total = 311): string {
   const island = rows
     .map((r, i) => {
       // Alternate the escaping depth, as the live page does.
+      // Alternate both payloads' depth, opposite ways, so neither a row nor a
+      // face can pass by happening to sit at the depth the parser assumes.
       const avatar = r.avatar === false ? '' : avatarPayload(r, i % 2 === 1);
-      return `{${actionPayload(r)}}{${avatar}}`;
+      return `{${actionPayload(r, i % 2 === 0)}}{${avatar}}`;
     })
     .join('');
   return (
