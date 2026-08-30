@@ -6,6 +6,8 @@ import { useUIStore, type NetworkTab } from '@/store/ui-store';
 import { useNetworkActions } from '@/hooks/useNetworkActions';
 import { useResizableSidebar } from '@/hooks/useResizableSidebar';
 import { InvitationRow } from './InvitationRow';
+import { SentInvitationRow } from './SentInvitationRow';
+import { SentInvitationDetail } from './SentInvitationDetail';
 import { ConnectionRow } from './ConnectionRow';
 import { InvitationDetail } from './InvitationDetail';
 import { ConnectionDetail } from './ConnectionDetail';
@@ -34,6 +36,7 @@ export function NetworkView() {
     let cancelled = false;
     Promise.allSettled([
       sendBridgeMessage({ type: 'FETCH_INVITATIONS' }),
+      sendBridgeMessage({ type: 'FETCH_SENT_INVITATIONS' }),
       sendBridgeMessage({ type: 'FETCH_CONNECTIONS' }).then((res) => {
         if (!cancelled && res.success) setHasMore(Boolean(res.data?.hasMore));
       }),
@@ -50,6 +53,11 @@ export function NetworkView() {
     []
   ) ?? [];
 
+  const sentInvitations = useLiveQuery(
+    () => db.sentInvitations.where('status').equals('pending').sortBy('sentAt').then((arr) => arr.reverse()),
+    []
+  ) ?? [];
+
   const connections = useLiveQuery(
     () => db.connections.orderBy('connectedAt').reverse().toArray(),
     []
@@ -63,6 +71,14 @@ export function NetworkView() {
     );
   }, [invitations, filter]);
 
+  const filteredSent = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return sentInvitations;
+    return sentInvitations.filter(
+      (i) => i.name.toLowerCase().includes(q) || i.headline.toLowerCase().includes(q) || i.message.toLowerCase().includes(q)
+    );
+  }, [sentInvitations, filter]);
+
   const filteredConnections = useMemo(() => {
     const q = filter.trim().toLowerCase();
     let list = connections;
@@ -75,7 +91,10 @@ export function NetworkView() {
     return list;
   }, [connections, filter, sortMode]);
 
-  const rowCount = networkTab === 'invitations' ? filteredInvitations.length : filteredConnections.length;
+  const rowCount =
+    networkTab === 'invitations' ? filteredInvitations.length
+    : networkTab === 'sent' ? filteredSent.length
+    : filteredConnections.length;
 
   useEffect(() => {
     if (selectedIndex >= rowCount && rowCount > 0) setSelectedIndex(rowCount - 1);
@@ -153,15 +172,26 @@ export function NetworkView() {
       // chorded shortcut is unambiguous — the point of holding a modifier is
       // that it still works while you are typing in the filter box.
       if (e.metaKey || e.ctrlKey) {
-        if (networkTab !== 'invitations') return;
-        const inv = filteredInvitations[useUIStore.getState().networkSelectedIndex];
-        if (!inv) return;
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          actions.acceptInvitation(inv);
-        } else if (e.key === 'i' || e.key === 'I') {
-          e.preventDefault();
-          actions.ignoreInvitation(inv);
+        const i = useUIStore.getState().networkSelectedIndex;
+        if (networkTab === 'invitations') {
+          const inv = filteredInvitations[i];
+          if (!inv) return;
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            actions.acceptInvitation(inv);
+          } else if (e.key === 'i' || e.key === 'I') {
+            e.preventDefault();
+            actions.ignoreInvitation(inv);
+          }
+        } else if (networkTab === 'sent') {
+          // ⌘I stays "get rid of this one" across tabs; there is no ⌘↵ here
+          // because an outgoing request has nothing to accept.
+          const inv = filteredSent[i];
+          if (!inv) return;
+          if (e.key === 'i' || e.key === 'I') {
+            e.preventDefault();
+            actions.withdrawInvitation(inv);
+          }
         }
         return;
       }
@@ -191,15 +221,21 @@ export function NetworkView() {
           e.preventDefault();
           filterRef.current?.focus();
           return;
-        case 'Tab':
+        case 'Tab': {
           e.preventDefault();
-          setNetworkTab(networkTab === 'invitations' ? 'connections' : 'invitations');
+          const order: NetworkTab[] = ['invitations', 'sent', 'connections'];
+          setNetworkTab(order[(order.indexOf(networkTab) + 1) % order.length]);
           return;
+        }
         case '1':
           e.preventDefault();
           setNetworkTab('invitations');
           return;
         case '2':
+          e.preventDefault();
+          setNetworkTab('sent');
+          return;
+        case '3':
           e.preventDefault();
           setNetworkTab('connections');
           return;
@@ -210,6 +246,12 @@ export function NetworkView() {
         if (e.key === 'Enter') { e.preventDefault(); actions.acceptInvitation(inv); }
         if (e.key === 'd' || e.key === 'x' || e.key === 'Backspace') { e.preventDefault(); actions.ignoreInvitation(inv); }
         if (e.key === 'p') { e.preventDefault(); actions.openProfile(inv); }
+      } else if (networkTab === 'sent') {
+        const inv = filteredSent[idx];
+        if (!inv) return;
+        // Same keys that clear a row elsewhere; there is nothing to accept here.
+        if (e.key === 'd' || e.key === 'x' || e.key === 'Backspace') { e.preventDefault(); actions.withdrawInvitation(inv); }
+        if (e.key === 'p') { e.preventDefault(); actions.openProfile({ publicId: inv.publicId, profileUrn: inv.toUrn }); }
       } else {
         const conn = filteredConnections[idx];
         if (!conn) return;
@@ -219,21 +261,23 @@ export function NetworkView() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [networkTab, rowCount, filteredInvitations, filteredConnections, actions, setAppView, setNetworkTab, setSelectedIndex]);
+  }, [networkTab, rowCount, filteredInvitations, filteredSent, filteredConnections, actions, setAppView, setNetworkTab, setSelectedIndex]);
 
   // `40` next to Connections reads as "you have 40 connections". It is really
   // "40 synced so far", so say so while more remain.
   const TABS: { id: NetworkTab; label: string; count: string; key: string }[] = [
     { id: 'invitations', label: 'Invitations', count: invitations.length ? String(invitations.length) : '', key: '1' },
+    { id: 'sent', label: 'Sent', count: sentInvitations.length ? String(sentInvitations.length) : '', key: '2' },
     {
       id: 'connections',
       label: 'Connections',
       count: connections.length ? `${connections.length}${hasMore ? '+' : ''}` : '',
-      key: '2',
+      key: '3',
     },
   ];
 
   const selectedInvitation = filteredInvitations[selectedIndex];
+  const selectedSent = filteredSent[selectedIndex];
   const selectedConnection = filteredConnections[selectedIndex];
 
   return (
@@ -276,7 +320,7 @@ export function NetworkView() {
                   ref={filterRef}
                   value={filter}
                   onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
-                  placeholder={networkTab === 'invitations' ? 'Filter invitations...' : 'Filter connections...'}
+                  placeholder={`Filter ${networkTab === 'invitations' ? 'invitations' : networkTab === 'sent' ? 'sent requests' : 'connections'}...`}
                   className="w-full rounded-lg bg-surface-input px-3 py-1.5 pr-8 text-sm text-fg placeholder-fg-faint outline-none ring-1 ring-ring-muted transition-colors focus:ring-blue-500/50"
                 />
                 {filter ? (
@@ -314,6 +358,19 @@ export function NetworkView() {
               ) : (
                 filteredInvitations.map((inv, i) => (
                   <InvitationRow
+                    key={inv.id}
+                    invitation={inv}
+                    selected={i === selectedIndex}
+                    onSelect={() => setSelectedIndex(i)}
+                  />
+                ))
+              )
+            ) : networkTab === 'sent' ? (
+              filteredSent.length === 0 ? (
+                <p className="p-6 text-sm text-fg-muted">No requests waiting on a reply.</p>
+              ) : (
+                filteredSent.map((inv, i) => (
+                  <SentInvitationRow
                     key={inv.id}
                     invitation={inv}
                     selected={i === selectedIndex}
@@ -370,6 +427,14 @@ export function NetworkView() {
                 onAccept={() => actions.acceptInvitation(selectedInvitation)}
                 onIgnore={() => actions.ignoreInvitation(selectedInvitation)}
                 onOpenProfile={() => actions.openProfile(selectedInvitation)}
+              />
+            ) : null
+          ) : networkTab === 'sent' ? (
+            selectedSent ? (
+              <SentInvitationDetail
+                invitation={selectedSent}
+                onWithdraw={() => actions.withdrawInvitation(selectedSent)}
+                onOpenProfile={() => actions.openProfile({ publicId: selectedSent.publicId, profileUrn: selectedSent.toUrn })}
               />
             ) : null
           ) : selectedConnection ? (

@@ -54,7 +54,10 @@ export const shortcutDefinitions: ShortcutDef[] = [
   { key: 'x', display: 'D / ⌫', context: 'Network', group: 'Actions', description: 'Ignore invitation' },
   { key: 'i', display: '⌘I', context: 'Network', group: 'Actions', description: 'Ignore invitation', meta: true },
   { key: 'm', display: 'M', context: 'Network', group: 'Actions', description: 'Message connection' },
-  { key: 'Tab', display: 'Tab', context: 'Network', group: 'Navigation', description: 'Switch Invitations / Connections' },
+  { key: 'i', display: '⌘I', context: 'Network', group: 'Actions', description: 'Withdraw sent invitation', meta: true },
+  { key: 'x', display: 'D / ⌫', context: 'Network', group: 'Actions', description: 'Withdraw sent invitation' },
+  { key: 'Tab', display: 'Tab', context: 'Network', group: 'Navigation', description: 'Cycle Invitations / Sent / Connections' },
   { key: '1', display: '1', context: 'Network', group: 'Navigation', description: 'Go to Invitations' },
-  { key: '2', display: '2', context: 'Network', group: 'Navigation', description: 'Go to Connections' },
+  { key: '2', display: '2', context: 'Network', group: 'Navigation', description: 'Go to Sent' },
+  { key: '3', display: '3', context: 'Network', group: 'Navigation', description: 'Go to Connections' },
 ];

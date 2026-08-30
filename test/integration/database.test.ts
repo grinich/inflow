@@ -45,6 +45,7 @@ describe('applySchema', () => {
       'pendingActions',
       'postCache',
       'profiles',
+      'sentInvitations',
       'syncQueue',
       'syncState',
       'tombstones',

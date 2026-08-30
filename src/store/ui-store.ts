@@ -18,7 +18,7 @@ export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system';
 export type InboxTab = 'focused' | 'other' | 'archived' | 'spam';
 export type { AppView };
-export type NetworkTab = 'invitations' | 'connections';
+export type NetworkTab = 'invitations' | 'sent' | 'connections';
 
 export interface Toast {
   id: string;

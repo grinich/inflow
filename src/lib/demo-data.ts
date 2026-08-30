@@ -104,6 +104,13 @@ export const DEMO_INVITATIONS = [
   { firstName: 'Hugo', lastName: 'Silva', headline: 'DevRel at CloudForge', picture: pic('m55.jpg'), message: 'Big fan of inflow — would love to compare notes on Voyager APIs.', daysAgo: 6 , mutuals: ['Tom Whitfield'], mutualCount: 5 },
 ] as const;
 
+/** Outgoing requests still waiting on a reply, for the Sent tab. */
+export const DEMO_SENT_INVITATIONS = [
+  { firstName: 'Priya', lastName: 'Raman', headline: 'Head of Platform at Meridian', picture: pic('w49.jpg'), message: 'Enjoyed your write-up on keyboard-first UIs — would love to trade notes.', daysAgo: 2 },
+  { firstName: 'Tom', lastName: 'Whitfield', headline: 'Principal Engineer at Halcyon', picture: pic('m8.jpg'), message: '', daysAgo: 5 },
+  { firstName: 'Sofia', lastName: 'Marchetti', headline: 'Design Lead at Vantage', picture: pic('w41.jpg'), message: 'We both worked with Dan — thought it would be good to connect properly.', daysAgo: 11 },
+] as const;
+
 /**
  * First N DEMO_PEOPLE become demo connections, staggered over recent weeks.
  * DEMO_PEOPLE carry no headline (the inbox never shows one), so connections

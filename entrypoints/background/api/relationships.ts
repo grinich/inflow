@@ -42,6 +42,48 @@ export async function respondToInvitation(
   }
 }
 
+/**
+ * Invitations *I* sent that are still outstanding — the same endpoint as the
+ * received list, flipped to `q=sentInvitation`.
+ */
+export async function fetchSentInvitationsRaw(start = 0, count = 40): Promise<any> {
+  const res = await voyagerFetch(
+    `/relationships/invitationViews?q=sentInvitation&start=${start}&count=${count}`
+  );
+  if (!res.ok) {
+    debugLog('error', `fetchSentInvitationsRaw failed: ${res.status}`);
+    throw new Error(`fetchSentInvitations failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Withdraw a sent invitation.
+ *
+ * `?action=withdraw` mirrors the accept/ignore calls on the same endpoint.
+ * Unverified against a live account, so the caller must treat a non-OK
+ * response as "still outstanding" rather than assuming it worked.
+ */
+export async function withdrawInvitation(
+  invitationId: string,
+  sharedSecret: string
+): Promise<void> {
+  const res = await voyagerFetch(`/relationships/invitations/${invitationId}?action=withdraw`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      invitationId,
+      invitationSharedSecret: sharedSecret,
+      isGenericInvitation: false,
+    }),
+    skipJitter: true,
+  });
+  if (!res.ok) {
+    debugLog('error', `withdrawInvitation failed: ${res.status}`);
+    throw new Error(`Invitation withdraw failed: ${res.status}`);
+  }
+}
+
 const CONNECTIONS_DECORATION =
   'com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16';
 

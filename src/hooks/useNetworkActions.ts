@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
-import type { Invitation, Connection } from '@/types/network';
+import type { Invitation, SentInvitation, Connection } from '@/types/network';
 import type { Conversation } from '@/types/conversation';
 
 /**
@@ -45,6 +45,28 @@ export function useNetworkActions() {
   );
 
   const acceptInvitation = useCallback((inv: Invitation) => respond(inv, 'accept'), [respond]);
+
+  /** Withdraw a request I sent. Optimistic, with the same revert-on-failure. */
+  const withdrawInvitation = useCallback(
+    async (inv: SentInvitation) => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        showToast({ message: `You're offline — can't withdraw invitations right now` });
+        return;
+      }
+      await db.sentInvitations.update(inv.id, { status: 'withdrawn' });
+      const res = await sendBridgeMessage({
+        type: 'WITHDRAW_INVITATION',
+        invitationId: inv.id,
+      }).catch((err) => ({ success: false, error: String(err) }));
+      if (!res.success) {
+        await db.sentInvitations.update(inv.id, { status: 'pending' }); // revert
+        showToast({ message: `Couldn't withdraw your invitation to ${inv.name}` });
+        return;
+      }
+      showToast({ message: `Withdrew your invitation to ${inv.name}` });
+    },
+    [showToast]
+  );
   const ignoreInvitation = useCallback((inv: Invitation) => respond(inv, 'ignore'), [respond]);
 
   /**
@@ -94,5 +116,5 @@ export function useNetworkActions() {
     }
   }, []);
 
-  return { acceptInvitation, ignoreInvitation, messageConnection, openProfile };
+  return { acceptInvitation, ignoreInvitation, withdrawInvitation, messageConnection, openProfile };
 }

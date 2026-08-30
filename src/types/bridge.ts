@@ -43,6 +43,8 @@ export type BridgeMessage =
   | { type: 'FETCH_INVITATIONS' }
   | { type: 'ACCEPT_INVITATION'; invitationId: string }
   | { type: 'IGNORE_INVITATION'; invitationId: string }
+  | { type: 'FETCH_SENT_INVITATIONS' }
+  | { type: 'WITHDRAW_INVITATION'; invitationId: string }
   | { type: 'FETCH_CONNECTIONS'; start?: number };
 
 export type BridgeResponse = {

@@ -43,6 +43,10 @@ All notable changes to inflow are documented here. This project follows
   hands its route to the page around it, which keeps it in the address bar and
   gives it back on the next load.
 
+- **A Sent tab** — the requests you're waiting on, with the note you attached
+  shown as your own outgoing message and a **Withdraw** button under it.
+  `2` opens it, `⌘I` or `⌫` withdraws the selected one, and the tab carries a
+  count of how many are still outstanding.
 - **Shared connections on each invitation** — requests now carry the same
   *"Grace Hopper and 11 other shared connections"* line LinkedIn's own My
   Network page shows, which is usually what decides a request. It rides along

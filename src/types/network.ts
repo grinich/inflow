@@ -23,6 +23,30 @@ export interface Invitation extends InvitationInsight {
   status: 'pending' | 'accepted' | 'ignored';
 }
 
+/**
+ * A connection request *I* sent that is still outstanding.
+ *
+ * Its own table rather than a `direction` flag on Invitation: the received
+ * walk prunes `invitations` by `status === 'pending'`, and sent rows sharing
+ * that table would be deleted by it.
+ */
+export interface SentInvitation {
+  /** Numeric invitation id (tail of urn:li:fs_relInvitation:...) */
+  id: string;
+  /** Secret required by the withdraw endpoint */
+  sharedSecret: string;
+  /** Recipient, normalized to urn:li:fsd_profile:<memberId> */
+  toUrn: string;
+  name: string;
+  headline: string;
+  pictureUrl: string;
+  publicId: string;
+  /** The note I attached to the request ('' if none) */
+  message: string;
+  sentAt: number;
+  status: 'pending' | 'withdrawn';
+}
+
 export interface Connection {
   /** urn:li:fsd_profile:<memberId> — primary key */
   profileUrn: string;

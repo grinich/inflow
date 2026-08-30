@@ -9,13 +9,13 @@
 // can never get stuck in demo mode (just remove the query param).
 // ---------------------------------------------------------------------------
 
-import { DEMO_PEOPLE, DEMO_MESSAGES_INBOUND, DEMO_MESSAGES_OUTBOUND, DEMO_OPENERS, DEMO_INVITATIONS, DEMO_CONNECTION_COUNT, DEMO_CONNECTION_DAY_GAPS, DEMO_CONNECTION_HEADLINES } from './demo-data';
+import { DEMO_PEOPLE, DEMO_MESSAGES_INBOUND, DEMO_MESSAGES_OUTBOUND, DEMO_OPENERS, DEMO_INVITATIONS, DEMO_SENT_INVITATIONS, DEMO_CONNECTION_COUNT, DEMO_CONNECTION_DAY_GAPS, DEMO_CONNECTION_HEADLINES } from './demo-data';
 import { buildNotificationIcon } from './notification-icon';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 import type { Conversation } from '@/types/conversation';
 import type { Message } from '@/types/message';
 import type { Profile } from '@/types/profile';
-import type { Invitation, Connection } from '@/types/network';
+import type { Invitation, SentInvitation, Connection } from '@/types/network';
 
 const DEMO_ME_URN = 'urn:li:fsd_profile:demo';
 
@@ -94,6 +94,21 @@ function buildDemoInvitations(): Invitation[] {
     status: 'pending' as const,
     mutualCount: p.mutualCount,
     mutualNames: [...p.mutuals],
+  }));
+}
+
+function buildDemoSentInvitations(): SentInvitation[] {
+  return DEMO_SENT_INVITATIONS.map((p, i) => ({
+    id: `demo-sent-${i}`,
+    sharedSecret: 'demo',
+    toUrn: `urn:li:fsd_profile:demo-sent-${i}`,
+    name: `${p.firstName} ${p.lastName}`,
+    headline: p.headline,
+    pictureUrl: p.picture,
+    publicId: '',
+    message: p.message,
+    sentAt: Date.now() - p.daysAgo * DAY_MS,
+    status: 'pending' as const,
   }));
 }
 
@@ -298,6 +313,7 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
         await database.messages.clear();
         await database.profiles.clear();
         await database.invitations.clear();
+        await database.sentInvitations.clear();
         await database.connections.clear();
       }
       return { success: true };
@@ -310,6 +326,13 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
       }
       return { success: true, data: { count: DEMO_INVITATIONS.length } };
     }
+    case 'FETCH_SENT_INVITATIONS': {
+      const database = getDb();
+      if (database && (await database.sentInvitations.count()) === 0) {
+        await database.sentInvitations.bulkPut(buildDemoSentInvitations());
+      }
+      return { success: true, data: { count: DEMO_SENT_INVITATIONS.length, complete: true } };
+    }
     case 'FETCH_CONNECTIONS': {
       const database = getDb();
       if (database && (await database.connections.count()) === 0) {
@@ -319,6 +342,7 @@ export async function handleDemoBridgeMessage(msg: BridgeMessage): Promise<Bridg
     }
     case 'ACCEPT_INVITATION':
     case 'IGNORE_INVITATION':
+    case 'WITHDRAW_INVITATION':
       // useNetworkActions already updated the row optimistically
       return { success: true };
 
