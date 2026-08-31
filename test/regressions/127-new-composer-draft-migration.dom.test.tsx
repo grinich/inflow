@@ -139,7 +139,12 @@ it('removing a recipient migrates the typed draft back to the smaller set', asyn
   await waitFor(async () => {
     expect((await testDb.draftAttachments.get('draft-SARAH'))?.text).toBe('group draft text');
   });
-  expect(await testDb.draftAttachments.get('draft-MARCUS+SARAH')).toBeUndefined();
+  // The handler re-keys the row and THEN cleans the old one up, so the wait
+  // above is satisfied while the delete is still in flight — asserting it
+  // straight after passed only when the machine was fast enough.
+  await waitFor(async () => {
+    expect(await testDb.draftAttachments.get('draft-MARCUS+SARAH')).toBeUndefined();
+  });
 });
 
 it('ArrowDown on an empty result list does not brick Enter for late-arriving results', async () => {
