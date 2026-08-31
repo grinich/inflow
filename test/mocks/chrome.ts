@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 
 let sessionStore: Record<string, any> = {};
 let localStore: Record<string, any> = {};
+let storageChangedListeners = new Set<(changes: Record<string, any>, area: string) => void>();
 
 function createChromeMock() {
   return {
@@ -50,8 +51,12 @@ function createChromeMock() {
         },
       },
       onChanged: {
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
+        addListener: vi.fn((fn: (changes: Record<string, any>, area: string) => void) => {
+          storageChangedListeners.add(fn);
+        }),
+        removeListener: vi.fn((fn: (changes: Record<string, any>, area: string) => void) => {
+          storageChangedListeners.delete(fn);
+        }),
       },
     },
     cookies: {
@@ -105,7 +110,16 @@ export function installChromeMock() {
 export function resetChromeMock() {
   sessionStore = {};
   localStore = {};
+  storageChangedListeners = new Set();
   installChromeMock();
+}
+
+/**
+ * Fire chrome.storage.onChanged listeners. The mocked set() does NOT fire
+ * this automatically (real Chrome does) — tests trigger it explicitly.
+ */
+export function fireStorageChanged(changes: Record<string, any>, area = 'local') {
+  for (const fn of storageChangedListeners) fn(changes, area);
 }
 
 export function setSessionStore(key: string, value: any) {

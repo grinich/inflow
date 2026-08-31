@@ -80,6 +80,7 @@ interface UIState {
   demoMode: boolean;
   replyingTo: Message | null;
   aiSetupOpen: boolean;
+  agentAccessOpen: boolean;
   tabMemory: Partial<Record<InboxTab, TabMemory>>;
   _pendingRestore: TabMemory | null;
 
@@ -117,6 +118,7 @@ interface UIState {
   setSpamConfirmId: (id: string | null) => void;
   setReplyingTo: (msg: Message | null) => void;
   setAISetupOpen: (open: boolean) => void;
+  setAgentAccessOpen: (open: boolean) => void;
   openThread: (conversationId: string, index: number) => void;
   closeThread: () => void;
   setTheme: (theme: Theme) => void;
@@ -223,6 +225,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   demoMode: checkDemoMode(),
   replyingTo: null,
   aiSetupOpen: false,
+  agentAccessOpen: false,
   tabMemory: {},
   _pendingRestore: null,
 
@@ -287,6 +290,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   setSpamConfirmId: (id) => set({ spamConfirmId: id }),
   setReplyingTo: (msg) => set({ replyingTo: msg }),
   setAISetupOpen: (open) => set({ aiSetupOpen: open }),
+  setAgentAccessOpen: (open) => set({ agentAccessOpen: open }),
 
   showToast: (toast) => {
     if (toastTimeout) clearTimeout(toastTimeout);

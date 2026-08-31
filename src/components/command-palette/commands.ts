@@ -49,6 +49,7 @@ export function buildCommands(actions: {
   goToNetwork: () => void;
   undo: () => void;
   openAISetup: () => void;
+  openAgentAccess: () => void;
   toggleDemoMode: () => void;
   isDemoActive: boolean;
   toggleAISuggestions: () => void;
@@ -100,6 +101,7 @@ export function buildCommands(actions: {
     ...(actions.currentTheme !== 'dark' ? [{ id: 'theme-dark', label: 'Switch to Dark theme', shortcut: '', action: actions.setThemeDark }] : []),
     ...(actions.currentTheme !== 'system' ? [{ id: 'theme-system', label: 'Switch to System theme', shortcut: '', action: actions.setThemeSystem }] : []),
     { id: 'ai-setup', label: 'Set up AI features', shortcut: '', action: actions.openAISetup },
+    { id: 'agent-access', label: 'Configure agent access (AI tools)', shortcut: '', action: actions.openAgentAccess },
     {
       id: 'ai-suggestions',
       label: actions.aiSuggestionsEnabled ? 'Disable AI reply suggestions' : 'Enable AI reply suggestions',

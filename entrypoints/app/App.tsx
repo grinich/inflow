@@ -7,6 +7,7 @@ import { VideoLightbox } from '@/components/common/VideoLightbox';
 import { ConfirmDeleteModal } from '@/components/common/ConfirmDeleteModal';
 import { ConfirmSpamModal } from '@/components/common/ConfirmSpamModal';
 import { AISetupModal } from '@/components/common/AISetupModal';
+import { AgentAccessModal } from '@/components/common/AgentAccessModal';
 import { Toast } from '@/components/common/Toast';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
@@ -19,6 +20,7 @@ import { useRemoteSearch } from '@/hooks/useRemoteSearch';
 import { useKeyboard } from '@/hooks/useKeyboard';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
+import { useAgentTools } from '@/hooks/useAgentTools';
 import { useUIStore } from '@/store/ui-store';
 import { consumeComposeParam, consumeConversationParam, isEmbeddedInShell } from '@/lib/launch-params';
 import { onShellOpenConversation } from '@/lib/shell-messages';
@@ -40,6 +42,8 @@ export function App() {
   const setSpamConfirmId = useUIStore((s) => s.setSpamConfirmId);
   const actions = useOptimisticAction();
   useSendObjectUrlReaper();
+  // Agent tool transports: shell RPC + WebMCP registration (gated by settings).
+  useAgentTools();
   const [debugOpen, setDebugOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragCounter = useRef(0);
@@ -308,6 +312,7 @@ export function App() {
         />
       )}
       <AISetupModal />
+      <AgentAccessModal />
       <Toast />
       <IncomingMessageToast />
       <PendingNavigation />

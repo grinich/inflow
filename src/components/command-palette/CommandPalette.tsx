@@ -142,6 +142,9 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
     openAISetup: () => {
       useUIStore.getState().setAISetupOpen(true);
     },
+    openAgentAccess: () => {
+      useUIStore.getState().setAgentAccessOpen(true);
+    },
     toggleDemoMode: () => {
       if (isDemoMode()) {
         disableDemoMode(); // navigates to URL without ?demo
