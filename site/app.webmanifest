@@ -10,8 +10,7 @@
   "background_color": "#ffffff",
   "icons": [
     { "src": "/icons/app-icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/app-icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icons/app-icon-512-fullbleed.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icons/app-icon-512.png", "sizes": "512x512", "type": "image/png" }
   ],
   "launch_handler": { "client_mode": "navigate-existing" },
   "shortcuts": [

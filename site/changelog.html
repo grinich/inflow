@@ -77,7 +77,9 @@
 .rel-store.is-pending::before{background:none;border:1px solid currentColor}
 .rel-body{display:flex;flex-direction:column;gap:24px;max-width:42rem}
 .rel-intro{margin:0;color:var(--ink-2);line-height:1.6}
-.rel-icon{display:block;width:96px;height:auto;border-radius:20px}
+/* No border-radius: the artwork carries its own rounded corners as
+   transparency, so a CSS radius on top only clips into the tile. */
+.rel-icon{display:block;width:96px;height:auto}
 .rel-shot{display:block;width:100%;height:auto;border-radius:10px;margin:4px 0}
 /* Raw-HTML figures (the side-by-side pairs) size themselves via width
    attributes so GitHub lays them out the same way. No border. */
