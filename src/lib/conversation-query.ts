@@ -95,6 +95,25 @@ export function mergeDuplicateConversations(results: Conversation[]): Conversati
   return results;
 }
 
+/**
+ * IDs of the other 1:1 threads with the same person — the rows
+ * mergeDuplicateConversations would fold into this one. Uses the multiEntry
+ * participantUrns index (v15), so it's a lookup, not a scan.
+ */
+export async function findMergedSiblingIds(
+  db: InflowDatabase,
+  conversation: Conversation
+): Promise<string[]> {
+  if (conversation.participantUrns.length !== 1) return []; // groups never merge
+  const twins = await db.conversations
+    .where('participantUrns')
+    .equals(conversation.participantUrns[0])
+    .toArray();
+  return twins
+    .filter((c) => c.id !== conversation.id && c.participantUrns.length === 1)
+    .map((c) => c.id);
+}
+
 export interface ParsedSearch {
   /** Free text left after stripping filter tokens, spaces collapsed. */
   text: string;
