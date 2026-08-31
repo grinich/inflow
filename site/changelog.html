@@ -218,9 +218,24 @@
     <!-- CHANGELOG:START -->
     <article class="rel">
       <div class="rel-meta">
+        <h2 class="rel-ver">0.8.0</h2>
+        <time class="rel-date" datetime="2026-08-31">31 August 2026</time>
+        <span class="rel-latest">Latest</span>
+      </div>
+      <div class="rel-body">
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>Agent tools — let Claude work your LinkedIn inbox through inƒlow.</strong> The app can now expose its inbox to AI agents as structured tools (<code>list_conversations</code>, <code>read_thread</code>, <code>search_conversations</code>, <code>get_unread_count</code>, <code>list_invitations</code>, <code>send_message</code>, <code>archive_conversation</code>, <code>mark_read</code>, <code>mark_unread</code>) instead of making them screen-scrape LinkedIn. An agent driving inflow.im/app — Claude in Chrome today — calls them through <code>window.inflowAgent</code>; the same tools register on <a href="https://developer.chrome.com/docs/ai/webmcp">WebMCP</a> (<code>document.modelContext</code>) wherever the browser ships it, ready for the agents that will speak it natively. <strong>Everything is off by default.</strong> Two separate opt-ins live in the command palette under <strong>Configure agent access</strong> — one for reading, one for acting — and turning reads off turns writes off with it. Agent-sent messages are capped at 15/hour, every agent action shows a toast, and every call from every surface funnels through one gate that re-checks the toggles per call. Demo mode covers agent tools too, so all of it can be tried against fake data. <a href="https://github.com/grinich/inflow/blob/main/docs/agent-tools.md">How to connect Claude →</a></li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
         <h2 class="rel-ver">0.7.0</h2>
         <time class="rel-date" datetime="2026-08-30">30 August 2026</time>
-        <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
         <p> <img src="https://inflow.im/img/0.7.0-network-invitations.png" width="32%" loading="lazy" alt="The Network view's Invitations tab — a request from Noah Bennett selected, his note shown as a message and mutual connections under the headline"> <img src="https://inflow.im/img/0.7.0-network-connections.png" width="32%" loading="lazy" alt="The Connections tab, sorted by date, with Sarah Chen selected and a Message button"> <img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" loading="lazy" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button"> </p>

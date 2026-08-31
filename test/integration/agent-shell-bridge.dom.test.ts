@@ -143,6 +143,13 @@ it('posts requestId-stamped requests to the frame with the extension targetOrigi
     input: { conversationId: 'c1' },
   });
   expect(call.msg.requestId).not.toBe(list.msg.requestId);
+
+  // Settle both requests so their 10s/30s timeout timers are cleared — a
+  // pending timer firing after this file's jsdom env is torn down surfaces
+  // as an unhandled error in whatever test runs next on the worker.
+  for (const p of shell.framePosted) {
+    shell.deliver({ type: 'INFLOW_AGENT_RESULT', requestId: p.msg.requestId, result: {} });
+  }
 });
 
 it('resolves the matching pending call on INFLOW_AGENT_RESULT — and only from the extension origin', async () => {

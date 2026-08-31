@@ -4,6 +4,27 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.0] - 2026-08-31
+
+### Added
+- **Agent tools — let Claude work your LinkedIn inbox through inflow.** The app
+  can now expose its inbox to AI agents as structured tools (`list_conversations`,
+  `read_thread`, `search_conversations`, `get_unread_count`, `list_invitations`,
+  `send_message`, `archive_conversation`, `mark_read`, `mark_unread`) instead of
+  making them screen-scrape LinkedIn. An agent driving inflow.im/app — Claude in
+  Chrome today — calls them through `window.inflowAgent`; the same tools register
+  on [WebMCP](https://developer.chrome.com/docs/ai/webmcp)
+  (`document.modelContext`) wherever the browser ships it, ready for the agents
+  that will speak it natively.
+
+  **Everything is off by default.** Two separate opt-ins live in the command
+  palette under **Configure agent access** — one for reading, one for acting —
+  and turning reads off turns writes off with it. Agent-sent messages are capped
+  at 15/hour, every agent action shows a toast, and every call from every
+  surface funnels through one gate that re-checks the toggles per call. Demo
+  mode covers agent tools too, so all of it can be tried against fake data.
+  [How to connect Claude →](https://github.com/grinich/inflow/blob/main/docs/agent-tools.md)
+
 ## [0.7.0] - 2026-08-30
 
 <p>
