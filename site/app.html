@@ -755,7 +755,11 @@ html,body{height:100%;overflow:hidden}
       '<p class="lede">Another extension on this page is repeatedly removing the embedded inbox ' +
       '(ad or privacy blockers sometimes do this). Reloading usually fixes it — if it keeps ' +
       'happening, allow inflow.im in that extension.</p>' +
-      '<div class="hero-cta"><a class="btn btn-primary" href="/app">Reload inflow</a></div>';
+      '<div class="hero-cta"><a class="btn btn-primary" href="/app' +
+      // Keep the query string — a bare /app dropped ?ext=dev (and ?demo),
+      // silently switching a pinned dev session back to the store build.
+      location.search.replace(/"/g, '') +
+      '">Reload inflow</a></div>';
     document.body.appendChild(d);
   }
 

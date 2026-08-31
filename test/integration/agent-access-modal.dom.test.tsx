@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * AgentAccessModal: persists the two toggles, keeps writes subordinate to
- * reads (disabled until reads on; reads off also persists writes off),
- * Escape closes, and every change toasts.
+ * AgentAccessModal: toggles edit local state only and nothing persists until
+ * Save; writes stay subordinate to reads (disabled until reads on; reads off
+ * flips writes off); Cancel and Escape discard; Save persists, toasts, closes.
  */
 import '../dom-setup';
 
@@ -18,6 +18,7 @@ import { useUIStore } from '@/store/ui-store';
 
 const readsToggle = () => screen.getByRole('switch', { name: 'Let agents read my inbox' });
 const writesToggle = () => screen.getByRole('switch', { name: 'Let agents act' });
+const saveButton = () => screen.getByRole('button', { name: 'Save' });
 
 beforeEach(() => {
   useUIStore.setState({ agentAccessOpen: true, toast: null });
@@ -29,42 +30,70 @@ it('renders nothing while closed', () => {
   expect(container.innerHTML).toBe('');
 });
 
-it('loads persisted values when opening', async () => {
+it('loads persisted values when opening; Save stays disabled until something changes', async () => {
   await setAgentToolsEnabled(true);
   await setAgentWritesEnabled(true);
   render(<AgentAccessModal />);
   await waitFor(() => expect(readsToggle()).toHaveAttribute('aria-checked', 'true'));
   expect(writesToggle()).toHaveAttribute('aria-checked', 'true');
+  expect(saveButton()).toBeDisabled();
 });
 
-it('writes toggle is disabled until reads are on', async () => {
+it('toggles do NOT persist until Save; Save persists both, toasts, and closes', async () => {
   render(<AgentAccessModal />);
   await waitFor(() => expect(writesToggle()).toBeDisabled());
 
   fireEvent.click(readsToggle());
   await waitFor(() => expect(writesToggle()).not.toBeDisabled());
-  expect(await getAgentToolsEnabled()).toBe(true);
-  expect(useUIStore.getState().toast?.message).toBe('Agent read access enabled');
-
   fireEvent.click(writesToggle());
-  await waitFor(async () => expect(await getAgentWritesEnabled()).toBe(true));
-  expect(useUIStore.getState().toast?.message).toBe('Agent write actions enabled');
+
+  // Still nothing persisted — only local state changed.
+  expect(await getAgentToolsEnabled()).toBe(false);
+  expect(await getAgentWritesEnabled()).toBe(false);
+
+  fireEvent.click(saveButton());
+  await waitFor(async () => expect(await getAgentToolsEnabled()).toBe(true));
+  expect(await getAgentWritesEnabled()).toBe(true);
+  expect(useUIStore.getState().toast?.message).toBe('Agent access enabled (read + act)');
+  expect(useUIStore.getState().agentAccessOpen).toBe(false);
 });
 
-it('turning reads off also persists writes off', async () => {
+it('turning reads off flips writes off, and Save persists both off', async () => {
   await setAgentToolsEnabled(true);
   await setAgentWritesEnabled(true);
   render(<AgentAccessModal />);
   await waitFor(() => expect(readsToggle()).toHaveAttribute('aria-checked', 'true'));
 
   fireEvent.click(readsToggle());
+  expect(writesToggle()).toHaveAttribute('aria-checked', 'false');
+
+  fireEvent.click(saveButton());
   await waitFor(async () => expect(await getAgentToolsEnabled()).toBe(false));
   expect(await getAgentWritesEnabled()).toBe(false);
-  expect(writesToggle()).toHaveAttribute('aria-checked', 'false');
+  expect(useUIStore.getState().toast?.message).toBe('Agent access disabled');
 });
 
-it('Escape closes the modal', async () => {
+it('Cancel and Escape discard changes', async () => {
   render(<AgentAccessModal />);
+  await waitFor(() => expect(readsToggle()).toHaveAttribute('aria-checked', 'false'));
+
+  fireEvent.click(readsToggle());
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await waitFor(() => expect(useUIStore.getState().agentAccessOpen).toBe(false));
+  expect(await getAgentToolsEnabled()).toBe(false);
+
+  // Reopen: the discarded change must not resurface, and Escape discards too.
+  useUIStore.setState({ agentAccessOpen: true });
+  await waitFor(() => expect(readsToggle()).toHaveAttribute('aria-checked', 'false'));
+  fireEvent.click(readsToggle());
   fireEvent.keyDown(window, { key: 'Escape' });
   await waitFor(() => expect(useUIStore.getState().agentAccessOpen).toBe(false));
+  expect(await getAgentToolsEnabled()).toBe(false);
+});
+
+it('the knob is anchored inside the track (left-0), not floating at the static position', async () => {
+  render(<AgentAccessModal />);
+  await waitFor(() => expect(readsToggle()).toBeInTheDocument());
+  const knob = readsToggle().querySelector('span');
+  expect(knob?.className).toContain('left-0');
 });

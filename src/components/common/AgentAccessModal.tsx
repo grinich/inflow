@@ -40,8 +40,11 @@ function ToggleRow({
           checked ? 'bg-blue-600' : 'bg-surface ring-1 ring-ring'
         } ${disabled ? 'cursor-not-allowed' : ''}`}
       >
+        {/* left-0 anchors the knob: an absolutely-positioned span with auto
+            left sits at its static position — centered by the button's
+            text-align — and the translate then pushes it out of the track. */}
         <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+          className={`absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
             checked ? 'translate-x-[18px]' : 'translate-x-0.5'
           }`}
         />
@@ -57,13 +60,16 @@ export function AgentAccessModal() {
 
   const [reads, setReads] = useState(false);
   const [writes, setWrites] = useState(false);
+  const [saved, setSaved] = useState({ reads: false, writes: false });
 
-  // Load persisted values when opening
+  // Load persisted values when opening. Toggles edit local state only;
+  // nothing persists until Save — closing any other way discards.
   useEffect(() => {
     if (open) {
       Promise.all([getAgentToolsEnabled(), getAgentWritesEnabled()]).then(([r, w]) => {
         setReads(r);
         setWrites(w);
+        setSaved({ reads: r, writes: w });
       });
     }
   }, [open]);
@@ -84,21 +90,25 @@ export function AgentAccessModal() {
     return () => window.removeEventListener('keydown', handler, true);
   }, [open, close]);
 
-  const toggleReads = async (next: boolean) => {
+  const toggleReads = (next: boolean) => {
     setReads(next);
-    await setAgentToolsEnabled(next);
-    if (!next && writes) {
-      // Reads off means writes off too — persist it, don't just hide the row.
-      setWrites(false);
-      await setAgentWritesEnabled(false);
-    }
-    showToast({ message: next ? 'Agent read access enabled' : 'Agent access disabled' });
+    // Reads off means writes off too — flip the value, don't just hide the row.
+    if (!next) setWrites(false);
   };
 
-  const toggleWrites = async (next: boolean) => {
-    setWrites(next);
-    await setAgentWritesEnabled(next);
-    showToast({ message: next ? 'Agent write actions enabled' : 'Agent write actions disabled' });
+  const dirty = reads !== saved.reads || writes !== saved.writes;
+
+  const handleSave = async () => {
+    await setAgentToolsEnabled(reads);
+    await setAgentWritesEnabled(writes);
+    showToast({
+      message: !reads
+        ? 'Agent access disabled'
+        : writes
+          ? 'Agent access enabled (read + act)'
+          : 'Agent read access enabled',
+    });
+    close();
   };
 
   if (!open) return null;
@@ -128,7 +138,7 @@ export function AgentAccessModal() {
           checked={writes}
           disabled={!reads}
           hint="Enable read access first."
-          onChange={toggleWrites}
+          onChange={setWrites}
         />
 
         <p className="mt-4 text-xs text-fg-muted">
@@ -144,12 +154,19 @@ export function AgentAccessModal() {
           </a>
         </p>
 
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={close}
             className="rounded-md px-3 py-1.5 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
           >
-            Close
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!dirty}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
+          >
+            Save
           </button>
         </div>
       </div>
