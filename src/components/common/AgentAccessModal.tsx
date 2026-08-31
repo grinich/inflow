@@ -196,15 +196,32 @@ export function AgentAccessModal() {
               Download Inflow.mcpb
             </a>
           </div>
-          <input
-            type="text"
-            value={pairCode}
-            onChange={(e) => setPairCode(e.target.value.toUpperCase())}
-            placeholder="INF-XXXXXX"
-            aria-label="Claude Desktop pairing code"
-            spellCheck={false}
-            className="mt-2 w-40 rounded-md bg-surface px-3 py-1.5 font-mono text-sm text-fg placeholder-fg-faint ring-1 ring-ring focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="text"
+              value={pairCode}
+              onChange={(e) => setPairCode(e.target.value.toUpperCase())}
+              placeholder="INF-XXXXXX"
+              aria-label="Claude Desktop pairing code"
+              spellCheck={false}
+              className="w-40 rounded-md bg-surface px-3 py-1.5 font-mono text-sm text-fg placeholder-fg-faint ring-1 ring-ring focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {pairCode && (
+              <button
+                type="button"
+                onClick={() => setPairCode('')}
+                className="rounded-md px-2 py-1.5 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
+              >
+                Unpair
+              </button>
+            )}
+          </div>
+          {saved.pairCode && !pairCode && (
+            <p className="mt-1.5 text-xs text-amber-500">
+              Claude Desktop will be disconnected when you Save. To rotate the code itself,
+              also delete ~/.inflow/agent-bridge.json and restart Claude Desktop.
+            </p>
+          )}
           <p className="mt-1.5 text-xs text-fg-muted" data-testid="bridge-status">
             {BRIDGE_STATUS_LABEL[bridgeState ?? ''] ?? 'Status unknown'}
           </p>
