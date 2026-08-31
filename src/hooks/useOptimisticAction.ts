@@ -256,6 +256,11 @@ export function useOptimisticAction() {
 
   async function markUnread(conversationId: string) {
     if (conversationId.startsWith('draft-')) return;
+    // Suppress ThreadView's auto mark-read dwell timer BEFORE the read flag
+    // flips, or an open thread re-marks itself read 2s later (see the
+    // inflow:manual-unread listener in ThreadView). Dispatched here so every
+    // entry point — keyboard, header menu, palette, context menus — gets it.
+    document.dispatchEvent(new CustomEvent('inflow:manual-unread', { detail: conversationId }));
     await db.conversations.update(conversationId, { read: 0 });
 
     const bridgeMsg = { type: 'MARK_UNREAD' as const, conversationId };

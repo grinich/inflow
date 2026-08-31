@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useThread } from '@/hooks/useThread';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
@@ -8,6 +8,7 @@ import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { ThreadHeader } from './ThreadHeader';
 import { MessageBubble, TIME_GAP_MS, formatSeparatorTime } from './MessageBubble';
 import { ComposeBox } from './ComposeBox';
+import { ContextMenu } from '@/components/common/ContextMenu';
 import type { Conversation } from '@/types/conversation';
 
 interface ThreadViewProps {
@@ -19,7 +20,7 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
   const messages = useThread(conversation.id, conversation.mergedIds);
   const dbGen = useDbGeneration();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { sendMessage, markRead } = useOptimisticAction();
+  const { sendMessage, markRead, markUnread } = useOptimisticAction();
 
   // Resolve sender profile links once for the whole thread instead of holding a
   // separate live DB subscription inside every MessageBubble. Keyed on the set of
@@ -46,8 +47,10 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
     new Map<string, string>(),
   );
 
-  // Suppress auto mark-read when the user explicitly marks unread with 'u'.
-  // Reset when navigating to a different conversation.
+  // Suppress auto mark-read when the user explicitly marks the thread unread
+  // (keyboard 'u', header menu, palette, or a message's right-click menu —
+  // markUnread dispatches the event). Reset when navigating to a different
+  // conversation.
   const suppressAutoRead = useRef(false);
   useEffect(() => {
     suppressAutoRead.current = false;
@@ -113,6 +116,21 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [conversation.id, conversation.read]);
+
+  // Right-click menu on a message: mark the conversation read/unread. One
+  // menu for the whole thread — the action is conversation-level, so the
+  // clicked message doesn't matter.
+  const [messageMenu, setMessageMenu] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => setMessageMenu(null), [conversation.id]);
+  const handleMessageContextMenu = useCallback((e: React.MouseEvent) => {
+    // Keep the browser's own menu where it's more useful: links (copy link),
+    // media controls, edit fields, and selected text (copy).
+    if ((e.target as HTMLElement).closest('a, audio, textarea, input')) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    e.preventDefault();
+    setMessageMenu({ x: e.clientX, y: e.clientY });
+  }, []);
 
   // The failed bubble stays on screen until the delete commits and the live
   // query re-renders, so a double-click would run the retry pipeline twice
@@ -260,7 +278,7 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
                       </span>
                     </div>
                   )}
-                  <div className={layout[i].grouped ? 'pt-0.5' : 'pt-2'}>
+                  <div className={layout[i].grouped ? 'pt-0.5' : 'pt-2'} onContextMenu={handleMessageContextMenu}>
                     <MessageBubble
                       message={msg}
                       grouped={layout[i].grouped}
@@ -276,6 +294,28 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
           )}
         </div>
       </div>
+
+      {messageMenu && (
+        <ContextMenu
+          dataAttr="data-message-context-menu"
+          x={messageMenu.x}
+          y={messageMenu.y}
+          onClose={() => setMessageMenu(null)}
+          items={[
+            conversation.read === 0
+              ? {
+                  label: 'Mark as read',
+                  shortcut: 'U',
+                  onSelect: () => markRead(conversation.id, conversation.mergedIds),
+                }
+              : {
+                  label: 'Mark as unread',
+                  shortcut: 'U',
+                  onSelect: () => markUnread(conversation.id),
+                },
+          ]}
+        />
+      )}
 
       <ComposeBox ref={composeRef} conversationId={conversation.id}
                   messages={messages} participantNames={conversation.participantNames} />

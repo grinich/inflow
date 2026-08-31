@@ -360,8 +360,9 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
           : convs[store.selectedIndex];
         if (conv) {
           if (conv.read) {
+            // markUnread itself dispatches inflow:manual-unread to suppress
+            // ThreadView's auto mark-read dwell timer.
             act.markUnread(conv.id);
-            document.dispatchEvent(new CustomEvent('inflow:manual-unread', { detail: conv.id }));
           } else {
             act.markRead(conv.id, conv.mergedIds);
           }
