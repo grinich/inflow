@@ -357,14 +357,20 @@ export function NetworkView() {
               </div>
               {networkTab === 'connections' && (
                 <select
+                  aria-label="Sort connections"
                   value={sortMode}
                   onChange={(e) => setSortMode(e.target.value as SortMode)}
                   // Shorter than the row, so the sort control can never be
                   // what decides this row's height.
+                  //
+                  // The labels are one word each because a select is as wide as
+                  // its widest option: "Recently added" pushed this past the
+                  // tabs at the sidebar's minimum width. Sort keys, not
+                  // sentences — the aria-label carries the rest.
                   className="ml-auto h-6 shrink-0 cursor-pointer rounded-md bg-surface-input px-2 text-[11px] font-medium text-fg-muted outline-none transition-colors hover:text-fg-secondary"
                 >
-                  <option value="recent">Recently added</option>
-                  <option value="name">Name A–Z</option>
+                  <option value="recent">Date</option>
+                  <option value="name">Name</option>
                 </select>
               )}
             </div>

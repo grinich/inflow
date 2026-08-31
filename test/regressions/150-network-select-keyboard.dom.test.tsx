@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Regression: NetworkView's key handler omitted SELECT from its editable-control
 // list (useKeyboard has always included it). Once a keyboard user focused the
-// "Recently added / Name A–Z" sort dropdown, ArrowUp/ArrowDown were
+// "Date / Name" sort dropdown, ArrowUp/ArrowDown were
 // preventDefault'd and moved the row selection instead of changing the option —
 // the native select couldn't be operated from the keyboard at all.
 import '../dom-setup';

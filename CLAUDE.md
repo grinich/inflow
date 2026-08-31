@@ -43,6 +43,13 @@ inflow is a Chrome extension (MV3) that provides a keyboard-driven messaging cli
 4. CI runs tests, builds both zips, creates a GitHub Release, and uploads +
    publishes the store build to the Chrome Web Store automatically
    (see `docs/chrome-web-store-release.md` for the required secrets)
+
+   **Never run `npm run zip:store` locally without rebuilding after.** It
+   writes `dist/chrome-mv3/` in place with the manifest `key` omitted (the
+   store rejects uploads carrying one), so Chrome gives the unpacked build a
+   path-derived ID instead of the pinned one — the app shell stops recognising
+   it and it loads against an empty database. `npm run build` puts the key
+   back. CI is unaffected: it builds each zip in a fresh checkout.
 5. The site (inflow.im) deploys automatically on push — the Vercel project is
    connected to this GitHub repo (since 0.5.1; before that, deploys were
    manual and the live changelog went stale). Manual fallback: run from the
