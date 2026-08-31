@@ -39,14 +39,21 @@ tab open** — Chrome just has to be running.
 
 Setup:
 
-1. Install inflow (v0.8.0+) in Chrome and `Inflow.mcpb` in Claude Desktop
-   (Settings → Extensions → drag it in). Build it from source with `npm run mcpb:build`.
-2. Ask Claude Desktop: *"what's my inflow pairing code?"* (the `get_pairing_code` tool).
-3. In inflow: `⌘K` → **Configure agent access** → enable read (and optionally act),
-   paste the code under *Claude Desktop*, **Save**. The status line flips to
-   *Connected* within ~30 seconds.
+1. Install inflow (v0.8.0+) in Chrome and `Inflow.mcpb` in Claude Desktop —
+   the **Download Inflow.mcpb** button lives in `⌘K` → Configure agent access
+   (or build from source: `npm run mcpb:build`).
+2. Ask Claude Desktop to connect to inflow. It answers with a **pairing link**
+   (`inflow.im/app?pair=INF-XXXXXX`) — click it: inflow opens with the code
+   prefilled in Agent Access; review and press **Save**. (Manual fallback:
+   `get_pairing_code` also prints the raw code to type in.)
+3. In the same modal, enable read (and optionally act) if you haven't. The
+   status line flips to *Connected* within ~30 seconds.
 4. Ask Claude Desktop to work your inbox. If tools are missing, the
    `inflow_status` tool explains exactly which step is incomplete.
+
+The prefill is deliberately not auto-saved: a crafted `?pair=` link can put a
+code in the box, but only your Save applies it — and pairing alone grants
+nothing; the read/write toggles are separate consents.
 
 Security model: the pairing is mutual — the server proves it knows the code
 before the extension will talk to it (a local port-squatter gets nothing), and

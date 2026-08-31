@@ -22,7 +22,7 @@ import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useAgentTools } from '@/hooks/useAgentTools';
 import { useUIStore } from '@/store/ui-store';
-import { consumeComposeParam, consumeConversationParam, isEmbeddedInShell } from '@/lib/launch-params';
+import { consumeComposeParam, consumeConversationParam, consumePairParam, isEmbeddedInShell } from '@/lib/launch-params';
 import { onShellOpenConversation } from '@/lib/shell-messages';
 import { navigateToConversation } from '@/lib/navigate-to-conversation';
 import { belongsToTab } from '@/lib/inbox-filters';
@@ -71,6 +71,17 @@ export function App() {
   useEffect(() => {
     const conversationId = consumeConversationParam();
     if (conversationId) navigateToConversation(conversationId);
+  }, []);
+
+  // Launched with ?pair=<code> — the pairing link Claude Desktop hands out.
+  // Open Agent Access with the code prefilled; the user still presses Save.
+  useEffect(() => {
+    const code = consumePairParam();
+    if (code) {
+      const store = useUIStore.getState();
+      store.setAgentAccessPrefill(code);
+      store.setAgentAccessOpen(true);
+    }
   }, []);
 
   // Full-window drag-and-drop for file attachments

@@ -176,7 +176,7 @@ html,body{height:100%;overflow:hidden}
   // app but scrubbed from this page's own URL, so a manual reload doesn't
   // replay them. ?demo stays (dropping it would silently exit demo mode on
   // reload), and ?ext stays (it pins the probe across reloads).
-  var oneShot = ['compose', 'c'].filter(function (k) { return params.has(k); });
+  var oneShot = ['compose', 'c', 'pair'].filter(function (k) { return params.has(k); });
   if (oneShot.length) {
     var clean = new URL(location.href);
     oneShot.forEach(function (k) { clean.searchParams.delete(k); });

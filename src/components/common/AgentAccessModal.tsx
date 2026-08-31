@@ -83,8 +83,12 @@ export function AgentAccessModal() {
         ([r, w, t]) => {
           setReads(r);
           setWrites(w);
-          setPairCode(t ?? '');
           setSaved({ reads: r, writes: w, pairCode: t ?? '' });
+          // A ?pair= launch link prefills the code (leaving `saved` at the
+          // persisted value, so Save lights up); it still takes Save to apply.
+          const prefill = useUIStore.getState().agentAccessPrefillCode;
+          if (prefill) useUIStore.getState().setAgentAccessPrefill(null);
+          setPairCode(prefill ?? t ?? '');
         }
       );
     }

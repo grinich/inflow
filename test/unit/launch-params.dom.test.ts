@@ -8,6 +8,7 @@
 import {
   consumeComposeParam,
   consumeConversationParam,
+  consumePairParam,
   isEmbeddedInShell,
 } from '@/lib/launch-params';
 
@@ -73,6 +74,32 @@ describe('consumeConversationParam', () => {
   it('ignores an empty ?c=', () => {
     setSearch('?c=');
     expect(consumeConversationParam()).toBeNull();
+  });
+});
+
+describe('consumePairParam', () => {
+  it('returns null and leaves the URL alone when pair is absent', () => {
+    setSearch('?demo');
+    expect(consumePairParam()).toBeNull();
+    expect(window.location.search).toBe('?demo');
+  });
+
+  it('returns the normalized code and strips pair from the URL', () => {
+    setSearch('?pair=inf-abc234');
+    expect(consumePairParam()).toBe('INF-ABC234');
+    expect(window.location.search).toBe('');
+  });
+
+  it('rejects malformed codes but still strips the param', () => {
+    setSearch('?pair=<script>alert(1)</script>');
+    expect(consumePairParam()).toBeNull();
+    expect(window.location.search).toBe('');
+  });
+
+  it('is one-shot: a reload must not re-open the modal', () => {
+    setSearch('?pair=INF-ABC234');
+    expect(consumePairParam()).toBe('INF-ABC234');
+    expect(consumePairParam()).toBeNull();
   });
 });
 

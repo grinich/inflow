@@ -97,7 +97,7 @@ function statusText() {
     ? `Port ${BRIDGE_PORT} is in use by another process — quit it (or a second copy of this server) and restart Claude Desktop.`
     : bridge.connected
       ? 'Connected to the inflow extension. LinkedIn tools are live.'
-      : 'Waiting for the inflow extension. Checklist: 1) Chrome is running with the inflow extension installed (v0.8.0+), 2) agent access is enabled in inflow (⌘K → Configure agent access), 3) the pairing code from get_pairing_code is pasted and saved there. The extension retries every 30 seconds.';
+      : 'Waiting for the inflow extension. Checklist: 1) Chrome is running with the inflow extension installed (v0.8.0+), 2) agent access is enabled in inflow (⌘K → Configure agent access), 3) the bridge is paired — call get_pairing_code and give the user its pairing link (opens inflow with the code prefilled). The extension retries every 30 seconds.';
   return state;
 }
 
@@ -111,7 +111,7 @@ const LOCAL_TOOLS = [
   {
     name: 'get_pairing_code',
     description:
-      "The one-time pairing code the user must paste into inflow's Agent Access settings (⌘K → Configure agent access) to authorize this bridge. Show it to the user when asked, or when inflow_status reports the extension is unpaired.",
+      'The pairing link and code that authorize this bridge in inflow. Show the user the clickable link (it opens inflow with the code prefilled — they just press Save). Use when asked to connect, or when inflow_status reports the extension is unpaired.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -145,7 +145,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
   if (name === 'get_pairing_code') {
     return text(
-      `Pairing code: ${token}\n\nHave the user paste this into inflow: open the inflow app in Chrome, press ⌘K, run "Configure agent access", enter the code under Claude Desktop, and Save.`
+      `Have the user click this pairing link — it opens inflow with the code prefilled; they just review and press Save:\n\nhttps://inflow.im/app?pair=${token}\n\nManual fallback: in the inflow app press ⌘K → "Configure agent access" → enter ${token} under Claude Desktop → Save.`
     );
   }
   try {
@@ -189,14 +189,19 @@ setInterval(() => {
   }
 }, 20000).unref();
 
-http.on('error', (e) => {
+// EADDRINUSE must not kill the MCP server — inflow_status reports it instead.
+// The error surfaces on the http server AND is re-emitted by WebSocketServer;
+// an unhandled 'error' on either crashes the process, so catch both.
+const onServerError = (e) => {
   if (e.code === 'EADDRINUSE') {
     portConflict = true;
     log(`port ${BRIDGE_PORT} in use — bridge disabled, MCP server still up`);
   } else {
     log('bridge server error:', e.message);
   }
-});
+};
+http.on('error', onServerError);
+wss.on('error', onServerError);
 http.listen(BRIDGE_PORT, '127.0.0.1', () => log(`bridge listening on 127.0.0.1:${BRIDGE_PORT}`));
 
 // ---------------------------------------------------------------------------

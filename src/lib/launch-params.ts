@@ -38,6 +38,28 @@ export function consumeComposeParam(): boolean {
 }
 
 /**
+ * The Claude Desktop pairing code this launch carries (`?pair=INF-XXXXXX`) —
+ * from the pairing link the Inflow.mcpb server hands out via Claude, so the
+ * user clicks instead of transcribing. Consuming strips the param so a reload
+ * doesn't re-open the Agent Access modal. Prefill only: nothing is saved
+ * until the user presses Save in the modal, so a crafted link can't silently
+ * re-point the bridge.
+ */
+export function consumePairParam(): string | null {
+  try {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('pair');
+    if (!code) return null;
+    url.searchParams.delete('pair');
+    window.history.replaceState(null, '', url.toString());
+    const normalized = code.trim().toUpperCase();
+    return /^INF-[A-Z2-7]{6}$/.test(normalized) ? normalized : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The conversation this launch is for (`?c=<id>`) — set by the shell's
  * service worker when a notification was clicked with no app window open to
  * focus. Consuming strips the param so a reload doesn't re-navigate away

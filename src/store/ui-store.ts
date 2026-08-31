@@ -81,6 +81,8 @@ interface UIState {
   replyingTo: Message | null;
   aiSetupOpen: boolean;
   agentAccessOpen: boolean;
+  /** Pairing code from a ?pair= launch link, consumed by the Agent Access modal. */
+  agentAccessPrefillCode: string | null;
   tabMemory: Partial<Record<InboxTab, TabMemory>>;
   _pendingRestore: TabMemory | null;
 
@@ -119,6 +121,7 @@ interface UIState {
   setReplyingTo: (msg: Message | null) => void;
   setAISetupOpen: (open: boolean) => void;
   setAgentAccessOpen: (open: boolean) => void;
+  setAgentAccessPrefill: (code: string | null) => void;
   openThread: (conversationId: string, index: number) => void;
   closeThread: () => void;
   setTheme: (theme: Theme) => void;
@@ -226,6 +229,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   replyingTo: null,
   aiSetupOpen: false,
   agentAccessOpen: false,
+  agentAccessPrefillCode: null,
   tabMemory: {},
   _pendingRestore: null,
 
@@ -291,6 +295,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   setReplyingTo: (msg) => set({ replyingTo: msg }),
   setAISetupOpen: (open) => set({ aiSetupOpen: open }),
   setAgentAccessOpen: (open) => set({ agentAccessOpen: open }),
+  setAgentAccessPrefill: (code) => set({ agentAccessPrefillCode: code }),
 
   showToast: (toast) => {
     if (toastTimeout) clearTimeout(toastTimeout);
