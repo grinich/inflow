@@ -6,6 +6,10 @@
 <title>inƒlow — LinkedIn Messages</title>
 <meta name="description" content="Your keyboard-driven LinkedIn inbox. Runs locally via the inƒlow Chrome extension.">
 <meta name="color-scheme" content="light dark">
+<!-- WebMCP origin trial: when enrolling inflow.im (Chrome 149–156), the token
+     goes here as <meta http-equiv="origin-trial" content="…">. Until then the
+     agent bridge works via window.inflowAgent, and WebMCP registration only
+     lights up behind chrome://flags/#enable-webmcp-testing. -->
 <meta property="og:title" content="inƒlow — LinkedIn Messages">
 <meta property="og:description" content="Your keyboard-driven LinkedIn inbox. Runs locally via the inƒlow Chrome extension.">
 <meta property="og:type" content="website">
@@ -508,6 +512,104 @@ html,body{height:100%;overflow:hidden}
     } catch (_) {}
   });
 
+  // ---- Agent tool bridge ----------------------------------------------
+  // window.inflowAgent is the surface AI agents drive on this page (Claude
+  // in Chrome runs JS here; it cannot attach to chrome-extension:// pages).
+  // Calls forward into the app frame as requestId-correlated postMessage.
+  // Anything running on this page can call it — by design: the extension
+  // side only answers this page's origin, and the real authorization is the
+  // user's agent-access settings inside the extension, which answer
+  // "disabled" until they opt in.
+  var agentRequests = {};
+  var agentSeq = 0;
+
+  function callAgentFrame(msg, timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      if (!extensionId || !frame || !frame.contentWindow) {
+        reject(new Error('inflow app frame not loaded'));
+        return;
+      }
+      var requestId = 'ag-' + Date.now() + '-' + (++agentSeq);
+      msg.requestId = requestId;
+      var timer = setTimeout(function () {
+        delete agentRequests[requestId];
+        // An extension too old to know these messages never answers at all —
+        // the timeout is what turns that silence into something actionable.
+        reject(new Error('inflow extension did not respond — it may need an update'));
+      }, timeoutMs);
+      agentRequests[requestId] = { resolve: resolve, timer: timer };
+      try {
+        frame.contentWindow.postMessage(msg, 'chrome-extension://' + extensionId);
+      } catch (err) {
+        clearTimeout(timer);
+        delete agentRequests[requestId];
+        reject(err);
+      }
+    });
+  }
+
+  window.addEventListener('message', function (event) {
+    if (!extensionId || event.origin !== 'chrome-extension://' + extensionId) return;
+    var data = event.data;
+    if (!data) return;
+    if (data.type === 'INFLOW_AGENT_RESULT') {
+      var pending = agentRequests[data.requestId];
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      delete agentRequests[data.requestId];
+      pending.resolve(data.result);
+    } else if (data.type === 'INFLOW_AGENT_TOOLS_CHANGED') {
+      refreshAgentModelContext();
+    }
+  });
+
+  // Defined unconditionally so a call before the frame embeds rejects with a
+  // clear message instead of throwing on undefined.
+  window.inflowAgent = {
+    status: function () {
+      return { frameLoaded: !!(frame && frame.contentWindow), extensionId: extensionId };
+    },
+    listTools: function () {
+      return callAgentFrame({ type: 'INFLOW_AGENT_LIST_TOOLS' }, 10000);
+    },
+    // read_thread and send_message do real LinkedIn round-trips — hence 30s.
+    callTool: function (name, input) {
+      return callAgentFrame({ type: 'INFLOW_AGENT_CALL_TOOL', tool: name, input: input || {} }, 30000);
+    },
+  };
+
+  // Mirror the frame's tools onto this page's own WebMCP surface when the
+  // browser has one (origin trial or chrome://flags/#enable-webmcp-testing),
+  // so WebMCP-capable agents see inflow's tools on inflow.im without knowing
+  // about the iframe. document.modelContext is current Chrome; the navigator
+  // spelling is the pre-150 alias.
+  var agentToolHandles = [];
+  function refreshAgentModelContext() {
+    var mc = document.modelContext || navigator.modelContext;
+    if (!mc || typeof mc.registerTool !== 'function') return;
+    for (var i = 0; i < agentToolHandles.length; i++) {
+      try {
+        if (agentToolHandles[i] && agentToolHandles[i].unregister) agentToolHandles[i].unregister();
+      } catch (_) {}
+    }
+    agentToolHandles = [];
+    window.inflowAgent.listTools().then(function (list) {
+      if (!list || !list.tools) return;
+      list.tools.forEach(function (tool) {
+        try {
+          agentToolHandles.push(mc.registerTool({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            execute: function (input) { return window.inflowAgent.callTool(tool.name, input); },
+          }));
+        } catch (err) {
+          console.warn('inflow: WebMCP registration failed for ' + tool.name, err);
+        }
+      });
+    }).catch(function (_) {});
+  }
+
   function connectUnreadPort(id) {
     var port;
     try {
@@ -576,7 +678,10 @@ html,body{height:100%;overflow:hidden}
     frame.src = frameSrc(id);
     // The app copies text and plays videos (with native-controls fullscreen);
     // cross-origin frames need those capabilities delegated explicitly.
-    frame.setAttribute('allow', 'clipboard-write; fullscreen; autoplay; picture-in-picture');
+    // 'tools' is WebMCP's anticipated permissions-policy token so tools the
+    // frame registers can surface here; browsers ignore unknown allow tokens,
+    // so shipping it ahead of the spec settling is safe.
+    frame.setAttribute('allow', 'clipboard-write; fullscreen; autoplay; picture-in-picture; tools');
     frame.setAttribute('allowfullscreen', '');
     // The app is keyboard-driven and key events go to the focused frame, so
     // hand it focus on load and every time this window regains focus.
@@ -589,6 +694,10 @@ html,body{height:100%;overflow:hidden}
         pendingConversation = null;
         openConversationInApp(waiting);
       }
+      // Mirror the frame's agent tools onto this page's WebMCP surface (no-op
+      // in browsers without one). The frame pings TOOLS_CHANGED on later
+      // settings changes.
+      refreshAgentModelContext();
     });
     document.body.appendChild(frame);
     frame.focus();
