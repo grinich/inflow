@@ -12,6 +12,11 @@ All notable changes to inflow are documented here. This project follows
 <img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" loading="lazy" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button">
 </p>
 
+**The Network view in this release began as a contribution from @bdougie** —
+the first working version of invitation triage and the connections list, and
+the proposal to put the nav state in the URL, which the whole app now uses
+rather than just that view. Thank you.
+
 ### Added
 - **Network view** — keyboard-driven triage for connection requests and a
   browsable list of recent connections. `G N` opens it (or pick "Go to
