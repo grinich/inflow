@@ -246,6 +246,7 @@ async function applyInboundMessageToConversation(
   }
 }
 import type { Message } from '@/types/message';
+import { isRecentlyAccepted } from './accept-suppression';
 
 /**
  * Show a native OS notification for an inbound message.
@@ -819,16 +820,7 @@ async function handleVoyagerEvent(
   // Notify UI of genuinely NEW inbound messages for toast notifications
   const newInbound = [...newInboundByConv.values()].flat();
   if (newInbound.length > 0) {
-    const latest = newInbound.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
-    chrome.runtime.sendMessage({
-      type: 'INCOMING_MESSAGE',
-      id: latest.id,
-      senderName: latest.senderName,
-      senderPicture: latest.senderPicture,
-      body: latest.body,
-      conversationId: latest.conversationId,
-    }).catch(() => {});
-    showNativeNotification(latest);
+    await announceInbound(newInbound.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)));
   }
 }
 
@@ -1453,17 +1445,39 @@ async function handleIncludedMessage(
   // Notify UI of genuinely NEW inbound messages for toast notifications
   const newInbound = [...newInboundByConv.values()].flat();
   if (newInbound.length > 0) {
-    const latestInbound = newInbound.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
-    chrome.runtime.sendMessage({
-      type: 'INCOMING_MESSAGE',
-      id: latestInbound.id,
-      senderName: latestInbound.senderName,
-      senderPicture: latestInbound.senderPicture,
-      body: latestInbound.body,
-      conversationId: latestInbound.conversationId,
-    }).catch(() => {});
-    showNativeNotification(latestInbound);
+    await announceInbound(newInbound.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)));
   }
+}
+
+/**
+ * Tell the UI about a genuinely new inbound message — the in-app toast and the
+ * OS notification both hang off this.
+ *
+ * Skipped for someone whose invitation was just accepted: LinkedIn delivers
+ * their note as an ordinary inbound message seconds later, and announcing it
+ * tells the user about something they themselves just did. Suppressing only
+ * the OS notification was not enough — the in-app toast is a separate
+ * broadcast, and it was the one on screen.
+ */
+export async function announceInbound(latest: {
+  id: string;
+  senderName: string;
+  senderPicture: string;
+  body: string;
+  conversationId: string;
+}): Promise<void> {
+  const conv = await db.conversations.get(latest.conversationId).catch(() => undefined);
+  if (conv?.participantUrns.length === 1 && isRecentlyAccepted(conv.participantUrns[0])) return;
+
+  chrome.runtime.sendMessage({
+    type: 'INCOMING_MESSAGE',
+    id: latest.id,
+    senderName: latest.senderName,
+    senderPicture: latest.senderPicture,
+    body: latest.body,
+    conversationId: latest.conversationId,
+  }).catch(() => {});
+  showNativeNotification(latest);
 }
 
 async function handleSingleMessageEntity(

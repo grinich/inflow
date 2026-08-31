@@ -132,7 +132,7 @@ function RowImpl({
       data-conversation-id={conversation.id}
       onClick={() => onOpen(conversation, index)}
       onContextMenu={(e) => onContextMenu?.(conversation, e)}
-      className={`group relative flex cursor-pointer items-center gap-1.5 py-3 pl-1.5 pr-3 ${
+      className={`group relative flex cursor-pointer items-center gap-1.5 border-b border-edge py-3 pl-1.5 pr-3 ${
         selected ? 'bg-surface-active' : 'hover:bg-surface-hover'
       }`}
     >

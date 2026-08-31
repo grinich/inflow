@@ -20,3 +20,6 @@ dist/
 
 # Vercel CLI project link (contains project/org ids)
 .vercel/
+
+# Scratch worktrees created by agent sessions
+.claude/worktrees/

@@ -11,11 +11,14 @@ import {
   queryHasUnread,
   setUnreadInQuery,
   type AppRoute,
+  type AppView,
 } from '@/lib/app-route';
 
 export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system';
 export type InboxTab = 'focused' | 'other' | 'archived' | 'spam';
+export type { AppView };
+export type NetworkTab = 'invitations' | 'sent' | 'connections';
 
 export interface Toast {
   id: string;
@@ -36,6 +39,30 @@ interface UIState {
   paletteOpen: boolean;
   shortcutOverlayOpen: boolean;
   composeActive: boolean;
+  /**
+   * The conversation whose reply box should take the cursor as soon as it
+   * mounts, or null.
+   *
+   * Focus used to be applied by polling the DOM for any `[data-compose-input]`
+   * and focusing the first hit. That focuses whichever composer happens to be
+   * mounted — not necessarily the conversation we jumped to — and it is a
+   * one-shot: a composer replaced afterwards (which is exactly what the
+   * placeholder → real thread swap does) comes back unfocused. Naming the
+   * conversation instead lets the right composer claim the cursor whenever it
+   * appears, however many times the tree is rebuilt underneath it.
+   */
+  composerFocusFor: string | null;
+  /**
+   * A pending "keep what is typed" handover between two conversations.
+   *
+   * The accept flow replaces a placeholder thread with the real one the moment
+   * it syncs. Copying the text across meant snapshotting the box before the
+   * swap and reloading it after — so anything typed in between was thrown
+   * away, which is what happened to anyone still typing when the thread
+   * arrived. The composer is re-rendered rather than remounted, so it can
+   * simply hold on to what it has while the conversation under it changes.
+   */
+  draftCarry: { from: string; to: string } | null;
   composeNewActive: boolean;
   toast: Toast | null;
   lastUndoAction: (() => void) | null;
@@ -43,6 +70,9 @@ interface UIState {
   searchQuery: string;
   theme: Theme;
   inboxTab: InboxTab;
+  appView: AppView;
+  networkTab: NetworkTab;
+  networkSelectedIndex: number;
   lightboxImageUrl: string | null;
   lightboxVideoUrl: string | null;
   deleteConfirmId: string | null;
@@ -62,12 +92,23 @@ interface UIState {
   toggleShortcutOverlay: () => void;
   setShortcutOverlayOpen: (open: boolean) => void;
   setComposeActive: (active: boolean) => void;
+  /** Ask for the cursor in this conversation's reply box once it exists. */
+  requestComposerFocus: (conversationId: string) => void;
+  /** Called by the composer that took it. */
+  clearComposerFocus: (conversationId: string) => void;
+  /** Ask the composer to keep its text as it moves between conversations. */
+  carryDraftAcross: (from: string, to: string) => void;
+  /** Claim a handover into this conversation; returns the one it came from. */
+  takeDraftCarry: (to: string) => string | null;
   setComposeNewActive: (active: boolean) => void;
   showToast: (toast: Omit<Toast, 'id'>) => void;
   dismissToast: () => void;
   clearLastUndo: () => void;
   setSearchQuery: (query: string) => void;
   setInboxTab: (tab: InboxTab) => void;
+  setAppView: (view: AppView) => void;
+  setNetworkTab: (tab: NetworkTab) => void;
+  setNetworkSelectedIndex: (index: number) => void;
   openLightbox: (url: string) => void;
   closeLightbox: () => void;
   openVideoLightbox: (url: string) => void;
@@ -138,12 +179,13 @@ applyTheme(initialTheme);
 // Restore view on load
 const initialView = getStoredView();
 
-// The nav state — which inbox tab, and whether the unread filter is on — is
-// routed by the URL hash (see lib/app-route). Read it on load so a reload or a
-// deep link lands exactly where it left off. The URL wins over the
-// localStorage-restored tab when it carries one; a bare `app.html` falls back
-// to the stored tab.
+// The nav state — the top-level view, which inbox tab, and whether the unread
+// filter is on — is routed by the URL hash (see lib/app-route). Read it on load
+// so a reload or a deep link lands exactly where it left off. The URL wins over
+// the localStorage-restored tab when it carries one; a bare `app.html` falls
+// back to the stored tab.
 const initialRoute = readAppRouteFromLocation();
+const initialAppView = initialRoute.view;
 const initialInboxTab = locationHasRoute() ? initialRoute.inboxTab : initialView.inboxTab;
 const initialSearchQuery = initialRoute.unread ? 'is:unread' : '';
 
@@ -162,6 +204,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   paletteOpen: false,
   shortcutOverlayOpen: false,
   composeActive: false,
+  composerFocusFor: null,
+  draftCarry: null,
   composeNewActive: false,
   toast: null,
   lastUndoAction: null,
@@ -169,6 +213,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   searchQuery: initialSearchQuery,
   theme: initialTheme,
   inboxTab: initialInboxTab,
+  appView: initialAppView,
+  networkTab: 'invitations',
+  networkSelectedIndex: 0,
   lightboxImageUrl: null,
   lightboxVideoUrl: null,
   deleteConfirmId: null,
@@ -188,6 +235,19 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleShortcutOverlay: () => set((s) => ({ shortcutOverlayOpen: !s.shortcutOverlayOpen })),
   setShortcutOverlayOpen: (open) => set({ shortcutOverlayOpen: open }),
   setComposeActive: (active) => set({ composeActive: active }),
+  requestComposerFocus: (conversationId) =>
+    set({ composeActive: true, composerFocusFor: conversationId }),
+  // Only the composer that was asked for may clear the request; a different
+  // one unmounting must not cancel a focus meant for the thread arriving next.
+  clearComposerFocus: (conversationId) =>
+    set((s) => (s.composerFocusFor === conversationId ? { composerFocusFor: null } : {})),
+  carryDraftAcross: (from, to) => set({ draftCarry: { from, to } }),
+  takeDraftCarry: (to) => {
+    const carry = get().draftCarry;
+    if (carry?.to !== to) return null;
+    set({ draftCarry: null });
+    return carry.from;
+  },
   setComposeNewActive: (active) => set({ composeNewActive: active }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setInboxTab: (tab) => {
@@ -210,6 +270,15 @@ export const useUIStore = create<UIState>((set, get) => ({
     set(newState);
     saveView({ inboxTab: tab, selectedConversationId: newState.selectedConversationId, selectedIndex: newState.selectedIndex, viewMode: s.viewMode });
   },
+  setAppView: (view) => {
+    if (view === get().appView) return;
+    set({ appView: view, networkSelectedIndex: 0 });
+  },
+  setNetworkTab: (tab) => {
+    if (tab === get().networkTab) return;
+    set({ networkTab: tab, networkSelectedIndex: 0 });
+  },
+  setNetworkSelectedIndex: (index) => set({ networkSelectedIndex: Math.max(0, index) }),
   openLightbox: (url) => set({ lightboxImageUrl: url }),
   closeLightbox: () => set({ lightboxImageUrl: null }),
   openVideoLightbox: (url) => set({ lightboxVideoUrl: url }),
@@ -281,8 +350,12 @@ export const useUIStore = create<UIState>((set, get) => ({
 // nav state has to remember to route itself, and setSearchQuery — which the
 // unread filter rides on — fires on every keystroke.
 
-function routeOf(state: { inboxTab: InboxTab; searchQuery: string }): AppRoute {
-  return { inboxTab: state.inboxTab, unread: queryHasUnread(state.searchQuery) };
+function routeOf(state: { appView: AppView; inboxTab: InboxTab; searchQuery: string }): AppRoute {
+  return {
+    view: state.appView,
+    inboxTab: state.inboxTab,
+    unread: queryHasUnread(state.searchQuery),
+  };
 }
 
 function syncRoute(route: AppRoute, opts: { replace?: boolean; force?: boolean }) {
@@ -300,10 +373,11 @@ useUIStore.subscribe((state, prev) => {
   const route = routeOf(state);
   const previous = routeOf(prev);
   if (appRouteToHash(route) === appRouteToHash(previous)) return;
-  // A tab change is a destination and belongs in history. Toggling unread only
-  // filters the tab you are already on, and typing in the search box can flip
-  // it repeatedly — so it replaces rather than stacking up.
-  syncRoute(route, { replace: route.inboxTab === previous.inboxTab });
+  // A view or tab change is a destination and belongs in history. Toggling
+  // unread only filters the tab you are already on, and typing in the search
+  // box can flip it repeatedly — so it replaces rather than stacking up.
+  const onlyUnreadChanged = route.view === previous.view && route.inboxTab === previous.inboxTab;
+  syncRoute(route, { replace: onlyUnreadChanged });
 });
 
 // Back/forward, or an edited URL, changes the hash without going through the
@@ -311,10 +385,13 @@ useUIStore.subscribe((state, prev) => {
 // hash already matches, so this never ping-pongs.
 subscribeToAppRouteHash((route) => {
   const store = useUIStore.getState();
-  if (route.inboxTab !== store.inboxTab) store.setInboxTab(route.inboxTab);
-  // Read after setInboxTab, which clears the query on a tab change.
-  const current = useUIStore.getState().searchQuery;
-  if (route.unread !== queryHasUnread(current)) {
-    store.setSearchQuery(setUnreadInQuery(current, route.unread));
+  if (route.view !== store.appView) store.setAppView(route.view);
+  if (route.view === 'inbox') {
+    if (route.inboxTab !== store.inboxTab) store.setInboxTab(route.inboxTab);
+    // Read after setInboxTab, which clears the query on a tab change.
+    const current = useUIStore.getState().searchQuery;
+    if (route.unread !== queryHasUnread(current)) {
+      store.setSearchQuery(setUnreadInQuery(current, route.unread));
+    }
   }
 });

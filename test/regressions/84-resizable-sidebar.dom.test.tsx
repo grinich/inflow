@@ -151,16 +151,23 @@ describe('narrow-sidebar folder dropdown', () => {
     sendBridgeMessage.mockResolvedValue({ success: true });
   });
 
-  it('renders both selector variants, container-gated by sidebar width', () => {
+  it('shows the folder dropdown at every width', () => {
+    // There used to be a second, segmented form above 352px. Four folder
+    // buttons plus Unread, Network and compose did not fit the widths people
+    // actually use, and the row wrapped — see #171.
     render(<ConversationListHeader />);
-    // Segmented control: visible only when the sidebar is wide enough.
-    const segmented = screen.getByRole('button', { name: 'Focused' }).parentElement!;
-    expect(segmented.className).toContain('hidden');
-    expect(segmented.className).toContain('@min-[352px]:flex');
-    // Dropdown: the narrow-width replacement.
-    const select = screen.getByLabelText('Folder');
-    expect(select.parentElement!.className).toContain('@min-[352px]:hidden');
-    expect((select as HTMLSelectElement).value).toBe('focused');
+
+    const select = screen.getByLabelText('Folder') as HTMLSelectElement;
+
+    expect(select.value).toBe('focused');
+    expect(screen.queryByRole('button', { name: 'Focused' })).toBeNull();
+  });
+
+  it('cannot be dragged narrower than the header row', () => {
+    // The row needs 352px including its own padding, measured in a browser
+    // with the real fonts. Below that the compose button falls off the end.
+    expect(MIN_SIDEBAR_WIDTH).toBeGreaterThanOrEqual(352);
+    expect(clampSidebarWidth(120, 1600)).toBe(MIN_SIDEBAR_WIDTH);
   });
 
   it('changing the dropdown switches folders and triggers the category sync', () => {

@@ -72,6 +72,22 @@ export function useOptimisticAction() {
    * archive the row and the twin stays in Focused, bringing the conversation
    * straight back on the next render.
    */
+  /**
+   * A `draft-` row is a local stand-in — a composer target, or the placeholder
+   * shown while an accepted invitation's thread syncs. LinkedIn has no thread
+   * behind it, so sending its id to Voyager earns a 400:
+   *
+   *   The EntityKey "draft-ACoAA…" is in an invalid format
+   *
+   * Archiving, starring, moving or marking one read is meaningless anyway, so
+   * these stop here rather than failing and rolling back in front of the user.
+   * Sending is the exception — that is how a draft becomes a real thread — and
+   * is deliberately not guarded.
+   */
+  function isLocalDraft(conversation: Pick<Conversation, 'draft' | 'id'>): boolean {
+    return conversation.draft === 1 || conversation.id.startsWith('draft-');
+  }
+
   function threadIdsOf(conversation: Conversation): string[] {
     return conversation.mergedIds?.length
       ? [conversation.id, ...conversation.mergedIds]
@@ -111,6 +127,7 @@ export function useOptimisticAction() {
   }
 
   async function archiveConversation(conversation: Conversation) {
+    if (isLocalDraft(conversation)) return;
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
     // Roll back to the archived flag we saw — hardcoding archived: 0 with a
@@ -196,6 +213,7 @@ export function useOptimisticAction() {
    * (the twin isn't in the list, so nothing else can ever mark it).
    */
   async function markRead(conversationId: string, mergedIds?: string[]) {
+    if (conversationId.startsWith('draft-')) return;
     if (mergedIds?.length) {
       for (const id of mergedIds) {
         const twin = await db.conversations.get(id);
@@ -237,6 +255,7 @@ export function useOptimisticAction() {
   }
 
   async function markUnread(conversationId: string) {
+    if (conversationId.startsWith('draft-')) return;
     await db.conversations.update(conversationId, { read: 0 });
 
     const bridgeMsg = { type: 'MARK_UNREAD' as const, conversationId };
@@ -421,6 +440,14 @@ export function useOptimisticAction() {
     files?: File[],
     replyTo?: { messageUrn: string; senderUrn: string; senderName: string; sentAt: number; body: string }
   ): Promise<void> {
+    // A draft has no server-side thread to archive — sending is what creates
+    // one. Archiving by the draft's id would earn the same 400 as anywhere
+    // else, and roll back in front of the user right after a successful send.
+    // The send still happens; only the archive half is skipped.
+    if (conversationId.startsWith('draft-')) {
+      await sendMessage(conversationId, body, files, replyTo);
+      return;
+    }
     const conv = await db.conversations.get(conversationId);
     if (!conv) return;
 
@@ -520,6 +547,7 @@ export function useOptimisticAction() {
       failMessage: string;
     }
   ) {
+    if (isLocalDraft(conversation)) return;
     const actionId = nanoid();
     const previousCategory = conversation.category || 'PRIMARY_INBOX';
     const ids = await storedThreadIds(conversation);
@@ -630,6 +658,12 @@ export function useOptimisticAction() {
   }
 
   async function deleteConversation(conversation: Conversation) {
+    // Nothing to delete server-side; just drop the local stand-in.
+    if (isLocalDraft(conversation)) {
+      await db.conversations.delete(conversation.id).catch(() => {});
+      await db.draftAttachments.delete(conversation.id).catch(() => {});
+      return;
+    }
     // Snapshot the STORED row for rollback — the caller's object is the
     // display-merged copy from useConversations (mergedIds plus read/starred
     // overlaid at query time) and must never be persisted back.
@@ -702,6 +736,7 @@ export function useOptimisticAction() {
   }
 
   async function starConversation(conversation: Conversation) {
+    if (isLocalDraft(conversation)) return;
     // Branch on the STORED row, not the render snapshot — and make the
     // read-modify-write atomic: two rapid presses whose `get`s both resolve
     // before either `update` commits would otherwise both take the star

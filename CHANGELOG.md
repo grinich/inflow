@@ -7,6 +7,12 @@ All notable changes to inflow are documented here. This project follows
 ## [Unreleased]
 
 ### Fixed
+- **Archiving a conversation that was still being created** — the row shown
+  while a newly accepted invitation's thread arrives is a local stand-in, so
+  archiving, starring, moving or deleting it asked LinkedIn about a
+  conversation it had never heard of and failed with *"failed to archive,
+  rolling back"*. Those actions now stay local, and sending still works — that
+  is what turns the stand-in into a real thread.
 - **Moving a conversation out of Archive from the command palette** — the
   palette's archive entry already restored a conversation to Focused when you
   were in the Archived tab, matching `E`, but it still called itself *Archive
@@ -23,6 +29,15 @@ All notable changes to inflow are documented here. This project follows
   to Other, so the two keys are the two ways back out.
 
 ### Added
+- **Network view** — keyboard-driven triage for connection requests and a
+  browsable list of recent connections. `G N` opens it (or pick "Go to
+  Network" from the command palette); `1` / `2` / `3` switch between
+  Invitations, Connections and Sent, `J` / `K` move, `/` filters, `Enter` accepts
+  an invitation or messages a connection, `D` / `X` / `⌫` ignores, `P` opens
+  the profile, and `Esc` returns to the inbox. It has its own address
+  (`#/network`), so reloads and deep links land on it, and a **Network**
+  button sits beside the Unread filter for anyone who would rather not learn
+  the chord.
 - **Reloading keeps your place** — which tab you are on, and whether the unread
   filter is on, now live in the URL: `#/inbox/archived`, `#/inbox/other?unread`.
   ⌘R off Archive used to drop you back on Focused. Back and forward step
@@ -33,6 +48,56 @@ All notable changes to inflow are documented here. This project follows
   This works through inflow.im/app as well, where the app runs in an iframe: it
   hands its route to the page around it, which keeps it in the address bar and
   gives it back on the next load.
+
+- **A Sent tab** — every connection request you're still waiting on, with the
+  note you attached and a **Withdraw** button on each. `3` opens it.
+
+  LinkedIn no longer serves this over the API inflow uses for everything else,
+  so it comes from their invitation manager page instead — the same pages its
+  own infinite scroll asks for, walked to the end rather than stopping at the
+  first ten.
+- **Accepting a request with a note drops you into the reply** — the note is
+  the first message of the thread LinkedIn creates when you accept, so inflow
+  switches to that thread at once and puts the cursor in the reply box. The
+  thread takes a moment to arrive, so it stands in a placeholder you can
+  already type into and swaps the real one underneath when it lands, carrying
+  anything you have written. And it doesn't announce their note as a new
+  message — you just accepted it. Accepting a request without a note leaves
+  you on the list, so triaging a run of them is uninterrupted.
+- **Mutual connections on each invitation** — opening a request shows the same
+  *"Viren Baraiya and 62 other mutual connections"* line LinkedIn does, faces
+  and all, under the bio. It is usually what decides a request, and it rides
+  along on the request inflow already makes.
+
+### Changed
+- **`⌫` archives in the inbox**, matching `E`, so the same key clears a
+  row in both the inbox and the network view.
+- **The folder selector is a dropdown at every width** — Focused, Other,
+  Archive and Spam were four buttons in a row, which stopped fitting beside
+  Unread, Network and compose once the sidebar could be narrowed, and the
+  toolbar wrapped. The sidebar's minimum width went up a little for the same
+  reason: it can no longer be dragged narrower than its own header.
+- **Focus outlines only appear when you're actually using the keyboard** — a
+  button you *clicked* picked up an outline as soon as you pressed any key,
+  which in an app driven by `1` / `2` / `3` and `J` / `K` meant immediately. It
+  would then sit on, say, Unread while you were changing folders. Tabbing to a
+  button still outlines it, which is what the outline is for.
+
+### Fixed
+- **Invitations no longer go missing on large accounts** — three separate
+  faults, all of which bite hardest on the accounts with the most requests.
+  The walk stopped when a page of invitations *parsed* short, which a full
+  page does whenever a single entity is in a shape inflow doesn't recognise —
+  and stopping that way also convinced it that it had seen the whole list, so
+  it then deleted every pending invitation past that point. A single failed
+  request — likely on any account needing ten or more sequential fetches —
+  threw away every invitation already collected instead of keeping them. And
+  the ceiling sat at 400, which accounts in the high hundreds were already
+  brushing against.
+- **Profile pictures on invitations** — LinkedIn moves shared sub-objects out
+  of the record that references them, and inflow only understood the inline
+  form, so every invitation fell back to a grey initial. Sender profiles are
+  also kept now instead of being discarded after each sync.
 
 ## [0.6.1] - 2026-08-29
 

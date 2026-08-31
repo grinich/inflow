@@ -106,6 +106,13 @@ inflow notifies you in-app when a new release is out — see [Updating](#updatin
 | `newer:Nd` | Active within the last N days |
 | `older:Nd` | Inactive for at least N days |
 
+### Network
+- View incoming connection requests with their notes; accept or ignore without leaving the keyboard
+- Browse recent connections sorted by recency or name, with instant filtering
+- One-keystroke "message this connection" that drops into the composer
+- `G N` to open, `1` / `2` / `Tab` to switch Invitations / Connections, `Enter` to accept/message, `D` / `X` / `⌫` to ignore, `P` to open a profile, `Esc` back to the inbox
+- Routed by the URL hash — `app.html#/network` deep-links straight in, and Chrome's back button returns to the inbox
+
 ### Keyboard shortcuts
 
 | Key | Action |
@@ -114,6 +121,7 @@ inflow notifies you in-app when a new release is out — see [Updating](#updatin
 | `Enter` | Open conversation |
 | `1` / `2` / `3` / `4` | Jump to Focused / Other / Archived / Spam |
 | `G S` / `G U` | Go to starred / unread |
+| `G N` | Go to Network (invitations & connections) |
 | `R` | Reply (focus compose) |
 | `Enter` | Send message (in compose) |
 | `⌘+Enter` | Send + archive |

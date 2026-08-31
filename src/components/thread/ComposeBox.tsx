@@ -8,6 +8,7 @@ import { EmojiAutocomplete } from './EmojiAutocomplete';
 import { useAutocomplete } from '@/hooks/useAutocomplete';
 import { useReplySuggestions } from '@/hooks/useReplySuggestions';
 import type { Message } from '@/types/message';
+import { DRAFT_HANDOVER } from '@/lib/draft-handover';
 
 const FILE_ICONS: Record<string, string> = {
   'image': '🖼',
@@ -187,6 +188,10 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     // Restore draft when switching conversations
     useEffect(() => {
       let cancelled = false;
+      // A handover into this conversation has been honoured by the departing
+      // composer's flush (below); the text is already in the row we are about
+      // to read. Consume the marker so it cannot apply twice.
+      useUIStore.getState().takeDraftCarry(conversationId);
       draftLoadedRef.current = false;
       lastSavedKeyRef.current = null;
       setBody('');
@@ -204,7 +209,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         }
       });
       return () => { cancelled = true; };
-    }, [conversationId]);
+    }, [conversationId, persistDraft]);
 
     // Auto-focus textarea when reply is selected
     useEffect(() => {
@@ -212,6 +217,48 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         textareaRef.current.focus();
       }
     }, [replyingTo]);
+
+    // Pick up a draft handed to this conversation after we already read ours.
+    //
+    // The accept flow moves the reply typed against a placeholder onto the
+    // real thread the moment it syncs, which can land after this composer has
+    // mounted and read an empty row. Without this the text is in the database
+    // and not on screen — the same thing as losing it, from the outside.
+    useEffect(() => {
+      function onHandover(e: Event) {
+        if ((e as CustomEvent).detail !== conversationId) return;
+        // Never over an in-progress reply: what is being typed wins.
+        if (bodyRef.current !== '' || attachmentsRef.current.length > 0) return;
+        loadDraft(conversationId).then((draft) => {
+          if (!draft.text && !draft.files.length) return;
+          if (bodyRef.current !== '' || attachmentsRef.current.length > 0) return;
+          lastSavedKeyRef.current = draftKey(draft.text, draft.files);
+          draftLoadedRef.current = true;
+          setBody(draft.text);
+          setAttachments(draft.files);
+        });
+      }
+      document.addEventListener(DRAFT_HANDOVER, onHandover);
+      return () => document.removeEventListener(DRAFT_HANDOVER, onHandover);
+    }, [conversationId]);
+
+    // Take the cursor when something asked for THIS conversation's reply box.
+    //
+    // Accepting an invitation jumps here and expects to be typing immediately.
+    // Doing that from the outside meant polling for any composer and focusing
+    // the first one found, which left a window where the box was on screen and
+    // keystrokes went to the document — the missing first character — and did
+    // not survive the placeholder being swapped for the real thread. Claiming
+    // it here means whenever this composer mounts, however often the tree is
+    // rebuilt, the cursor lands in it.
+    const composerFocusFor = useUIStore((s) => s.composerFocusFor);
+    useEffect(() => {
+      if (composerFocusFor !== conversationId) return;
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      useUIStore.getState().clearComposerFocus(conversationId);
+    }, [composerFocusFor, conversationId]);
 
     // Listen for files dropped on the app window
     useEffect(() => {
@@ -256,7 +303,23 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         persistDraft(conversationId, bodyRef.current, attachmentsRef.current);
       }, SAVE_INTERVAL);
       return () => {
-        persistDraft(conversationId, bodyRef.current, attachmentsRef.current);
+        // Leaving a conversation flushes what is in the box, so the draft is
+        // never more than a keystroke behind. When something has asked for the
+        // draft to move — the accept flow replacing its placeholder with the
+        // real thread — flush it to the DESTINATION instead.
+        //
+        // This is what makes the swap safe for someone still typing. Copying
+        // the text across beforehand meant reading the box at some earlier
+        // moment and everything typed after that read was discarded. The flush
+        // happens as the box goes away, so there is nothing left to miss, and
+        // IndexedDB orders this write before the arriving composer's read.
+        const carry = useUIStore.getState().draftCarry;
+        const hasContent = bodyRef.current !== '' || attachmentsRef.current.length > 0;
+        if (carry?.from === conversationId && hasContent) {
+          persistDraft(carry.to, bodyRef.current, attachmentsRef.current, true);
+        } else {
+          persistDraft(conversationId, bodyRef.current, attachmentsRef.current);
+        }
         clearInterval(timer);
       };
     }, [conversationId, persistDraft]);
@@ -620,7 +683,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             onBlur={() => { setComposeActive(false); setEmojiQuery(null); }}
             placeholder="Reply..."
             rows={2}
-            data-compose-input=""
+            data-compose-input={conversationId}
             data-has-attachments={attachments.length > 0 ? '' : undefined}
             data-emoji-open={emojiOpen ? '' : undefined}
             data-autocomplete-open={autocomplete.isOpen || undefined}

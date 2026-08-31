@@ -1,7 +1,5 @@
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { AuthGate } from '@/components/common/AuthGate';
-import { ConversationList } from '@/components/conversations/ConversationList';
-import { ThreadView } from '@/components/thread/ThreadView';
 import { CommandPalette } from '@/components/command-palette/CommandPalette';
 import { ShortcutOverlay, SHORTCUT_PANEL_PADDING } from '@/components/common/ShortcutOverlay';
 import { ImageLightbox } from '@/components/common/ImageLightbox';
@@ -14,18 +12,19 @@ import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
 import { PendingNavigation } from '@/components/common/PendingNavigation';
 import { DebugPanel } from '@/components/common/DebugPanel';
-import { NewMessageComposer } from '@/components/composer/NewMessageComposer';
+import { InboxView } from '@/components/inbox/InboxView';
+import { NetworkView } from '@/components/network/NetworkView';
 import { useConversations } from '@/hooks/useConversations';
 import { useRemoteSearch } from '@/hooks/useRemoteSearch';
 import { useKeyboard } from '@/hooks/useKeyboard';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
-import { useResizableSidebar } from '@/hooks/useResizableSidebar';
-import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
 import { useUIStore } from '@/store/ui-store';
 import { consumeComposeParam, consumeConversationParam, isEmbeddedInShell } from '@/lib/launch-params';
 import { onShellOpenConversation } from '@/lib/shell-messages';
 import { navigateToConversation } from '@/lib/navigate-to-conversation';
+import { belongsToTab } from '@/lib/inbox-filters';
+import { db } from '@/db/database';
 
 export function App() {
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -33,7 +32,7 @@ export function App() {
   const searchQuery = useUIStore((s) => s.searchQuery);
   const { remoteResults, isSearching, hasMore, loadMore } = useRemoteSearch();
   const selectedConversationId = useUIStore((s) => s.selectedConversationId);
-  const composeNewActive = useUIStore((s) => s.composeNewActive);
+  const appView = useUIStore((s) => s.appView);
   const shortcutPanelOpen = useUIStore((s) => s.shortcutOverlayOpen);
   const deleteConfirmId = useUIStore((s) => s.deleteConfirmId);
   const setDeleteConfirmId = useUIStore((s) => s.setDeleteConfirmId);
@@ -41,8 +40,6 @@ export function App() {
   const setSpamConfirmId = useUIStore((s) => s.setSpamConfirmId);
   const actions = useOptimisticAction();
   useSendObjectUrlReaper();
-  const { width: sidebarWidth, isDragging: isDraggingSidebar, onDividerMouseDown, onDividerDoubleClick } = useResizableSidebar();
-  const railMode = useCollapsedSidebar();
   const [debugOpen, setDebugOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragCounter = useRef(0);
@@ -185,17 +182,37 @@ export function App() {
       if (idx !== -1) {
         store.setSelectedIndex(idx);
       } else {
-        // Selected conversation was removed (archived/deleted/spam/etc.)
-        // Select the conversation at the same position, or the last one
-        const fallbackIdx = Math.min(store.selectedIndex, conversations.length - 1);
-        const fallback = conversations[fallbackIdx];
-        if (fallback && fallback.draft !== 1) {
-          store.openThread(fallback.id, fallbackIdx);
-        } else {
-          // Fallback was a draft — find next non-draft
-          const first = firstNonDraft();
-          if (first) store.openThread(first.conv.id, first.idx);
-        }
+        // Absent from the list means one of two things, and they need opposite
+        // responses: the conversation was removed (archived, deleted, marked
+        // spam) and we should move on — or it was written a beat ago and the
+        // live query has not reported it yet, in which case it is about to
+        // appear and recovering would throw away a perfectly good selection.
+        //
+        // Recovering from the second case is how accepting an invitation could
+        // land on whoever was showing before, so the reply being typed became
+        // a draft to them. Check the database before giving up on it.
+        let cancelled = false;
+        void (async () => {
+          const row = db ? await db.conversations.get(selectedConversationId) : undefined;
+          if (cancelled) return;
+          const current = useUIStore.getState();
+          // Still there and headed for this tab — wait for the list. With a
+          // search or filter active the list is a narrower thing than the tab,
+          // so a row can be legitimately excluded and waiting would strand the
+          // selection; recover as before.
+          if (row && !current.searchQuery && belongsToTab(row, current.inboxTab)) return;
+          if (current.selectedConversationId !== selectedConversationId) return;
+          const fallbackIdx = Math.min(current.selectedIndex, conversations.length - 1);
+          const fallback = conversations[fallbackIdx];
+          if (fallback && fallback.draft !== 1) {
+            current.openThread(fallback.id, fallbackIdx);
+          } else {
+            // Fallback was a draft — find next non-draft
+            const first = firstNonDraft();
+            if (first) current.openThread(first.conv.id, first.idx);
+          }
+        })();
+        return () => { cancelled = true; };
       }
     }
   }, [conversations, selectedConversationId]);
@@ -216,10 +233,6 @@ export function App() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [toggleDebug, debugOpen]);
-
-  const selectedConversation = selectedConversationId
-    ? conversations.find((c) => c.id === selectedConversationId) || null
-    : null;
 
   const deleteConversation = deleteConfirmId
     ? conversations.find((c) => c.id === deleteConfirmId) || null
@@ -245,37 +258,22 @@ export function App() {
     <AuthGate>
       <UpdateBanner />
       <div className={`flex min-h-0 flex-1 overflow-hidden bg-surface text-fg transition-[padding-bottom] duration-200 ease-out ${shortcutPanelOpen ? SHORTCUT_PANEL_PADDING : 'pb-0'}`}>
-        {/* Conversation List — collapses to a fixed avatar rail on narrow windows */}
-        <div style={{ width: railMode ? RAIL_WIDTH : sidebarWidth }} className="flex h-full shrink-0 flex-col border-r border-edge">
-          <ConversationList conversations={conversations} isLoading={isLoading} isDiscovering={isDiscovering} category={category} isSearching={isSearching} hasMoreSearchResults={hasMore} onLoadMoreSearch={loadMore} onOpenDebug={() => setDebugOpen(true)} compact={railMode} />
-        </div>
-
-        {/* Resize handle: thin visual divider with a wider invisible hit zone.
-            Drag to resize the sidebar, double-click to reset. Hidden in rail
-            mode — the rail width is fixed. */}
-        {!railMode && (
-          <div
-            onMouseDown={onDividerMouseDown}
-            onDoubleClick={onDividerDoubleClick}
-            title="Drag to resize · double-click to reset"
-            className={`group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize ${isDraggingSidebar ? 'bg-blue-500/40' : ''}`}
-          >
-            <div className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors ${isDraggingSidebar ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-500/60'}`} />
-          </div>
+        {/* Route switch — the view is the URL hash (see lib/app-route). */}
+        {appView === 'network' ? (
+          <NetworkView />
+        ) : (
+          <InboxView
+            conversations={conversations}
+            isLoading={isLoading}
+            isDiscovering={isDiscovering}
+            category={category}
+            isSearching={isSearching}
+            hasMoreSearchResults={hasMore}
+            onLoadMoreSearch={loadMore}
+            onOpenDebug={() => setDebugOpen(true)}
+            composeRef={composeRef}
+          />
         )}
-
-        {/* Thread View or New Message Composer */}
-        <div className="flex h-full min-w-0 flex-1 flex-col">
-          {composeNewActive ? (
-            <NewMessageComposer
-              key={selectedConversation?.draft === 1 ? selectedConversation.id : 'new'}
-              draftConversation={selectedConversation?.draft === 1 ? selectedConversation : undefined}
-              composeRef={composeRef}
-            />
-          ) : selectedConversation ? (
-            <ThreadView conversation={selectedConversation} composeRef={composeRef} />
-          ) : null}
-        </div>
       </div>
 
       {/* Drag-and-drop overlay */}

@@ -1,4 +1,4 @@
-import Dexie from 'dexie';
+import Dexie, { type EntityTable } from 'dexie';
 import {
   archiveConversation,
   unarchiveConversation,
@@ -22,6 +22,11 @@ import { burstDiscover, toggleSyncPause, broadcastProgress } from './sync/sync-c
 import { backfillBatch } from './sync/sync-backfill';
 import { fetchPost } from './api/posts';
 import { prefetchSharedPosts, POST_CACHE_TTL } from './sync/prefetch-posts';
+import { fetchInvitationsRaw, fetchConnectionsRaw, respondToInvitation } from './api/relationships';
+import { fetchSentInvitationsPage, fetchSentInvitationsAt, withdrawSentInvitation } from './api/sent-invitations';
+import { scrapeSentInvitations, SENT_PAGE_SIZE } from '@/lib/sent-invitation-scraper';
+import { recordAcceptedSender } from './realtime/accept-suppression';
+import { normalizeInvitations, normalizeConnections, invitationPaging } from '@/lib/network-normalizer';
 import { normalizeConversations, normalizeMessages, extractSentMessage } from '@/lib/voyager-normalizer';
 import { applyPendingReceipts, consumePendingReceipts } from './realtime/pending-receipts';
 import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
@@ -37,6 +42,8 @@ import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression
 import { getSSEStatus } from './realtime/sse-client';
 import { checkForUpdate } from './update-check';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
+import type { Invitation, SentInvitation } from '@/types/network';
+import type { Profile } from '@/types/profile';
 
 /**
  * Serialize a mutation (archive/move/read/star/delete/edit) on the same
@@ -69,6 +76,49 @@ export function setupMessageRouter() {
       return true; // keep channel open for async
     }
   );
+}
+
+
+/**
+ * Store a page of invitations as it arrives, leaving alone any row the user
+ * has already acted on locally.
+ *
+ * Both walks used to buffer every page and write once at the end, so a few
+ * hundred sent requests meant thirty-odd sequential fetches — the first of
+ * them a 600KB page — before a single row appeared. Writing per page lets the
+ * live query paint the list while the rest of the walk runs.
+ */
+async function storeArrivedPage<T extends { id: string; status: string }>(
+  table: EntityTable<T, 'id'>,
+  rows: T[]
+): Promise<number> {
+  if (!rows.length) return 0;
+  const ids = rows.map((r) => r.id) as Parameters<typeof table.bulkGet>[0];
+  const existing = await table.bulkGet(ids);
+  // Never resurrect one the user accepted, ignored or withdrew since.
+  const fresh = rows.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
+  if (fresh.length) await table.bulkPut(fresh);
+  // How many we had never seen. A page of nothing new is the signal that the
+  // walk has caught up with what is already stored.
+  return existing.filter((row) => !row).length;
+}
+
+/**
+ * How long a complete walk stays authoritative.
+ *
+ * Removals are the only change an incremental walk cannot see — a withdrawn or
+ * expired request just vanishes from the middle of the list — so the full read
+ * still happens, just hourly rather than on every open of the view.
+ */
+const WALK_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** Whether this walk has to read every page, or may stop once it recognises one. */
+async function mustReadEverything(name: string): Promise<boolean> {
+  const prior = await db.walkState.get(name);
+  // Never completed one — including after a reset, which clears this — means
+  // we cannot assume anything about the pages we are not about to read.
+  if (!prior?.completedAt) return true;
+  return Date.now() - prior.completedAt > WALK_TTL_MS;
 }
 
 export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse> {
@@ -310,6 +360,212 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       const results = await searchTypeahead(msg.query);
       return { success: true, data: results };
     }
+    case 'FETCH_INVITATIONS': {
+      const PAGE = 40;
+      // 382 invitations already sits inside the old 10-page (400) cap, which
+      // would have started silently truncating within a few weeks. This ceiling
+      // is a runaway stop, not an expected limit — the walk normally ends on a
+      // short page long before reaching it.
+      const MAX_PAGES = 50;
+      const invitations: Invitation[] = [];
+      const seenIds = new Set<string>();
+      const readEverything = await mustReadEverything('invitations');
+      let added = 0;
+      // Captured BEFORE the walk starts writing. Pages now land as they
+      // arrive, so reading this afterwards would count rows this very walk
+      // added and the truncation ratio below would no longer mean what it says.
+      const heldBefore = await db.invitations.where('status').equals('pending').count();
+      // Walk every page: the view has no load-more, so anything left unfetched
+      // is permanently invisible to the user.
+      let complete = false;
+      let total: number | null = null;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        let raw: any;
+        try {
+          raw = await fetchInvitationsRaw(page * PAGE, PAGE);
+        } catch (err) {
+          // Keep what we already have. Ten-plus sequential Voyager calls will
+          // occasionally trip a rate limit, and discarding several hundred
+          // successfully fetched invitations over the last page is far worse
+          // than storing a prefix. `complete` stays false, so we won't prune.
+          debugLog('error', `FETCH_INVITATIONS stopped at page ${page}: ${String(err)}`);
+          break;
+        }
+        const { invitations: batch, profiles: batchProfiles, rawCount } = normalizeInvitations(raw);
+        total ??= invitationPaging(raw)?.total ?? null;
+        // Guard against a server that ignores `start` and replays page 1 forever.
+        const unseen = batch.filter((i) => !seenIds.has(i.id));
+        for (const i of unseen) seenIds.add(i.id);
+        invitations.push(...unseen);
+        // Show this page now rather than at the end of the walk.
+        const newThisPage = await storeArrivedPage(db.invitations, unseen);
+        added += newThisPage;
+        // These senders are often richer than the sparse profiles the
+        // Messenger API returns, and they were previously discarded entirely.
+        await mergeProfiles(batchProfiles);
+        // Same rule as the sent walk. `total` from this endpoint has been seen
+        // reporting the PAGE size rather than the set size, which is exactly
+        // why the arithmetic has to agree before we trust it — a bogus total
+        // will not match, and we read everything as before.
+        if (!readEverything && newThisPage === 0 && total !== null && heldBefore + added === total) {
+          debugLog('info', `FETCH_INVITATIONS stopped at page ${page}: already up to date`);
+          break;
+        }
+        // `paging.total` is only ever trusted in the direction of fetching
+        // MORE. This endpoint has been OBSERVED reporting `total` as the page
+        // size (40) rather than the size of the full set: treating it as a
+        // stop condition cost a 382-invitation account all but the first page,
+        // because the walk stopped at 40, called itself complete, and the
+        // prune deleted the other 342. It may only withhold the completeness
+        // claim or extend the walk, never end it.
+        const serverSaysMore = total !== null && invitations.length < total;
+        // A page that repeats what we've already seen means the server is
+        // ignoring `start`; we have to stop either way, but it is not proof
+        // that we saw everything.
+        if (unseen.length === 0) {
+          complete = !serverSaysMore;
+          break;
+        }
+        // Stop on the SERVER's page size, not the normalized count: a full page
+        // where some entities failed to parse is not the end of the list.
+        if (rawCount < PAGE && !serverSaysMore) {
+          complete = true;
+          break;
+        }
+      }
+      // Only prune when we walked the COMPLETE server set. Pruning after a
+      // partial read would delete valid invitations we simply didn't fetch.
+      // We still never resurrect locally-acted-on ones.
+      if (complete) {
+        const serverIds = new Set(invitations.map((i) => i.id));
+        const localPending = await db.invitations.where('status').equals('pending').toArray();
+        const doomed = localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id);
+        // Last line of defence. A walk that calls itself complete after
+        // returning far less than we already had is the signature of a
+        // truncation we failed to detect, not of an invitation list that
+        // genuinely emptied out. Hundreds of rows disappearing is the worst
+        // outcome here, so decline the inference and say so.
+        const looksTruncated = doomed.length > 50 && invitations.length < heldBefore / 2;
+        if (looksTruncated) {
+          debugLog(
+            'error',
+            `FETCH_INVITATIONS declined to prune ${doomed.length} rows: fetched only ${invitations.length} but hold ${localPending.length}`
+          );
+        } else {
+          await db.invitations.bulkDelete(doomed);
+        }
+      }
+      if (complete) {
+        await db.walkState.put({ name: 'invitations', completedAt: Date.now(), total });
+      }
+      return { success: true, data: { count: invitations.length, complete } };
+    }
+    case 'ACCEPT_INVITATION':
+    case 'IGNORE_INVITATION': {
+      const inv = await db.invitations.get(msg.invitationId);
+      if (!inv) return { success: false, error: 'Invitation not found' };
+      const action: 'accept' | 'ignore' = msg.type === 'ACCEPT_INVITATION' ? 'accept' : 'ignore';
+      await respondToInvitation(inv.id, inv.sharedSecret, action);
+      // Their note arrives as an inbound message moments from now. We know
+      // about it — the user just accepted it — so don't alert them to it.
+      if (action === 'accept') recordAcceptedSender(inv.fromUrn);
+      await db.invitations.update(inv.id, { status: action === 'accept' ? 'accepted' : 'ignored' });
+      return { success: true };
+    }
+    case 'FETCH_SENT_INVITATIONS': {
+      // Page one is the invitation-manager HTML; the rest come from the same
+      // pagination action its infinite scroll uses, cursored on a plain
+      // offset. See docs/linkedin-sent-invitations.md.
+      const MAX_PAGES = 60; // 600 requests — a runaway stop, not a ceiling
+      const sent: SentInvitation[] = [];
+      const seenIds = new Set<string>();
+      let total: number | null = null;
+      let complete = false;
+      // Reading all 32 pages to rediscover an unchanged list is the bulk of
+      // what made this slow. Stop early when we recognise a whole page AND
+      // hold exactly as many rows as the server says exist — see caughtUp.
+      const readEverything = await mustReadEverything('sentInvitations');
+      const heldBefore = await db.sentInvitations.where('status').equals('pending').count();
+      let added = 0;
+
+      for (let page = 0; page < MAX_PAGES; page++) {
+        let source: string;
+        try {
+          source = page === 0
+            ? await fetchSentInvitationsPage()
+            : await fetchSentInvitationsAt(page * SENT_PAGE_SIZE);
+        } catch (err) {
+          // Page one failing means we have nothing and should say so. Later
+          // pages failing just caps the walk — keep what we already read.
+          if (page === 0) throw err;
+          debugLog('error', `FETCH_SENT_INVITATIONS stopped at page ${page}: ${String(err)}`);
+          break;
+        }
+        const { invitations: batch, rawCount, total: pageTotal } = scrapeSentInvitations(source);
+        total ??= pageTotal; // only the first page carries the heading
+        const unseen = batch.filter((i) => !seenIds.has(i.id));
+        for (const i of unseen) seenIds.add(i.id);
+        sent.push(...unseen);
+        // Show this page now. This is the slowest walk of the three — one
+        // request per ten rows — so buffering it was the longest wait.
+        const newThisPage = await storeArrivedPage(db.sentInvitations, unseen);
+        added += newThisPage;
+        // Nothing on this page was new, and our pending count now agrees with
+        // the server's own heading — so no request has been withdrawn or
+        // accepted behind our back, and every older page is already stored.
+        // Both halves are needed: the count alone cannot tell one removed and
+        // one added from no change at all.
+        const caughtUp = newThisPage === 0 && total !== null && heldBefore + added === total;
+        if (!readEverything && caughtUp) {
+          debugLog('info', `FETCH_SENT_INVITATIONS stopped at page ${page}: already up to date`);
+          break;
+        }
+        // Short by the page's OWN row count, not by how many of them we could
+        // read: a full page with one unreadable row is not the end of the list,
+        // and treating it as one would also let the prune below run.
+        if (rawCount < SENT_PAGE_SIZE || unseen.length === 0) {
+          complete = true;
+          break;
+        }
+        if (total !== null && sent.length >= total) {
+          complete = true;
+          break;
+        }
+      }
+
+      // Now that the walk covers everything, pruning is meaningful again —
+      // but only when it actually finished.
+      if (complete) {
+        const serverIds = new Set(sent.map((i) => i.id));
+        const localPending = await db.sentInvitations.where('status').equals('pending').toArray();
+        await db.sentInvitations.bulkDelete(
+          localPending.filter((i) => !serverIds.has(i.id)).map((i) => i.id)
+        );
+      }
+
+      // Only a walk that read every page may claim to have covered the list.
+      // An early stop deliberately leaves the old timestamp alone, so the TTL
+      // still forces a full read on schedule.
+      if (complete) {
+        await db.walkState.put({ name: 'sentInvitations', completedAt: Date.now(), total });
+      }
+      return { success: true, data: { count: sent.length, total: total ?? sent.length, complete } };
+    }
+    case 'WITHDRAW_INVITATION': {
+      const inv = await db.sentInvitations.get(msg.invitationId);
+      if (!inv) return { success: false, error: 'Sent invitation not found' };
+      await withdrawSentInvitation(inv);
+      await db.sentInvitations.update(inv.id, { status: 'withdrawn' });
+      return { success: true };
+    }
+    case 'FETCH_CONNECTIONS': {
+      const PAGE = 40;
+      const raw = await fetchConnectionsRaw(msg.start ?? 0, PAGE);
+      const { connections, profiles } = normalizeConnections(raw);
+      await db.connections.bulkPut(connections);
+      await mergeProfiles(profiles);
+      return { success: true, data: { fetched: connections.length, hasMore: connections.length === PAGE } };
+    }
     case 'CREATE_CONVERSATION': {
       const result = await createConversation(msg.recipientUrns, msg.body, msg.attachments);
       // LinkedIn REUSES the conversation id when messaging a person whose
@@ -331,7 +587,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
     }
     case 'RESET_DB': {
       // Clear all tables (safer than db.delete() which can break the Dexie instance)
-      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones], async () => {
+      await db.transaction('rw', [db.conversations, db.messages, db.profiles, db.pendingActions, db.imageCache, db.postCache, db.syncState, db.syncQueue, db.draftAttachments, db.tombstones, db.invitations, db.sentInvitations, db.connections, db.walkState], async () => {
         await db.conversations.clear();
         await db.messages.clear();
         await db.profiles.clear();
@@ -342,6 +598,12 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         await db.syncQueue.clear();
         await db.draftAttachments.clear();
         await db.tombstones.clear();
+        await db.invitations.clear();
+        await db.sentInvitations.clear();
+        await db.connections.clear();
+        // Otherwise the next walk would trust a completion that covered rows
+        // this reset just deleted, and stop after one page.
+        await db.walkState.clear();
       });
       clearDebugLogs();
       await syncConversations();

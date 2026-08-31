@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
-// App routes — the nav state lives in the URL hash.
+// App routes — the whole nav state lives in the URL hash.
 //
 // inflow is a single extension page (app.html). Rather than pull in a router,
 // the hash is the route:
 //
-//   #/inbox/focused   #/inbox/other   #/inbox/archived   #/inbox/spam
-//   #/inbox/other?unread
+//   #/inbox/focused          #/inbox/other          #/inbox/archived
+//   #/inbox/spam             #/inbox/focused?unread #/network
 //
 // The UI store stays the source of truth — it writes the hash when the nav
 // state changes and a `hashchange` listener reads it back — so Chrome's
@@ -14,12 +14,18 @@
 // The background locates the app tab with `chrome.tabs.query({ url })`, which
 // ignores fragment identifiers, so the hash never breaks tab discovery.
 //
-// Parsing keys off the first path segment, so a future top-level view can
-// become its own sibling of `inbox` without changing this contract.
+// Network sub-tabs (invitations/connections) are deliberately NOT routed: they
+// are a position within a view rather than a destination. Parsing ignores any
+// segment past the tab, so `#/network/connections` can join later without
+// changing this contract.
 // ---------------------------------------------------------------------------
 import type { InboxTab } from '@/store/ui-store';
 
+export type AppView = 'inbox' | 'network';
+
 export interface AppRoute {
+  view: AppView;
+  /** Which inbox tab. Carried but unused while `view` is 'network'. */
   inboxTab: InboxTab;
   /** The `is:unread` quick-filter, which reads as a modifier on the tab. */
   unread: boolean;
@@ -27,25 +33,31 @@ export interface AppRoute {
 
 const INBOX_TABS: readonly InboxTab[] = ['focused', 'other', 'archived', 'spam'];
 
-export const DEFAULT_ROUTE: AppRoute = { inboxTab: 'focused', unread: false };
+export const DEFAULT_ROUTE: AppRoute = { view: 'inbox', inboxTab: 'focused', unread: false };
 
-/** The hash for a route, e.g. `{other, unread}` → `'#/inbox/other?unread'`. */
+/** The hash for a route, e.g. `{inbox, other, unread}` → `'#/inbox/other?unread'`. */
 export function appRouteToHash(route: AppRoute): string {
+  if (route.view === 'network') return '#/network';
   const base = `#/inbox/${route.inboxTab}`;
   return route.unread ? `${base}?unread` : base;
 }
 
 /**
- * Parse a location hash into a route. An unknown tab falls back to the default
- * rather than throwing — a hand-edited or stale URL should land on the inbox,
- * not a blank screen.
+ * Parse a location hash into a route. Unknown views and tabs fall back to the
+ * default rather than throwing — a hand-edited or stale URL should land on the
+ * inbox, not a blank screen.
  */
 export function parseAppRouteHash(hash: string | null | undefined): AppRoute {
   if (!hash) return DEFAULT_ROUTE;
   const [path = '', query = ''] = hash.replace(/^#/, '').split('?');
-  const [, second] = path.replace(/^\/+/, '').split('/');
+  const [first, second] = path.replace(/^\/+/, '').split('/');
+  const unread = new URLSearchParams(query).has('unread');
+
+  if (first?.toLowerCase() === 'network') {
+    return { view: 'network', inboxTab: DEFAULT_ROUTE.inboxTab, unread: false };
+  }
   const tab = INBOX_TABS.find((t) => t === second?.toLowerCase());
-  return { inboxTab: tab ?? DEFAULT_ROUTE.inboxTab, unread: new URLSearchParams(query).has('unread') };
+  return { view: 'inbox', inboxTab: tab ?? DEFAULT_ROUTE.inboxTab, unread };
 }
 
 export function routesEqual(a: AppRoute, b: AppRoute): boolean {
@@ -70,9 +82,9 @@ export function locationHasRoute(): boolean {
  * duplicate history entry.
  *
  * Assigning `location.hash` pushes an entry, which is what gives the back
- * button meaning between tabs. `replace` is for changes that shouldn't
- * accumulate — restoring the URL on first load, and toggling the unread
- * modifier, which is a filter rather than a destination.
+ * button meaning between views and tabs. `replace` is for changes that
+ * shouldn't accumulate — restoring the URL on first load, and toggling the
+ * unread modifier, which is a filter rather than a destination.
  *
  * `force` writes even when the hash already resolves to this route. Only the
  * first-load canonicalization needs it: an empty hash parses AS the default

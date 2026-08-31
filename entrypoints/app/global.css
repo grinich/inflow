@@ -191,3 +191,40 @@ summary {
 [cmdk-input] {
   width: 100%;
 }
+
+/*
+ * Focus rings are for keyboard navigation, not for clicks.
+ *
+ * Chrome decides whether to draw its default ring from the last input
+ * modality, so in a keyboard-driven app — where you are constantly pressing
+ * J/K/1/2/3 — a subsequent mouse click on a button counts as "keyboard-ish"
+ * and gets ringed. Be explicit instead: suppress the ring whenever the browser
+ * itself would not call the focus keyboard-driven, and draw a deliberate one
+ * when it would.
+ *
+ * Not `outline: none` on :focus outright — that would strip the ring from
+ * genuine Tab navigation too, and leave anyone driving the app by keyboard
+ * with no idea where they are.
+ */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/*
+ * Rows in a keyboard-driven list are the exception.
+ *
+ * They already show which one is current — that is the whole selection model,
+ * moved with J/K rather than Tab — so a focus ring on top of it says the same
+ * thing twice, and says it about a different row when you click one while
+ * another is selected. It also can't be drawn properly: the row spans the full
+ * width of a scrolling pane, so the ring's left and right edges fall outside
+ * and only two blue lines survive, above and below.
+ */
+[data-network-row]:focus-visible {
+  outline: none;
+}

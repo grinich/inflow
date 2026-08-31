@@ -30,6 +30,15 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
   const setTheme = useUIStore((s) => s.setTheme);
   const currentTheme = useUIStore((s) => s.theme);
   const setInboxTab = useUIStore((s) => s.setInboxTab);
+  const setAppView = useUIStore((s) => s.setAppView);
+  const appView = useUIStore((s) => s.appView);
+
+  // Commands that land somewhere in the inbox have to leave the Network route
+  // first — otherwise they select/compose against a view that isn't rendered.
+  const inInbox = (fn: () => void) => () => {
+    setAppView('inbox');
+    fn();
+  };
 
   const inboxTab = useUIStore((s) => s.inboxTab);
   const composeNewActive = useUIStore((s) => s.composeNewActive);
@@ -92,11 +101,13 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       document.dispatchEvent(new CustomEvent('inflow:discard-draft'));
       useUIStore.getState().showToast({ message: 'Draft discarded' });
     },
+    // No inInbox: hasDraft needs a mounted composer, and the Network route has
+    // none — so the command is never offered there in the first place.
     hasDraft,
-    compose: () => {
+    compose: inInbox(() => {
       useUIStore.getState().setComposeNewActive(true);
-    },
-    goBack: () => closeThread(),
+    }),
+    goBack: inInbox(() => closeThread()),
     showShortcuts: () => toggleShortcutOverlay(),
     triggerSync: () => {
       sendBridgeMessage({ type: 'SYNC_CONVERSATIONS' });
@@ -105,19 +116,20 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
     setThemeDark: () => setTheme('dark'),
     setThemeSystem: () => setTheme('system'),
     currentTheme,
-    goToFocused: () => setInboxTab('focused'),
-    goToOther: () => {
+    goToFocused: inInbox(() => setInboxTab('focused')),
+    goToOther: inInbox(() => {
       setInboxTab('other');
       sendBridgeMessage({ type: 'SYNC_CATEGORY', category: 'SECONDARY_INBOX' }).catch(() => {});
-    },
-    goToArchived: () => {
+    }),
+    goToArchived: inInbox(() => {
       setInboxTab('archived');
       sendBridgeMessage({ type: 'SYNC_CATEGORY', category: 'ARCHIVE' }).catch(() => {});
-    },
-    goToSpam: () => {
+    }),
+    goToSpam: inInbox(() => {
       setInboxTab('spam');
       sendBridgeMessage({ type: 'SYNC_CATEGORY', category: 'SPAM' }).catch(() => {});
-    },
+    }),
+    goToNetwork: () => useUIStore.getState().setAppView('network'),
     undo: () => {
       const store = useUIStore.getState();
       const undoFn = store.lastUndoAction ?? store.toast?.undoAction;
@@ -215,6 +227,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
         store.showToast({ message: `inflow is up to date (v${current})` });
       }
     },
+    appView,
   });
 
   if (!paletteOpen) return null;

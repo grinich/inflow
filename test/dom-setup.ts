@@ -38,4 +38,22 @@ if (typeof window !== 'undefined' && typeof (window as any).IntersectionObserver
   (globalThis as any).IntersectionObserver = (window as any).IntersectionObserver;
 }
 
+// jsdom doesn't implement ResizeObserver; cmdk (the command palette) constructs
+// one on mount. Same no-op treatment as IntersectionObserver above.
+if (typeof window !== 'undefined' && typeof (window as any).ResizeObserver !== 'function') {
+  (window as any).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  (globalThis as any).ResizeObserver = (window as any).ResizeObserver;
+}
+
+// jsdom implements no layout, so Element.scrollIntoView is missing entirely.
+// cmdk calls it to keep the active item visible; the network list calls it when
+// the selection moves. A no-op keeps both mountable.
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function () {};
+}
+
 afterEach(() => cleanup());
