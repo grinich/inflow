@@ -3,7 +3,8 @@
  * Renders scripts/og-image.html to site/og.png at exactly 1200x630 — the size
  * Open Graph and X both want for a large summary card.
  *
- *   npm run og
+ *   npm run og             # the home card
+ *   npm run og:changelog   # the /changelog card
  *
  * Uses the Chrome already on the machine rather than pulling a headless
  * browser into devDependencies; the card changes about once a year. If Chrome
@@ -16,8 +17,22 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SOURCE = join(ROOT, 'scripts', 'og-image.html');
-const OUT = join(ROOT, 'site', 'og.png');
+
+// Which card to render. `npm run og` builds the home card; `npm run
+// og:changelog` builds the one for /changelog, which says what the page is
+// rather than selling the product — a link to it in a feed should not look
+// like the landing page.
+const CARDS = {
+  home: { source: 'og-image.html', out: 'og.png' },
+  changelog: { source: 'og-changelog.html', out: 'og-changelog.png' },
+};
+const which = process.argv[2] || 'home';
+const card = CARDS[which];
+if (!card) {
+  throw new Error(`Unknown card "${which}". Try: ${Object.keys(CARDS).join(', ')}`);
+}
+const SOURCE = join(ROOT, 'scripts', card.source);
+const OUT = join(ROOT, 'site', card.out);
 
 export const OG_WIDTH = 1200;
 export const OG_HEIGHT = 630;
@@ -99,7 +114,7 @@ async function main() {
   }
 
   const { size } = statSync(OUT);
-  console.log(`Wrote site/og.png - ${dims.width}x${dims.height}, ${(size / 1024).toFixed(0)}KB`);
+  console.log(`Wrote site/${card.out} - ${dims.width}x${dims.height}, ${(size / 1024).toFixed(0)}KB`);
 }
 
 await main();

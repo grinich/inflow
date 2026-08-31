@@ -11,15 +11,15 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://inflow.im/changelog">
 <meta property="og:site_name" content="inƒlow">
-<meta property="og:image" content="https://inflow.im/og.png">
+<meta property="og:image" content="https://inflow.im/og-changelog.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="inƒlow — a keyboard-driven inbox for your LinkedIn messages">
+<meta property="og:image:alt" content="inƒlow Changelog — every release, newest first">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Changelog — inƒlow">
 <meta name="twitter:description" content="Every release of inƒlow, newest first.">
-<meta name="twitter:image" content="https://inflow.im/og.png">
-<meta name="twitter:image:alt" content="inƒlow — a keyboard-driven inbox for your LinkedIn messages">
+<meta name="twitter:image" content="https://inflow.im/og-changelog.png">
+<meta name="twitter:image:alt" content="inƒlow Changelog — every release, newest first">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8C%A8%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="/base.css">
 <style>
@@ -89,31 +89,52 @@
    a page without JS still shows every screenshot — just not enlargeable. */
 .shot-zoom{cursor:zoom-in;transition:opacity .12s ease}
 .shot-zoom:hover{opacity:.88}
-.shot-zoom:focus-visible{outline:2px solid var(--accent,#2563eb);outline-offset:3px}
+/* Only when the keyboard put focus here. A click opens the viewer and, on
+   close, hands focus back — a ring there is noise the mouse never asked for. */
+.shot-zoom:focus-visible{outline:2px solid var(--mark,#2563eb);outline-offset:3px}
 .lightbox{
   position:fixed;inset:0;z-index:100;display:flex;align-items:center;
   justify-content:center;padding:clamp(16px,4vw,56px);
   background:rgba(16,18,22,.82);
   /* -webkit- included: Safari still needs it for backdrop-filter. */
   -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
-  opacity:0;transition:opacity .14s ease;cursor:zoom-out;
+  cursor:zoom-out;
 }
 .lightbox[hidden]{display:none}
-.lightbox.is-open{opacity:1}
 .lightbox img{
   max-width:100%;max-height:100%;width:auto;height:auto;
   border-radius:10px;box-shadow:0 24px 60px rgba(0,0,0,.45);
+  /* The open/close animation scales this from the thumbnail's box, so the
+     transform has to grow from the same point the thumbnail occupies. */
+  transform-origin:center center;cursor:default;
 }
-.lightbox-close{
-  position:absolute;top:16px;right:20px;width:40px;height:40px;
-  display:flex;align-items:center;justify-content:center;
+.lightbox-btn{
+  position:absolute;display:flex;align-items:center;justify-content:center;
   border:0;border-radius:999px;cursor:pointer;
-  background:rgba(255,255,255,.14);color:#fff;font-size:22px;line-height:1;
+  background:rgba(255,255,255,.14);color:#fff;line-height:1;
+  transition:background .12s ease;
 }
-.lightbox-close:hover{background:rgba(255,255,255,.24)}
-.lightbox-close:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.lightbox-btn:hover{background:rgba(255,255,255,.26)}
+.lightbox-btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.lightbox-close{top:16px;right:20px;width:40px;height:40px;font-size:22px}
+.lightbox-prev,.lightbox-next{
+  top:50%;transform:translateY(-50%);width:46px;height:46px;font-size:24px;
+}
+.lightbox-prev{left:16px}
+.lightbox-next{right:16px}
+/* One image in the set: the arrows would be furniture with nothing to do. */
+.lightbox.is-single .lightbox-prev,.lightbox.is-single .lightbox-next{display:none}
+.lightbox-count{
+  position:absolute;bottom:18px;left:50%;transform:translateX(-50%);
+  font-size:.8125rem;color:rgba(255,255,255,.7);letter-spacing:.04em;
+}
+.lightbox.is-single .lightbox-count{display:none}
+@media (max-width:640px){
+  .lightbox-prev{left:6px}
+  .lightbox-next{right:6px}
+}
 @media (prefers-reduced-motion:reduce){
-  .shot-zoom,.lightbox{transition:none}
+  .shot-zoom,.lightbox,.lightbox-btn{transition:none}
 }
 .rel-group{display:flex;flex-direction:column;gap:10px}
 .rel-tag{
@@ -202,7 +223,7 @@
         <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
-        <p> <img src="https://inflow.im/img/0.7.0-network-invitations.png" width="32%" alt="The Network view's Invitations tab — a request from Noah Bennett selected, his note shown as a message and mutual connections under the headline"> <img src="https://inflow.im/img/0.7.0-network-connections.png" width="32%" alt="The Connections tab, sorted by date, with Sarah Chen selected and a Message button"> <img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button"> </p>
+        <p> <img src="https://inflow.im/img/0.7.0-network-invitations.png" width="32%" loading="lazy" alt="The Network view's Invitations tab — a request from Noah Bennett selected, his note shown as a message and mutual connections under the headline"> <img src="https://inflow.im/img/0.7.0-network-connections.png" width="32%" loading="lazy" alt="The Connections tab, sorted by date, with Sarah Chen selected and a Message button"> <img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" loading="lazy" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button"> </p>
         <section class="rel-group">
           <h3 class="rel-tag t-added">Added</h3>
           <ul>
@@ -642,18 +663,36 @@
 <script>
 (function () {
   'use strict';
-  // Click a screenshot to see it full size.
+  // Click a screenshot to see it full size; arrows step through the rest of
+  // that release's shots.
   //
   // Progressive enhancement: the markup is plain <img>, because it has to
   // render on GitHub too — release notes are built from the same CHANGELOG.md.
-  // Everything that makes a thumbnail enlargeable is added here, so without
-  // JavaScript the page still shows every screenshot at its laid-out size.
+  // Everything here is added at runtime, so without JavaScript the page still
+  // shows every screenshot, just not enlargeable.
   var shots = [].slice.call(
     document.querySelectorAll('.rel-body img:not(.rel-icon)')
   );
   if (!shots.length) return;
 
-  var box, boxImg, closeBtn, lastFocused;
+  var reduced = window.matchMedia
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : { matches: false };
+  var canAnimate = typeof Element.prototype.animate === 'function';
+
+  var box, boxImg, closeBtn, prevBtn, nextBtn, count;
+  var group = [];        // the shots in the open image's release
+  var index = 0;
+  var restoreFocus = false; // only when the keyboard opened it
+  var busy = null;          // the running open/close animation
+
+  /** The screenshots belonging to the same release, in document order. */
+  function galleryFor(img) {
+    var rel = img.closest ? img.closest('.rel') : null;
+    if (!rel) return [img];
+    var found = [].slice.call(rel.querySelectorAll('.rel-body img:not(.rel-icon)'));
+    return found.length ? found : [img];
+  }
 
   function build() {
     box = document.createElement('div');
@@ -664,50 +703,152 @@
     box.setAttribute('aria-label', 'Screenshot');
 
     boxImg = document.createElement('img');
-    // Clicking the backdrop closes; clicking the image itself should not.
-    boxImg.addEventListener('click', function (e) { e.stopPropagation(); });
 
-    closeBtn = document.createElement('button');
-    closeBtn.type = 'button';
-    closeBtn.className = 'lightbox-close';
-    closeBtn.setAttribute('aria-label', 'Close');
-    closeBtn.innerHTML = '&times;';
-    closeBtn.addEventListener('click', close);
+    closeBtn = button('lightbox-btn lightbox-close', 'Close', '×', close);
+    prevBtn = button('lightbox-btn lightbox-prev', 'Previous screenshot', '‹',
+      function () { step(-1); });
+    nextBtn = button('lightbox-btn lightbox-next', 'Next screenshot', '›',
+      function () { step(1); });
+
+    count = document.createElement('div');
+    count.className = 'lightbox-count';
 
     box.appendChild(boxImg);
     box.appendChild(closeBtn);
+    box.appendChild(prevBtn);
+    box.appendChild(nextBtn);
+    box.appendChild(count);
+    // Clicking anywhere closes — the image included. The controls stop their
+    // own clicks from reaching this.
     box.addEventListener('click', close);
     document.body.appendChild(box);
   }
 
-  function open(img) {
-    if (!box) build();
-    lastFocused = img;
+  function button(cls, label, glyph, onClick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = cls;
+    b.setAttribute('aria-label', label);
+    b.innerHTML = glyph;
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      onClick();
+    });
+    return b;
+  }
+
+  /**
+   * Grow the opened image out of the thumbnail's box, or shrink it back.
+   *
+   * Measured rather than guessed: the viewer sizes the image with max-width /
+   * max-height, so where it lands depends on the window. Take both rectangles
+   * and animate the transform that maps one onto the other.
+   */
+  function zoom(thumb, opening) {
+    if (!canAnimate || reduced.matches) return null;
+    var from = thumb.getBoundingClientRect();
+    var to = boxImg.getBoundingClientRect();
+    if (!from.width || !to.width) return null;
+    var scale = from.width / to.width;
+    var dx = (from.left + from.width / 2) - (to.left + to.width / 2);
+    var dy = (from.top + from.height / 2) - (to.top + to.height / 2);
+    var atThumb = { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(' + scale + ')', opacity: 0.6 };
+    var atFull = { transform: 'none', opacity: 1 };
+    return boxImg.animate(opening ? [atThumb, atFull] : [atFull, atThumb], {
+      duration: opening ? 220 : 180,
+      easing: opening ? 'cubic-bezier(.2,.7,.3,1)' : 'cubic-bezier(.4,0,.7,.4)',
+      fill: 'both'
+    });
+  }
+
+  /** Point the viewer at gallery entry `i`, without any open/close animation. */
+  function show(i) {
+    index = (i + group.length) % group.length;
+    var img = group[index];
     boxImg.src = img.currentSrc || img.src;
     boxImg.alt = img.alt;
+    count.textContent = (index + 1) + ' / ' + group.length;
+    box.classList.toggle('is-single', group.length < 2);
+  }
+
+  function step(delta) {
+    if (group.length < 2) return;
+    show(index + delta);
+    if (canAnimate && !reduced.matches) {
+      boxImg.animate(
+        [{ opacity: 0, transform: 'translateX(' + (delta * 14) + 'px)' }, { opacity: 1, transform: 'none' }],
+        { duration: 160, easing: 'ease-out' }
+      );
+    }
+  }
+
+  function open(img, viaKeyboard) {
+    if (!box) build();
+    group = galleryFor(img);
+    restoreFocus = !!viaKeyboard;
+    show(group.indexOf(img));
     box.hidden = false;
-    // Next frame, so the transition has a state to move from.
-    requestAnimationFrame(function () { box.classList.add('is-open'); });
+    // Force layout so the image has its final size to animate FROM. Doing this
+    // in requestAnimationFrame instead would mean no viewer at all in a
+    // background tab, where rAF does not run.
+    boxImg.getBoundingClientRect();
+    if (busy) busy.cancel();
+    busy = zoom(img, true);
+    fade(true);
     document.body.style.overflow = 'hidden';
     closeBtn.focus();
     document.addEventListener('keydown', onKey);
   }
 
-  function close() {
-    if (!box || box.hidden) return;
-    box.classList.remove('is-open');
+  /** The backdrop's fade. Decoration only — the viewer is visible without it. */
+  function fade(inward) {
+    if (!canAnimate || reduced.matches) return null;
+    return box.animate(
+      inward ? [{ opacity: 0 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 0 }],
+      { duration: inward ? 180 : 150, easing: 'ease-out', fill: inward ? 'none' : 'both' }
+    );
+  }
+
+  function finishClose() {
+    if (box.hidden) return;
     box.hidden = true;
-    // Release the image so a large screenshot is not held in memory.
     boxImg.removeAttribute('src');
     document.body.style.overflow = '';
     document.removeEventListener('keydown', onKey);
-    if (lastFocused) lastFocused.focus();
+    // Only hand focus back when the keyboard opened this. After a click it
+    // would paint a focus ring nobody asked for.
+    if (restoreFocus && group[index]) group[index].focus();
+  }
+
+  function close() {
+    if (!box || box.hidden) return;
+    if (busy) busy.cancel();
+    busy = zoom(group[index], false);
+    var out = fade(false);
+    // Whether it closes must not depend on an animation finishing. In a
+    // background tab neither rAF nor WAAPI callbacks run, and gating the
+    // teardown on onfinish left the viewer stuck open with no way out.
+    // finishClose is idempotent, so both paths can race safely.
+    var DURATION = 200;
+    if (busy) busy.onfinish = finishClose;
+    if (out) out.onfinish = finishClose;
+    setTimeout(finishClose, busy || out ? DURATION : 0);
   }
 
   function onKey(e) {
     if (e.key === 'Escape') { close(); return; }
-    // The dialog has exactly one focusable control, so the trap is this simple.
-    if (e.key === 'Tab') { e.preventDefault(); closeBtn.focus(); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); step(1); return; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); return; }
+    // Keep Tab inside the dialog; it has only these few controls.
+    if (e.key === 'Tab') {
+      var focusables = [closeBtn, prevBtn, nextBtn].filter(function (b) {
+        return b.offsetParent !== null;
+      });
+      e.preventDefault();
+      var at = focusables.indexOf(document.activeElement);
+      var next = (at + (e.shiftKey ? -1 : 1) + focusables.length) % focusables.length;
+      focusables[next].focus();
+    }
   }
 
   shots.forEach(function (img) {
@@ -715,9 +856,11 @@
     img.tabIndex = 0;
     img.setAttribute('role', 'button');
     img.setAttribute('aria-label', (img.alt || 'Screenshot') + ' — view full size');
-    img.addEventListener('click', function () { open(img); });
+    // A click should not leave focus (and a focus ring) on the thumbnail.
+    img.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    img.addEventListener('click', function () { open(img, false); });
     img.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(img); }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(img, true); }
     });
   });
 })();

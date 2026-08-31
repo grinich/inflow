@@ -1,0 +1,150 @@
+<!doctype html>
+<!--
+  Source for site/og-changelog.png — the link preview card for /changelog.
+
+  Rendered at exactly 1200x630 by `npm run og:changelog`. Edit this file,
+  re-run, and commit the PNG. Kept out of site/ on purpose: it is a build
+  input, not a page.
+
+  Deliberately not the home card. That one sells the product; this one says
+  what the page is — a release history — so a link to it in a feed is not
+  mistaken for the landing page. Same dark ground, wordmark and tag colours as
+  the changelog itself, so it reads as the same site.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --ground:#08090b;
+    --panel:#121317;
+    --ink:#f5f6f8;
+    --ink-2:#a2a8b3;
+    --ink-3:#6c727c;
+    --line:#24262c;
+    --mark:#58a6ff;
+    --accent:#3b82f6;
+    /* The changelog's own category colours. */
+    --tag-added:#4ade80;
+    --tag-fixed:#60a5fa;
+    --tag-changed:#fbbf24;
+    --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,"JetBrains Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1200px;height:630px}
+  body{
+    background:var(--ground);
+    font-family:var(--sans);
+    color:var(--ink);
+    display:flex;
+    overflow:hidden;
+    position:relative;
+  }
+
+  .glow{
+    position:absolute;top:-300px;right:-160px;width:900px;height:900px;
+    background:radial-gradient(circle,rgba(59,130,246,.20) 0%,rgba(59,130,246,.06) 42%,transparent 68%);
+  }
+  .grid{
+    position:absolute;inset:0;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:64px 64px;
+    opacity:.30;
+    mask-image:radial-gradient(ellipse 80% 70% at 28% 45%,#000 30%,transparent 75%);
+    -webkit-mask-image:radial-gradient(ellipse 80% 70% at 28% 45%,#000 30%,transparent 75%);
+  }
+
+  .left{
+    position:relative;width:616px;
+    padding:74px 0 74px 72px;
+    display:flex;flex-direction:column;justify-content:center;
+  }
+  .brandline{display:flex;align-items:center;gap:18px;margin-bottom:30px}
+  .icon{width:76px;height:76px;border-radius:18px;display:block}
+  .wordmark{font-size:50px;font-weight:600;letter-spacing:-.03em;line-height:1}
+  .wordmark i{font-style:normal;color:var(--mark)}
+
+  h1{
+    font-size:82px;line-height:1;letter-spacing:-.038em;font-weight:600;
+    margin-bottom:24px;
+  }
+  .sub{font-size:26px;line-height:1.35;color:var(--ink-2);letter-spacing:-.01em}
+
+  /* Right: the release list itself, cropped by the card edge — the same shape
+     the page has, so the card previews the thing you are linking to. */
+  .right{position:relative;flex:1;display:flex;align-items:center}
+  .stack{position:absolute;left:0;top:52px;width:512px;display:flex;flex-direction:column;gap:18px}
+  .rel{
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    padding:20px 24px;box-shadow:0 24px 60px rgba(0,0,0,.5);
+  }
+  .rel.latest{border-color:rgba(88,166,255,.45)}
+  .relhead{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .ver{font-size:27px;font-weight:600;letter-spacing:-.02em}
+  .pill{
+    font-family:var(--mono);font-size:12px;letter-spacing:.10em;
+    color:var(--mark);border:1px solid rgba(88,166,255,.4);
+    border-radius:999px;padding:3px 10px;
+  }
+  .date{margin-left:auto;font-family:var(--mono);font-size:14px;color:var(--ink-3)}
+  .tag{
+    font-size:12px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
+    margin-bottom:9px;
+  }
+  .t-added{color:var(--tag-added)}
+  .t-fixed{color:var(--tag-fixed)}
+  .t-changed{color:var(--tag-changed)}
+  .l{height:9px;border-radius:5px;background:rgba(245,246,248,.20);margin-bottom:8px}
+  .l.strong{background:rgba(245,246,248,.62)}
+  .l:last-child{margin-bottom:0}
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="grid"></div>
+
+  <div class="left">
+    <div class="brandline">
+      <img class="icon" src="../site/icons/app-icon-512.png" alt="">
+      <div class="wordmark"><i>in</i>ƒlow</div>
+    </div>
+    <h1>Changelog</h1>
+    <p class="sub">Every release, newest first —<br>what shipped and what it fixed.</p>
+  </div>
+
+  <div class="right">
+    <div class="stack">
+      <div class="rel latest">
+        <div class="relhead">
+          <span class="ver">0.7.0</span>
+          <span class="pill">LATEST</span>
+          <span class="date">30 Aug</span>
+        </div>
+        <div class="tag t-added">Added</div>
+        <div class="l strong" style="width:74%"></div>
+        <div class="l" style="width:92%"></div>
+        <div class="l" style="width:61%"></div>
+      </div>
+      <div class="rel">
+        <div class="relhead">
+          <span class="ver">0.6.1</span>
+          <span class="date">29 Aug</span>
+        </div>
+        <div class="tag t-fixed">Fixed</div>
+        <div class="l strong" style="width:66%"></div>
+        <div class="l" style="width:88%"></div>
+      </div>
+      <div class="rel">
+        <div class="relhead">
+          <span class="ver">0.6.0</span>
+          <span class="date">28 Aug</span>
+        </div>
+        <div class="tag t-changed">Changed</div>
+        <div class="l strong" style="width:70%"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

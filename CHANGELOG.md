@@ -7,9 +7,9 @@ All notable changes to inflow are documented here. This project follows
 ## [0.7.0] - 2026-08-30
 
 <p>
-<img src="https://inflow.im/img/0.7.0-network-invitations.png" width="32%" alt="The Network view's Invitations tab — a request from Noah Bennett selected, his note shown as a message and mutual connections under the headline">
-<img src="https://inflow.im/img/0.7.0-network-connections.png" width="32%" alt="The Connections tab, sorted by date, with Sarah Chen selected and a Message button">
-<img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button">
+<img src="https://inflow.im/img/0.7.0-network-invitations.png" width="32%" loading="lazy" alt="The Network view's Invitations tab — a request from Noah Bennett selected, his note shown as a message and mutual connections under the headline">
+<img src="https://inflow.im/img/0.7.0-network-connections.png" width="32%" loading="lazy" alt="The Connections tab, sorted by date, with Sarah Chen selected and a Message button">
+<img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" loading="lazy" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button">
 </p>
 
 ### Added

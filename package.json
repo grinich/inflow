@@ -12,6 +12,7 @@
     "zip:store": "INFLOW_STORE_BUILD=1 wxt zip",
     "changelog:site": "node scripts/build-changelog.mjs",
     "og": "node scripts/build-og.mjs",
+    "og:changelog": "node scripts/build-og.mjs changelog",
     "postinstall": "wxt prepare",
     "test": "vitest run",
     "test:watch": "vitest",
