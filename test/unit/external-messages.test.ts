@@ -1,8 +1,10 @@
 /**
  * The web shell at inflow.im probes for the installed extension with a PING
- * over externally_connectable messaging. That surface must stay tiny: only
- * PING is answered, only for https://inflow.im, and only synchronously — the
- * internal RPC bridge (messages.ts) must never be reachable from a web page.
+ * over externally_connectable messaging. That surface must stay tiny: PING
+ * plus the gated agent tool surface (covered by
+ * test/integration/agent-external-messages.test.ts), only for
+ * https://inflow.im — the internal RPC bridge (messages.ts) must never be
+ * reachable raw from a web page.
  */
 import {
   setupExternalMessageRouter,
@@ -13,6 +15,9 @@ import {
 
 vi.mock('@/lib/inbox-filters', () => ({ countUnreadFocused: vi.fn().mockResolvedValue(3) }));
 vi.mock('@/db/database', () => ({ db: {} }));
+// The router injects handleMessage into the agent executor; the real module
+// drags the whole background in — a spy keeps this file about the router.
+vi.mock('../../entrypoints/background/messages', () => ({ handleMessage: vi.fn() }));
 
 type ExternalListener = (
   message: any,

@@ -28,41 +28,72 @@ Tool calls answer structured errors rather than hanging: with agent access disab
 every call (from any transport) returns *"Agent access is disabled…"* with the
 instructions to enable it.
 
-## Connecting Claude today
+## Connecting Claude today — external messaging (the path that works)
 
-Claude in Chrome (and Claude Code driving it) can't attach to `chrome-extension://`
-pages, but it can drive **https://inflow.im/app** — the page that embeds the extension.
-That page exposes the bridge:
+Claude in Chrome **cannot** use the embedded app at inflow.im/app: its automation
+sweeps cross-extension iframes off the page (the shell's frame-lost notice is exactly
+this), and its debugger refuses any tab containing one. What it *can* do is message
+the extension's background directly from any **plain** inflow.im page:
 
 ```js
-// In the browser console or an agent's JS tool, on https://inflow.im/app
-await window.inflowAgent.status();     // { frameLoaded: true, extensionId: "…" }
-await window.inflowAgent.listTools();  // { tools: [...], readsEnabled, writesEnabled }
+// On any inflow.im page EXCEPT /app — e.g. https://inflow.im/changelog
+// (the home page redirects to /app when the extension is installed).
+const CANDIDATES = [
+  'ndehgbgifkapdigmefglpgacpagoclge', // Chrome Web Store build
+  'fngobhjkhkdnnijgegkcjoadmddkehgh', // unpacked dev build
+];
+let EXT;
+for (const id of CANDIDATES) {
+  const pong = await chrome.runtime.sendMessage(id, { type: 'PING' }).catch(() => null);
+  if (pong?.ok) { EXT = id; break; }
+}
 
-const result = await window.inflowAgent.callTool('list_conversations', {
-  tab: 'focused',           // focused | other | archived | spam
-  query: 'is:unread',       // optional — inflow's search grammar
-  limit: 10,
+await chrome.runtime.sendMessage(EXT, { type: 'AGENT_LIST_TOOLS' });
+// → { tools: [...with input schemas], readsEnabled, writesEnabled }
+
+const result = await chrome.runtime.sendMessage(EXT, {
+  type: 'AGENT_CALL_TOOL',
+  tool: 'list_conversations',
+  input: { tab: 'focused', query: 'is:unread', limit: 10 },
 });
-// result = { content: [{ type: 'text', text: '{ "conversations": [...] }' }] }
-// (MCP CallToolResult; parse result.content[0].text as JSON. Errors set isError: true.)
+JSON.parse(result.content[0].text);
+// (MCP CallToolResult; errors set isError: true with an actionable message.)
 ```
 
-So the recipe for Claude is:
+The executor runs in the extension's service worker, so this works **even with no
+inflow tab open**. Write actions surface as Chrome notifications when no inflow page
+is showing (a toast when one is).
 
-1. Install inflow and open https://inflow.im/app in Chrome.
-2. In inflow: `⌘K` → **Configure agent access** → enable read (and optionally write) access.
-3. Tell Claude (with browser access to that tab):
-   *"On the inflow tab, use `window.inflowAgent.listTools()` / `callTool(name, input)`
-   to work with my LinkedIn inbox."*
+The recipe for Claude:
+
+1. Install inflow; enable access in the app: `⌘K` → **Configure agent access** →
+   toggle read (and optionally act) → **Save**.
+2. Point Claude at any inflow.im page except `/app` (say, `/changelog`).
+3. Tell it: *"Use `chrome.runtime.sendMessage(extensionId, { type: 'AGENT_LIST_TOOLS' })`
+   and `{ type: 'AGENT_CALL_TOOL', tool, input }` on this page to work with my
+   LinkedIn inbox."*
 
 The v1 tools: `list_conversations`, `read_thread`, `search_conversations`,
 `get_unread_count`, `list_invitations` (reads); `send_message`, `archive_conversation`,
-`mark_read`, `mark_unread` (writes). `listTools()` returns the full input schemas.
+`mark_read`, `mark_unread` (writes).
 
-**Try it risk-free with demo mode**: `⌘K` → *Enter demo mode* runs the whole app —
-agent tools included — against generated fake data. Nothing touches your LinkedIn
-account.
+**Try it risk-free with demo mode**: `⌘K` → *Enter demo mode* runs the app — agent
+tools included — against generated fake data. (Demo mode intercepts the in-page
+transports; the external channel above always talks to the real background.)
+
+## The in-page bridge — window.inflowAgent
+
+https://inflow.im/app also exposes the same tools to scripts running *on that page*:
+
+```js
+await window.inflowAgent.status();     // { frameLoaded, extensionId }
+await window.inflowAgent.listTools();
+await window.inflowAgent.callTool('read_thread', { conversationId: '…' });
+```
+
+Same executor, same gates, same result shape. This is the surface for your own
+DevTools console, userscripts, and agents that can coexist with the embedded
+iframe — just not Claude in Chrome today, per above.
 
 ## The WebMCP story
 

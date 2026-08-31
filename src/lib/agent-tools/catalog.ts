@@ -1,6 +1,6 @@
 import Dexie from 'dexie';
 import { db } from '@/db/database';
-import { sendBridgeMessage } from '@/lib/bridge';
+import { callAgentBridge } from './bridge-caller';
 import {
   applySearchFilters,
   findMergedSiblingIds,
@@ -54,7 +54,7 @@ async function requireConversation(id: string): Promise<Conversation> {
 /** Bridge call that reports transport failure the same way handler errors are. */
 async function bridge(message: BridgeMessage): Promise<BridgeResponse> {
   try {
-    return await sendBridgeMessage(message);
+    return await callAgentBridge(message);
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }

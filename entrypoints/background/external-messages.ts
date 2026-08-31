@@ -7,12 +7,21 @@
  *
  * Kept deliberately separate from the internal bridge (messages.ts): web pages
  * can only ever reach onMessageExternal/onConnectExternal, and these listeners
- * answer nothing but PING and unread counts — the internal RPC surface is not
- * exposed here.
+ * answer nothing but PING, unread counts, and the agent tool surface — the
+ * internal RPC is never exposed raw. Agent calls go through the gated
+ * executor (src/lib/agent-tools), whose settings checks — both toggles
+ * default off — are the real authorization; the origin check here only
+ * decides who may ask. This transport exists because agent clients like
+ * Claude in Chrome cannot coexist with the embedded app iframe (their
+ * automation sweeps cross-extension frames and their debugger refuses tabs
+ * containing one), but can message us from any plain inflow.im page.
  */
 
 import { countUnreadFocused } from '@/lib/inbox-filters';
 import { db } from '@/db/database';
+import { setAgentBridgeCaller } from '@/lib/agent-tools/bridge-caller';
+import { callTool, listTools } from '@/lib/agent-tools/executor';
+import { handleMessage } from './messages';
 
 const ALLOWED_ORIGIN = 'https://inflow.im';
 
@@ -32,6 +41,11 @@ function isAllowedOrigin(origin: string | undefined): boolean {
 }
 
 export function setupExternalMessageRouter(): void {
+  // Agent tool handlers run HERE in the service worker, where a runtime
+  // message to ourselves would never be delivered — route their bridge
+  // calls straight into the internal router instead.
+  setAgentBridgeCaller(handleMessage);
+
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     // Belt and braces on top of the manifest's externally_connectable match.
     if (!isAllowedOrigin(sender.origin)) return;
@@ -41,8 +55,29 @@ export function setupExternalMessageRouter(): void {
         id: chrome.runtime.id,
         version: chrome.runtime.getManifest().version,
       });
+      return;
     }
-    // Synchronous-only surface: never return true (no held-open channels).
+    // The agent tool surface — the executor's own gates (settings toggles,
+    // validation, send cap) decide whether anything actually happens.
+    if (message?.type === 'AGENT_LIST_TOOLS' || message?.type === 'AGENT_CALL_TOOL') {
+      const run =
+        message.type === 'AGENT_LIST_TOOLS'
+          ? listTools()
+          : callTool(
+              typeof message.tool === 'string' ? message.tool : '',
+              message.input
+            );
+      run
+        .catch((e: unknown) => ({
+          content: [
+            { type: 'text' as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          ],
+          isError: true,
+        }))
+        .then(sendResponse);
+      return true; // held open for the async answer — the one exception here
+    }
+    // Everything else: synchronous-only surface, no held-open channels.
   });
 }
 

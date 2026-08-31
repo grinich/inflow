@@ -77,11 +77,7 @@ export async function callTool(name: string, input: unknown): Promise<AgentToolR
   }
 
   if (tool.write && tool.successToast) {
-    try {
-      useUIStore.getState().showToast({ message: tool.successToast(data) });
-    } catch {
-      // A toast must never fail a completed action (e.g. store not mounted in tests).
-    }
+    notifyAgentWrite(tool.successToast(data));
   }
 
   return { content: [{ type: 'text', text: JSON.stringify(data, null, 1) }] };
@@ -89,4 +85,25 @@ export async function callTool(name: string, input: unknown): Promise<AgentToolR
 
 function errorResult(message: string): AgentToolResult {
   return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
+}
+
+/**
+ * Every agent write must be visible to the user. In a page that's the toast;
+ * in the background service worker (the external transport) no page renders
+ * this store, so it becomes a Chrome notification instead. Neither may ever
+ * fail a completed action.
+ */
+function notifyAgentWrite(message: string): void {
+  try {
+    useUIStore.getState().showToast({ message });
+  } catch {}
+  if (typeof document !== 'undefined') return; // a page renders the toast
+  try {
+    chrome.notifications?.create(`agent-write-${Date.now()}`, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icon-128.png'),
+      title: 'inflow agent',
+      message,
+    });
+  } catch {}
 }
