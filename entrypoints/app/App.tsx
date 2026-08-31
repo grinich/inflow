@@ -8,6 +8,7 @@ import { ConfirmDeleteModal } from '@/components/common/ConfirmDeleteModal';
 import { ConfirmSpamModal } from '@/components/common/ConfirmSpamModal';
 import { AISetupModal } from '@/components/common/AISetupModal';
 import { AgentAccessModal } from '@/components/common/AgentAccessModal';
+import { PairClaudeModal } from '@/components/common/PairClaudeModal';
 import { Toast } from '@/components/common/Toast';
 import { UpdateBanner } from '@/components/common/UpdateBanner';
 import { IncomingMessageToast } from '@/components/common/IncomingMessageToast';
@@ -74,14 +75,10 @@ export function App() {
   }, []);
 
   // Launched with ?pair=<code> — the pairing link Claude Desktop hands out.
-  // Open Agent Access with the code prefilled; the user still presses Save.
+  // One focused confirmation (PairClaudeModal); nothing saved until Connect.
   useEffect(() => {
     const code = consumePairParam();
-    if (code) {
-      const store = useUIStore.getState();
-      store.setAgentAccessPrefill(code);
-      store.setAgentAccessOpen(true);
-    }
+    if (code) useUIStore.getState().setPairRequest(code);
   }, []);
 
   // Full-window drag-and-drop for file attachments
@@ -324,6 +321,7 @@ export function App() {
       )}
       <AISetupModal />
       <AgentAccessModal />
+      <PairClaudeModal />
       <Toast />
       <IncomingMessageToast />
       <PendingNavigation />

@@ -119,19 +119,6 @@ it('pairing code persists only on Save, lowercased input normalized', async () =
   expect(useUIStore.getState().agentAccessOpen).toBe(false);
 });
 
-it('a ?pair launch prefill lands in the input, arms Save, and is consumed once', async () => {
-  useUIStore.setState({ agentAccessPrefillCode: 'INF-QRS234' });
-  render(<AgentAccessModal />);
-  const input = await screen.findByLabelText('Claude Desktop pairing code');
-  await waitFor(() => expect((input as HTMLInputElement).value).toBe('INF-QRS234'));
-  expect(saveButton()).not.toBeDisabled(); // prefill differs from persisted → dirty
-  expect(useUIStore.getState().agentAccessPrefillCode).toBeNull(); // consumed
-  expect(await getAgentBridgeToken()).toBeNull(); // nothing saved yet
-
-  fireEvent.click(saveButton());
-  await waitFor(async () => expect(await getAgentBridgeToken()).toBe('INF-QRS234'));
-});
-
 it('Unpair clears the code; Save removes the stored token', async () => {
   await setAgentBridgeToken('INF-ABC234');
   render(<AgentAccessModal />);
