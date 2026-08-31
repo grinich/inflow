@@ -56,10 +56,19 @@ jobs:
           # Hyphenated tags (v0.8.0-beta.1) are betas: marked prerelease, and
           # the store jobs below skip them entirely.
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # This repo has immutable releases: assets can only be attached
+          # while the release is a draft, so create it as one and publish in
+          # the next step once the uploads are in.
+          draft: true
           files: |
             dist/*.zip
             dist/Inflow.mcpb
             .output/*.zip
+
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"
 
   # Publishes the same tag to the Chrome Web Store. Separate job so a store-side
   # failure (expired token, review rejection) leaves the GitHub Release intact

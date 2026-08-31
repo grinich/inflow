@@ -952,6 +952,10 @@
     .then(function (data) {
       if (!data || !data.ok || !data.chrome || !data.chrome.version) return;
       var live = data.chrome.version;
+      // The newest STABLE GitHub release \u2014 the proof a version was actually
+      // submitted to the store. Beta-only versions (no stable release yet)
+      // must not read as "in review".
+      var submitted = data.github && data.github.latestStable;
 
       releases.forEach(function (rel) {
         var verEl = rel.querySelector('.rel-ver');
@@ -961,9 +965,19 @@
         if (!/^[0-9]/.test(version)) return;
 
         var order = cmp(version, live);
+        var chip = rel.querySelector('.rel-latest');
         var el = null;
 
         if (order === 0) {
+          // The build stamps the newest entry "Latest"; the store's actual
+          // state upgrades it \u2014 this one is Live, wherever it sits.
+          if (chip) chip.textContent = 'Live';
+          else {
+            chip = document.createElement('span');
+            chip.className = 'rel-latest';
+            chip.textContent = 'Live';
+            meta.appendChild(chip);
+          }
           var on = data.chrome.publishedAt && formatDay(data.chrome.publishedAt);
           el = badge(
             'is-live',
@@ -971,8 +985,13 @@
             data.chrome.publishedAt || undefined
           );
         } else if (order > 0) {
-          // Newer than what the store serves: submitted, awaiting review.
-          el = badge('is-pending', 'Submitted \u2014 in review');
+          // Newer than what the store serves. "In review" only when a stable
+          // release exists for it \u2014 that push is what submits to the store;
+          // anything else is development/beta work.
+          if (chip) chip.textContent = 'Development';
+          if (submitted && cmp(version, submitted) <= 0) {
+            el = badge('is-pending', 'Submitted \u2014 in review');
+          }
         }
         // Older releases were live once, but Google keeps no history of when,
         // so they get nothing rather than an invented date.

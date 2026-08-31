@@ -24,13 +24,15 @@ const SCRIPT = (() => {
   return found;
 })();
 
-/** A stand-in for the generated release list: one .rel per version. */
+/** A stand-in for the generated release list: one .rel per version, with the
+ *  build's "Latest" chip on the newest entry, as build-changelog.mjs emits. */
 function renderReleases(versions: string[]) {
   document.body.innerHTML = versions
     .map(
-      (v) => `<article class="rel"><div class="rel-meta">
+      (v, i) => `<article class="rel"><div class="rel-meta">
         <h2 class="rel-ver">${v}</h2>
         <time class="rel-date">1 January 2026</time>
+        ${i === 0 ? '<span class="rel-latest">Latest</span>' : ''}
       </div><div class="rel-body"></div></article>`,
     )
     .join('');
@@ -51,6 +53,7 @@ const badges = () =>
     version: rel.querySelector('.rel-ver')!.textContent!.trim(),
     text: rel.querySelector('.rel-store')?.textContent ?? null,
     cls: rel.querySelector('.rel-store')?.className ?? null,
+    chip: rel.querySelector('.rel-latest')?.textContent ?? null,
   }));
 
 const LIVE = {
@@ -60,6 +63,8 @@ const LIVE = {
     publishedAt: '2026-08-26T06:44:23.000Z',
     updatedText: 'August 25, 2026',
   },
+  // The newest STABLE GitHub release — proof a version was submitted.
+  github: { latestStable: '0.6.0' },
 };
 
 afterEach(() => {
@@ -68,17 +73,51 @@ afterEach(() => {
 });
 
 describe('changelog store badges', () => {
-  it('marks the live version, and only newer ones as in review', async () => {
+  it('marks the live version, and newer SUBMITTED ones as in review', async () => {
     renderReleases(['0.6.0', '0.5.2', '0.5.1']);
     await run(() => json(LIVE));
 
     const [next, live, old] = badges();
     expect(next.cls).toContain('is-pending');
     expect(next.text).toBe('Submitted — in review');
+    expect(next.chip).toBe('Development'); // newest, not what the store serves
     expect(live.cls).toContain('is-live');
     expect(live.text).toMatch(/^In the Chrome Web Store since /);
+    expect(live.chip).toBe('Live');
     // Older releases were live once, but Google keeps no record of when.
     expect(old.text).toBeNull();
+  });
+
+  it('a version newer than the latest stable release is development, not in review', async () => {
+    // 0.8.0 exists only as a beta tag: no stable GitHub release, so nothing
+    // was submitted — it must not read as awaiting review.
+    renderReleases(['0.8.0', '0.7.0', '0.6.0']);
+    await run(() =>
+      json({ ...LIVE, chrome: { ...LIVE.chrome, version: '0.6.0' }, github: { latestStable: '0.7.0' } })
+    );
+
+    const [beta, submitted, live] = badges();
+    expect(beta.text).toBeNull();
+    expect(beta.chip).toBe('Development');
+    expect(submitted.text).toBe('Submitted — in review');
+    expect(live.chip).toBe('Live');
+  });
+
+  it('without stable-release data, nothing is called in review', async () => {
+    renderReleases(['0.6.0', '0.5.2']);
+    await run(() => json({ ...LIVE, github: undefined }));
+
+    expect(badges()[0].text).toBeNull();
+    expect(badges()[0].chip).toBe('Development');
+    expect(badges()[1].cls).toContain('is-live');
+  });
+
+  it('re-labels the Latest chip to Live when the newest version is the live one', async () => {
+    renderReleases(['0.5.2', '0.5.1']);
+    await run(() => json(LIVE));
+
+    expect(badges()[0].chip).toBe('Live');
+    expect(badges()[0].cls).toContain('is-live');
   });
 
   it('compares versions numerically, not as strings', async () => {

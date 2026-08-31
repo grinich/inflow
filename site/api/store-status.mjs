@@ -39,17 +39,47 @@ async function fetchListing() {
   return res.text();
 }
 
+/**
+ * The newest STABLE GitHub release version ('0.7.0'), or null. This is the
+ * "was it actually submitted?" signal: pushing a stable tag is what triggers
+ * the store publish, while beta tags (v0.8.0-beta.1) skip the stores — so the
+ * changelog must not call a version "in review" without a stable release.
+ * Best-effort: any failure returns null and the page just shows no badge.
+ */
+async function fetchLatestStable() {
+  try {
+    const res = await fetch('https://api.github.com/repos/grinich/inflow/releases?per_page=15', {
+      headers: {
+        accept: 'application/vnd.github+json',
+        'user-agent': 'inflow-site/1.0 (+https://inflow.im)',
+      },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const releases = await res.json();
+    if (!Array.isArray(releases)) return null;
+    const stable = releases.find(
+      (r) => r && !r.draft && !r.prerelease && /^v\d+\.\d+\.\d+$/.test(r.tag_name || '')
+    );
+    return stable ? stable.tag_name.slice(1) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(_req, res) {
   res.setHeader('content-type', 'application/json; charset=utf-8');
 
   try {
-    const chrome = parseListing(await fetchListing());
+    const [listing, latestStable] = await Promise.all([fetchListing(), fetchLatestStable()]);
+    const chrome = parseListing(listing);
     if (!chrome) throw new Error('listing did not parse');
 
     res.setHeader('cache-control', CACHE_OK);
     res.status(200).end(JSON.stringify({
       ok: true,
       chrome,
+      ...(latestStable ? { github: { latestStable } } : {}),
       checkedAt: new Date().toISOString(),
     }));
   } catch (err) {
