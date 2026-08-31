@@ -6,7 +6,7 @@
  */
 import '../dom-setup';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PairClaudeModal } from '@/components/common/PairClaudeModal';
 import { getAgentBridgeToken, setAgentToolsEnabled } from '@/lib/agent-settings';
 import { useUIStore } from '@/store/ui-store';
@@ -56,7 +56,8 @@ it('Cancel and Escape close without saving anything', async () => {
   await waitFor(() => expect(useUIStore.getState().pairRequestCode).toBeNull());
   expect(await getAgentBridgeToken()).toBeNull();
 
-  useUIStore.setState({ pairRequestCode: CODE });
+  act(() => useUIStore.setState({ pairRequestCode: CODE }));
+  await screen.findByText('Connect Claude Desktop'); // modal (and its Escape listener) is back
   fireEvent.keyDown(window, { key: 'Escape' });
   await waitFor(() => expect(useUIStore.getState().pairRequestCode).toBeNull());
   expect(await getAgentBridgeToken()).toBeNull();

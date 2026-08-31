@@ -69,7 +69,9 @@ export function PairClaudeModal() {
     showToast({ message: 'Paired with Claude Desktop' });
     setPairRequest(null);
     // Pairing alone grants nothing — take them to the actual consents.
-    if (!readsEnabled) setAgentAccessOpen(true);
+    // Re-read at click time: the effect's load may not have resolved yet
+    // when someone confirms quickly (same pattern as the command palette).
+    if (!(await getAgentToolsEnabled())) setAgentAccessOpen(true);
   };
 
   return (
