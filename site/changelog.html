@@ -82,6 +82,37 @@
 /* Raw-HTML figures (the side-by-side pairs) size themselves via width
    attributes so GitHub lays them out the same way. No border. */
 .rel-body p > img:not(.rel-icon){height:auto;vertical-align:top;border-radius:8px}
+
+/* Screenshots open full size on click. The affordance is added by script, so
+   a page without JS still shows every screenshot — just not enlargeable. */
+.shot-zoom{cursor:zoom-in;transition:opacity .12s ease}
+.shot-zoom:hover{opacity:.88}
+.shot-zoom:focus-visible{outline:2px solid var(--accent,#2563eb);outline-offset:3px}
+.lightbox{
+  position:fixed;inset:0;z-index:100;display:flex;align-items:center;
+  justify-content:center;padding:clamp(16px,4vw,56px);
+  background:rgba(16,18,22,.82);
+  /* -webkit- included: Safari still needs it for backdrop-filter. */
+  -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+  opacity:0;transition:opacity .14s ease;cursor:zoom-out;
+}
+.lightbox[hidden]{display:none}
+.lightbox.is-open{opacity:1}
+.lightbox img{
+  max-width:100%;max-height:100%;width:auto;height:auto;
+  border-radius:10px;box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+.lightbox-close{
+  position:absolute;top:16px;right:20px;width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  border:0;border-radius:999px;cursor:pointer;
+  background:rgba(255,255,255,.14);color:#fff;font-size:22px;line-height:1;
+}
+.lightbox-close:hover{background:rgba(255,255,255,.24)}
+.lightbox-close:focus-visible{outline:2px solid #fff;outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .shot-zoom,.lightbox{transition:none}
+}
 .rel-group{display:flex;flex-direction:column;gap:10px}
 .rel-tag{
   font-size:.6875rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
@@ -164,9 +195,47 @@
     <!-- CHANGELOG:START -->
     <article class="rel">
       <div class="rel-meta">
+        <h2 class="rel-ver">0.7.0</h2>
+        <time class="rel-date" datetime="2026-08-30">30 August 2026</time>
+        <span class="rel-latest">Latest</span>
+      </div>
+      <div class="rel-body">
+        <p> <img src="https://inflow.im/img/0.7.0-network-invitations.png" width="32%" alt="The Network view's Invitations tab — a request from Noah Bennett selected, his note shown as a message and mutual connections under the headline"> <img src="https://inflow.im/img/0.7.0-network-connections.png" width="32%" alt="The Connections tab, sorted by date, with Sarah Chen selected and a Message button"> <img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button"> </p>
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>Network view</strong> — keyboard-driven triage for connection requests and a browsable list of recent connections. <code>G N</code> opens it (or pick "Go to Network" from the command palette); <code>1</code> / <code>2</code> / <code>3</code> switch between Invitations, Connections and Sent, <code>J</code> / <code>K</code> move, <code>/</code> filters, <code>Enter</code> accepts an invitation or messages a connection, <code>D</code> / <code>X</code> / <code>⌫</code> ignores, <code>P</code> opens the profile, and <code>Esc</code> returns to the inbox. It has its own address (<code>#/network</code>), so reloads and deep links land on it, and a <strong>Network</strong> button sits beside the Unread filter for anyone who would rather not learn the chord.</li>
+            <li><strong>Reloading keeps your place</strong> — which tab you are on, and whether the unread filter is on, now live in the URL: <code>#/inbox/archived</code>, <code>#/inbox/other?unread</code>. ⌘R off Archive used to drop you back on Focused. Back and forward step through tabs too, and any of these addresses can be bookmarked. Toggling unread doesn't pile up history entries, and what you type in the search box stays out of the URL. This works through inflow.im/app as well, where the app runs in an iframe: it hands its route to the page around it, which keeps it in the address bar and gives it back on the next load.</li>
+            <li><strong>A Sent tab</strong> — every connection request you're still waiting on, with the note you attached and a <strong>Withdraw</strong> button on each. <code>3</code> opens it. LinkedIn no longer serves this over the API inƒlow uses for everything else, so it comes from their invitation manager page instead — the same pages its own infinite scroll asks for, walked to the end rather than stopping at the first ten.</li>
+            <li><strong>Accepting a request with a note drops you into the reply</strong> — the note is the first message of the thread LinkedIn creates when you accept, so inƒlow switches to that thread at once and puts the cursor in the reply box. The thread takes a moment to arrive, so it stands in a placeholder you can already type into and swaps the real one underneath when it lands, carrying anything you have written. And it doesn't announce their note as a new message — you just accepted it. Accepting a request without a note leaves you on the list, so triaging a run of them is uninterrupted.</li>
+            <li><strong>Mutual connections on each invitation</strong> — opening a request shows the same <em>"Viren Baraiya and 62 other mutual connections"</em> line LinkedIn does, faces and all, under the bio. It is usually what decides a request, and it rides along on the request inƒlow already makes.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-changed">Changed</h3>
+          <ul>
+            <li><strong><code>⌫</code> archives in the inbox</strong>, matching <code>E</code>, so the same key clears a row in both the inbox and the network view.</li>
+            <li><strong>The folder selector is a dropdown at every width</strong> — Focused, Other, Archive and Spam were four buttons in a row, which stopped fitting beside Unread, Network and compose once the sidebar could be narrowed, and the toolbar wrapped. The sidebar's minimum width went up a little for the same reason: it can no longer be dragged narrower than its own header.</li>
+            <li><strong>Focus outlines only appear when you're actually using the keyboard</strong> — a button you <em>clicked</em> picked up an outline as soon as you pressed any key, which in an app driven by <code>1</code> / <code>2</code> / <code>3</code> and <code>J</code> / <code>K</code> meant immediately. It would then sit on, say, Unread while you were changing folders. Tabbing to a button still outlines it, which is what the outline is for.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>Archiving a conversation that was still being created</strong> — the row shown while a newly accepted invitation's thread arrives is a local stand-in, so archiving, starring, moving or deleting it asked LinkedIn about a conversation it had never heard of and failed with <em>"failed to archive, rolling back"</em>. Those actions now stay local, and sending still works — that is what turns the stand-in into a real thread.</li>
+            <li><strong>Moving a conversation out of Archive from the command palette</strong> — the palette's archive entry already restored a conversation to Focused when you were in the Archived tab, matching <code>E</code>, but it still called itself <em>Archive conversation</em> there. So the Archive tab offered a command describing the opposite of what it did, and searching the palette for "focused" turned up only <em>Go to Focused inbox</em>. It now reads <em>Move to Focused</em>, like the thread header already did.</li>
+            <li><strong><code>E</code> and <code>O</code> no longer do the same thing in Archive</strong> — a conversation archived out of Other kept that category while sitting in Archive, so the slot that offers <em>Move to Focused</em> for an Other conversation offered it again there, next to the one that already restores to Focused. The command palette, the right-click menu and the thread header each listed <em>Move to Focused</em> twice, and <code>O</code> did nothing <code>E</code> didn't. In Archive, <code>O</code> now restores to Other, so the two keys are the two ways back out.</li>
+            <li><strong>Invitations no longer go missing on large accounts</strong> — three separate faults, all of which bite hardest on the accounts with the most requests. The walk stopped when a page of invitations <em>parsed</em> short, which a full page does whenever a single entity is in a shape inƒlow doesn't recognise — and stopping that way also convinced it that it had seen the whole list, so it then deleted every pending invitation past that point. A single failed request — likely on any account needing ten or more sequential fetches — threw away every invitation already collected instead of keeping them. And the ceiling sat at 400, which accounts in the high hundreds were already brushing against.</li>
+            <li><strong>Profile pictures on invitations</strong> — LinkedIn moves shared sub-objects out of the record that references them, and inƒlow only understood the inline form, so every invitation fell back to a grey initial. Sender profiles are also kept now instead of being discarded after each sync.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
         <h2 class="rel-ver">0.6.1</h2>
         <time class="rel-date" datetime="2026-08-29">29 August 2026</time>
-        <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
         <section class="rel-group">
@@ -568,6 +637,89 @@
   </div>
 </footer>
 
+<script>
+(function () {
+  'use strict';
+  // Click a screenshot to see it full size.
+  //
+  // Progressive enhancement: the markup is plain <img>, because it has to
+  // render on GitHub too — release notes are built from the same CHANGELOG.md.
+  // Everything that makes a thumbnail enlargeable is added here, so without
+  // JavaScript the page still shows every screenshot at its laid-out size.
+  var shots = [].slice.call(
+    document.querySelectorAll('.rel-body img:not(.rel-icon)')
+  );
+  if (!shots.length) return;
+
+  var box, boxImg, closeBtn, lastFocused;
+
+  function build() {
+    box = document.createElement('div');
+    box.className = 'lightbox';
+    box.hidden = true;
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-label', 'Screenshot');
+
+    boxImg = document.createElement('img');
+    // Clicking the backdrop closes; clicking the image itself should not.
+    boxImg.addEventListener('click', function (e) { e.stopPropagation(); });
+
+    closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'lightbox-close';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', close);
+
+    box.appendChild(boxImg);
+    box.appendChild(closeBtn);
+    box.addEventListener('click', close);
+    document.body.appendChild(box);
+  }
+
+  function open(img) {
+    if (!box) build();
+    lastFocused = img;
+    boxImg.src = img.currentSrc || img.src;
+    boxImg.alt = img.alt;
+    box.hidden = false;
+    // Next frame, so the transition has a state to move from.
+    requestAnimationFrame(function () { box.classList.add('is-open'); });
+    document.body.style.overflow = 'hidden';
+    closeBtn.focus();
+    document.addEventListener('keydown', onKey);
+  }
+
+  function close() {
+    if (!box || box.hidden) return;
+    box.classList.remove('is-open');
+    box.hidden = true;
+    // Release the image so a large screenshot is not held in memory.
+    boxImg.removeAttribute('src');
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', onKey);
+    if (lastFocused) lastFocused.focus();
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') { close(); return; }
+    // The dialog has exactly one focusable control, so the trap is this simple.
+    if (e.key === 'Tab') { e.preventDefault(); closeBtn.focus(); }
+  }
+
+  shots.forEach(function (img) {
+    img.classList.add('shot-zoom');
+    img.tabIndex = 0;
+    img.setAttribute('role', 'button');
+    img.setAttribute('aria-label', (img.alt || 'Screenshot') + ' — view full size');
+    img.addEventListener('click', function () { open(img); });
+    img.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(img); }
+    });
+  });
+})();
+</script>
 <script>
 (function(){
   var nav = document.getElementById('nav');

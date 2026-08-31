@@ -4,29 +4,13 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.7.0] - 2026-08-30
 
-### Fixed
-- **Archiving a conversation that was still being created** — the row shown
-  while a newly accepted invitation's thread arrives is a local stand-in, so
-  archiving, starring, moving or deleting it asked LinkedIn about a
-  conversation it had never heard of and failed with *"failed to archive,
-  rolling back"*. Those actions now stay local, and sending still works — that
-  is what turns the stand-in into a real thread.
-- **Moving a conversation out of Archive from the command palette** — the
-  palette's archive entry already restored a conversation to Focused when you
-  were in the Archived tab, matching `E`, but it still called itself *Archive
-  conversation* there. So the Archive tab offered a command describing the
-  opposite of what it did, and searching the palette for "focused" turned up
-  only *Go to Focused inbox*. It now reads *Move to Focused*, like the thread
-  header already did.
-- **`E` and `O` no longer do the same thing in Archive** — a conversation
-  archived out of Other kept that category while sitting in Archive, so the
-  slot that offers *Move to Focused* for an Other conversation offered it
-  again there, next to the one that already restores to Focused. The command
-  palette, the right-click menu and the thread header each listed *Move to
-  Focused* twice, and `O` did nothing `E` didn't. In Archive, `O` now restores
-  to Other, so the two keys are the two ways back out.
+<p>
+<img src="https://inflow.im/img/0.7.0-network-invitations.png" width="32%" alt="The Network view's Invitations tab — a request from Noah Bennett selected, his note shown as a message and mutual connections under the headline">
+<img src="https://inflow.im/img/0.7.0-network-connections.png" width="32%" alt="The Connections tab, sorted by date, with Sarah Chen selected and a Message button">
+<img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button">
+</p>
 
 ### Added
 - **Network view** — keyboard-driven triage for connection requests and a
@@ -84,6 +68,26 @@ All notable changes to inflow are documented here. This project follows
   button still outlines it, which is what the outline is for.
 
 ### Fixed
+- **Archiving a conversation that was still being created** — the row shown
+  while a newly accepted invitation's thread arrives is a local stand-in, so
+  archiving, starring, moving or deleting it asked LinkedIn about a
+  conversation it had never heard of and failed with *"failed to archive,
+  rolling back"*. Those actions now stay local, and sending still works — that
+  is what turns the stand-in into a real thread.
+- **Moving a conversation out of Archive from the command palette** — the
+  palette's archive entry already restored a conversation to Focused when you
+  were in the Archived tab, matching `E`, but it still called itself *Archive
+  conversation* there. So the Archive tab offered a command describing the
+  opposite of what it did, and searching the palette for "focused" turned up
+  only *Go to Focused inbox*. It now reads *Move to Focused*, like the thread
+  header already did.
+- **`E` and `O` no longer do the same thing in Archive** — a conversation
+  archived out of Other kept that category while sitting in Archive, so the
+  slot that offers *Move to Focused* for an Other conversation offered it
+  again there, next to the one that already restores to Focused. The command
+  palette, the right-click menu and the thread header each listed *Move to
+  Focused* twice, and `O` did nothing `E` didn't. In Archive, `O` now restores
+  to Other, so the two keys are the two ways back out.
 - **Invitations no longer go missing on large accounts** — three separate
   faults, all of which bite hardest on the accounts with the most requests.
   The walk stopped when a page of invitations *parsed* short, which a full
@@ -505,6 +509,7 @@ First public GitHub release, with in-app update notifications.
 
 Initial pre-release builds (shared informally before GitHub Releases).
 
+[0.7.0]: https://github.com/grinich/inflow/releases/tag/v0.7.0
 [0.6.1]: https://github.com/grinich/inflow/releases/tag/v0.6.1
 [0.6.0]: https://github.com/grinich/inflow/releases/tag/v0.6.0
 [0.5.2]: https://github.com/grinich/inflow/releases/tag/v0.5.2
