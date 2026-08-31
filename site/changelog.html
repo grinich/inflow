@@ -686,6 +686,8 @@
   var index = 0;
   var restoreFocus = false; // only when the keyboard opened it
   var busy = null;          // the running open/close animation
+  var fadeOut = null;       // close()'s backdrop fade — its fill:'both' holds opacity 0
+  var opened = 0;           // bumped by open(); lets a stale close() teardown recognise itself
 
   /** The screenshots belonging to the same release, in document order. */
   function galleryFor(img) {
@@ -793,7 +795,12 @@
     // in requestAnimationFrame instead would mean no viewer at all in a
     // background tab, where rAF does not run.
     boxImg.getBoundingClientRect();
+    opened++;
     if (busy) busy.cancel();
+    // The previous close() left its backdrop fade holding opacity 0 (that is
+    // what its fill:'both' is for). Cancelled here, or the reopened viewer
+    // stays transparent while still covering the page.
+    if (fadeOut) { fadeOut.cancel(); fadeOut = null; }
     busy = zoom(img, true);
     fade(true);
     document.body.style.overflow = 'hidden';
@@ -816,6 +823,9 @@
     boxImg.removeAttribute('src');
     document.body.style.overflow = '';
     document.removeEventListener('keydown', onKey);
+    // Now that the box is display:none the fade-out has done its job; drop it
+    // so its fill:'both' cannot outlive this close and blank the next open.
+    if (fadeOut) { fadeOut.cancel(); fadeOut = null; }
     // Only hand focus back when the keyboard opened this. After a click it
     // would paint a focus ring nobody asked for.
     if (restoreFocus && group[index]) group[index].focus();
@@ -825,15 +835,19 @@
     if (!box || box.hidden) return;
     if (busy) busy.cancel();
     busy = zoom(group[index], false);
-    var out = fade(false);
+    fadeOut = fade(false);
     // Whether it closes must not depend on an animation finishing. In a
     // background tab neither rAF nor WAAPI callbacks run, and gating the
     // teardown on onfinish left the viewer stuck open with no way out.
-    // finishClose is idempotent, so both paths can race safely.
+    // finishClose is idempotent, so both paths can race safely — but a
+    // reopen in the meantime supersedes this close, and the late timer must
+    // not hide the new viewer.
+    var tick = opened;
+    var done = function () { if (tick === opened) finishClose(); };
     var DURATION = 200;
-    if (busy) busy.onfinish = finishClose;
-    if (out) out.onfinish = finishClose;
-    setTimeout(finishClose, busy || out ? DURATION : 0);
+    if (busy) busy.onfinish = done;
+    if (fadeOut) fadeOut.onfinish = done;
+    setTimeout(done, busy || fadeOut ? DURATION : 0);
   }
 
   function onKey(e) {
