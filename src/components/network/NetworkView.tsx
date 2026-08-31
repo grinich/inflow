@@ -31,6 +31,13 @@ function EmptyPane({ failure, empty }: { failure?: string; empty: string }) {
   );
 }
 
+/** What each tab asks the background for. */
+const FETCH_FOR: Record<NetworkTab, { type: string }> = {
+  invitations: { type: 'FETCH_INVITATIONS' },
+  sent: { type: 'FETCH_SENT_INVITATIONS' },
+  connections: { type: 'FETCH_CONNECTIONS' },
+};
+
 export function NetworkView() {
   const networkTab = useUIStore((s) => s.networkTab);
   const setNetworkTab = useUIStore((s) => s.setNetworkTab);
@@ -63,13 +70,6 @@ export function NetworkView() {
   // answering 400 on every call.
   const [failed, setFailed] = useState<Partial<Record<NetworkTab, string>>>({});
 
-  /** What each tab asks the background for. */
-  const FETCH_FOR: Record<NetworkTab, { type: string }> = {
-    invitations: { type: 'FETCH_INVITATIONS' },
-    sent: { type: 'FETCH_SENT_INVITATIONS' },
-    connections: { type: 'FETCH_CONNECTIONS' },
-  };
-
   /** Tabs already fetched this mount, so switching back and forth is free. */
   const fetched = useRef<Partial<Record<NetworkTab, boolean>>>({});
 
@@ -83,6 +83,8 @@ export function NetworkView() {
     const tab = networkTab;
     if (fetched.current[tab]) return;
     fetched.current[tab] = true;
+    // A retry after a failure needs its spinner back.
+    setLoading((prev) => (prev[tab] ? prev : { ...prev, [tab]: true }));
     let cancelled = false;
 
     sendBridgeMessage(FETCH_FOR[tab] as any)
@@ -90,12 +92,19 @@ export function NetworkView() {
         if (cancelled) return;
         if (!res.success) {
           setFailed((prev) => ({ ...prev, [tab]: res.error || 'Request failed' }));
+          // Let coming back to the tab try again. These walks are long and the
+          // background gives up on a rate-limited page rather than retrying,
+          // so a transient failure would otherwise stick until the whole view
+          // is closed and reopened.
+          fetched.current[tab] = false;
         } else if (tab === 'connections') {
           setHasMore(Boolean(res.data?.hasMore));
         }
       })
       .catch((err: unknown) => {
-        if (!cancelled) setFailed((prev) => ({ ...prev, [tab]: String(err) }));
+        if (cancelled) return;
+        setFailed((prev) => ({ ...prev, [tab]: String(err) }));
+        fetched.current[tab] = false;
       })
       .finally(() => {
         if (!cancelled) setLoading((prev) => ({ ...prev, [tab]: false }));
@@ -104,8 +113,6 @@ export function NetworkView() {
     return () => {
       cancelled = true;
     };
-    // FETCH_FOR is a literal rebuilt each render; the tab is what matters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [networkTab]);
 
   const invitations = useLiveQuery(

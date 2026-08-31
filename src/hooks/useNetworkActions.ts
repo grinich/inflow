@@ -102,6 +102,7 @@ async function handOverDraft(
 ): Promise<void> {
   const get = (id: string) => db.draftAttachments.get(id).catch(() => undefined);
   const deadline = Date.now() + budgetMs;
+  let quiet = 0;
   for (;;) {
     const [dest, left] = await Promise.all([get(toId), get(fromId)]);
     if (dest?.text || dest?.files?.length) {
@@ -128,7 +129,16 @@ async function handOverDraft(
       document.dispatchEvent(new CustomEvent(DRAFT_HANDOVER, { detail: toId }));
       return;
     }
-    if (Date.now() >= deadline) {
+    // Nothing typed, nothing stored, and the box that could still flush one is
+    // gone — there is nothing on its way, so stop rather than poll out the
+    // whole budget on every accept where no reply was started. One extra pass
+    // because the flush is issued as the box unmounts and may not have
+    // committed when we looked.
+    const couldStillFlush = !!document.querySelector(
+      `[data-compose-input="${CSS.escape(fromId)}"]`
+    );
+    quiet = couldStillFlush ? 0 : quiet + 1;
+    if (quiet >= 2 || Date.now() >= deadline) {
       await db.draftAttachments.delete(fromId).catch(() => {});
       return;
     }

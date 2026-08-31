@@ -144,6 +144,7 @@ export async function seedDemoData(): Promise<void> {
     await database.messages.clear();
     await database.profiles.clear();
     await database.invitations.clear();
+    await database.sentInvitations.clear();
     await database.connections.clear();
   }
 
