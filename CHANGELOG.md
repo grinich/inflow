@@ -49,15 +49,13 @@ All notable changes to inflow are documented here. This project follows
   hands its route to the page around it, which keeps it in the address bar and
   gives it back on the next load.
 
-- **A Sent tab** — the connection requests you're still waiting on, with a
-  **Withdraw** button on each. `3` opens it, and the tab shows how many are
-  outstanding in total.
+- **A Sent tab** — every connection request you're still waiting on, with the
+  note you attached and a **Withdraw** button on each. `3` opens it.
 
   LinkedIn no longer serves this over the API inflow uses for everything else,
-  so it comes from their invitation manager page instead. Two consequences
-  worth knowing: only the first page of requests is listed (the count is the
-  true total), and the note you attached isn't available, so inflow won't
-  pretend to know whether there was one.
+  so it comes from their invitation manager page instead — the same pages its
+  own infinite scroll asks for, walked to the end rather than stopping at the
+  first ten.
 - **Accepting a request with a note drops you into the reply** — the note is
   the first message of the thread LinkedIn creates when you accept, so inflow
   switches to that thread at once and puts the cursor in the reply box. The
@@ -74,6 +72,16 @@ All notable changes to inflow are documented here. This project follows
 ### Changed
 - **`⌫` archives in the inbox**, matching `E`, so the same key clears a
   row in both the inbox and the network view.
+- **The folder selector is a dropdown at every width** — Focused, Other,
+  Archive and Spam were four buttons in a row, which stopped fitting beside
+  Unread, Network and compose once the sidebar could be narrowed, and the
+  toolbar wrapped. The sidebar's minimum width went up a little for the same
+  reason: it can no longer be dragged narrower than its own header.
+- **Focus outlines only appear when you're actually using the keyboard** — a
+  button you *clicked* picked up an outline as soon as you pressed any key,
+  which in an app driven by `1` / `2` / `3` and `J` / `K` meant immediately. It
+  would then sit on, say, Unread while you were changing folders. Tabbing to a
+  button still outlines it, which is what the outline is for.
 
 ### Fixed
 - **Invitations no longer go missing on large accounts** — three separate
