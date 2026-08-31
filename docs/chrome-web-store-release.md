@@ -88,6 +88,7 @@ Revoke access any time at
 
 ## Inflow.mcpb (Claude Desktop bundle)
 
-TODO at release time: build `dist/Inflow.mcpb` in CI (`npm run mcpb:build`),
-attach it to the GitHub Release next to the zips, and link it from inflow.im.
-The build stamps the version from package.json, so run it after `npm version`.
+CI builds `dist/Inflow.mcpb` (`npm run mcpb:build`) and attaches it to the
+GitHub Release; the Agent Access modal's Download button points at the stable
+`releases/latest/download/Inflow.mcpb` URL, so it starts resolving with the
+first release that carries the asset. TODO: link it from inflow.im too.

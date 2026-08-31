@@ -95,6 +95,17 @@ it('Cancel and Escape discard changes', async () => {
   expect(await getAgentToolsEnabled()).toBe(false);
 });
 
+it('offers the Inflow.mcpb download at the stable latest-release URL', async () => {
+  render(<AgentAccessModal />);
+  const link = await screen.findByRole('link', { name: 'Download Inflow.mcpb' });
+  // The release workflow attaches dist/Inflow.mcpb, which is what makes this
+  // latest/download URL resolve — change both together.
+  expect(link).toHaveAttribute(
+    'href',
+    'https://github.com/grinich/inflow/releases/latest/download/Inflow.mcpb'
+  );
+});
+
 it('pairing code persists only on Save, lowercased input normalized', async () => {
   render(<AgentAccessModal />);
   const input = await screen.findByLabelText('Claude Desktop pairing code');

@@ -31,6 +31,11 @@ jobs:
       # Builds the extension and produces dist/inflow-<version>-chrome.zip
       - run: npm run zip
 
+      # The Claude Desktop bundle (dist/Inflow.mcpb) — the Agent Access modal
+      # and inflow.im link to this release asset by its stable
+      # releases/latest/download/Inflow.mcpb URL.
+      - run: npm run mcpb:build
+
       # Build the release body: this version's CHANGELOG section (unwrapped —
       # GitHub renders release notes with hard line breaks on, so the
       # markdown's column wrapping would show as real breaks) plus the standard
@@ -48,6 +53,7 @@ jobs:
           generate_release_notes: true # appends an auto commit/PR changelog
           files: |
             dist/*.zip
+            dist/Inflow.mcpb
             .output/*.zip
 
   # Publishes the same tag to the Chrome Web Store. Separate job so a store-side

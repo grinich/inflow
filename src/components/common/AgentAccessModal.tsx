@@ -175,11 +175,23 @@ export function AgentAccessModal() {
         />
 
         <div className="mt-5 border-t border-ring pt-4">
-          <p className="text-sm font-medium text-fg">Claude Desktop</p>
-          <p className="mt-0.5 text-xs text-fg-secondary">
-            Install Inflow.mcpb in Claude Desktop, ask Claude for your inflow pairing code, and
-            enter it here.
-          </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-fg">Claude Desktop</p>
+              <p className="mt-0.5 text-xs text-fg-secondary">
+                Install Inflow.mcpb (double-click it), ask Claude for your inflow pairing code,
+                and enter it here.
+              </p>
+            </div>
+            <a
+              href="https://github.com/grinich/inflow/releases/latest/download/Inflow.mcpb"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 rounded-md bg-surface px-3 py-1.5 text-sm font-medium text-fg ring-1 ring-ring transition-colors hover:bg-surface-hover"
+            >
+              Download Inflow.mcpb
+            </a>
+          </div>
           <input
             type="text"
             value={pairCode}
