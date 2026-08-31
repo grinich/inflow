@@ -39,6 +39,30 @@ interface UIState {
   paletteOpen: boolean;
   shortcutOverlayOpen: boolean;
   composeActive: boolean;
+  /**
+   * The conversation whose reply box should take the cursor as soon as it
+   * mounts, or null.
+   *
+   * Focus used to be applied by polling the DOM for any `[data-compose-input]`
+   * and focusing the first hit. That focuses whichever composer happens to be
+   * mounted — not necessarily the conversation we jumped to — and it is a
+   * one-shot: a composer replaced afterwards (which is exactly what the
+   * placeholder → real thread swap does) comes back unfocused. Naming the
+   * conversation instead lets the right composer claim the cursor whenever it
+   * appears, however many times the tree is rebuilt underneath it.
+   */
+  composerFocusFor: string | null;
+  /**
+   * A pending "keep what is typed" handover between two conversations.
+   *
+   * The accept flow replaces a placeholder thread with the real one the moment
+   * it syncs. Copying the text across meant snapshotting the box before the
+   * swap and reloading it after — so anything typed in between was thrown
+   * away, which is what happened to anyone still typing when the thread
+   * arrived. The composer is re-rendered rather than remounted, so it can
+   * simply hold on to what it has while the conversation under it changes.
+   */
+  draftCarry: { from: string; to: string } | null;
   composeNewActive: boolean;
   toast: Toast | null;
   lastUndoAction: (() => void) | null;
@@ -68,6 +92,14 @@ interface UIState {
   toggleShortcutOverlay: () => void;
   setShortcutOverlayOpen: (open: boolean) => void;
   setComposeActive: (active: boolean) => void;
+  /** Ask for the cursor in this conversation's reply box once it exists. */
+  requestComposerFocus: (conversationId: string) => void;
+  /** Called by the composer that took it. */
+  clearComposerFocus: (conversationId: string) => void;
+  /** Ask the composer to keep its text as it moves between conversations. */
+  carryDraftAcross: (from: string, to: string) => void;
+  /** Claim a handover into this conversation; returns the one it came from. */
+  takeDraftCarry: (to: string) => string | null;
   setComposeNewActive: (active: boolean) => void;
   showToast: (toast: Omit<Toast, 'id'>) => void;
   dismissToast: () => void;
@@ -172,6 +204,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   paletteOpen: false,
   shortcutOverlayOpen: false,
   composeActive: false,
+  composerFocusFor: null,
+  draftCarry: null,
   composeNewActive: false,
   toast: null,
   lastUndoAction: null,
@@ -201,6 +235,19 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleShortcutOverlay: () => set((s) => ({ shortcutOverlayOpen: !s.shortcutOverlayOpen })),
   setShortcutOverlayOpen: (open) => set({ shortcutOverlayOpen: open }),
   setComposeActive: (active) => set({ composeActive: active }),
+  requestComposerFocus: (conversationId) =>
+    set({ composeActive: true, composerFocusFor: conversationId }),
+  // Only the composer that was asked for may clear the request; a different
+  // one unmounting must not cancel a focus meant for the thread arriving next.
+  clearComposerFocus: (conversationId) =>
+    set((s) => (s.composerFocusFor === conversationId ? { composerFocusFor: null } : {})),
+  carryDraftAcross: (from, to) => set({ draftCarry: { from, to } }),
+  takeDraftCarry: (to) => {
+    const carry = get().draftCarry;
+    if (carry?.to !== to) return null;
+    set({ draftCarry: null });
+    return carry.from;
+  },
   setComposeNewActive: (active) => set({ composeNewActive: active }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setInboxTab: (tab) => {

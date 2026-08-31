@@ -55,9 +55,18 @@ beforeEach(async () => {
   applySchema(testDb);
   await testDb.open();
   await testDb.invitations.put(invitation('Hi Michael — big fan of your work.'));
-  useUIStore.setState({ appView: 'network', inboxTab: 'focused', selectedConversationId: null, composeActive: false });
-  // A composer to focus, as ThreadView would render.
-  document.body.innerHTML = '<textarea data-compose-input></textarea>';
+  useUIStore.setState({
+    appView: 'network', inboxTab: 'focused', selectedConversationId: null,
+    composeActive: false, composerFocusFor: null,
+  });
+  // Stand-in composers, as ThreadView would render them. The attribute names
+  // the conversation each box belongs to: focus is requested for a named
+  // conversation and the draft carried over is read from that box, so an
+  // anonymous textarea is no longer a faithful stand-in for either.
+  document.body.innerHTML =
+    '<textarea data-compose-input="draft-ACoAAAsender"></textarea>' +
+    '<textarea data-compose-input="conv-1"></textarea>' +
+    '<textarea data-compose-input="conv-late"></textarea>';
 });
 
 afterEach(async () => {
@@ -68,8 +77,16 @@ afterEach(async () => {
 
 const actions = () => renderHook(() => useNetworkActions()).result.current;
 
+/** The stand-in composer for a conversation. */
+const composerFor = (id: string) =>
+  document.querySelector(`[data-compose-input="${id}"]`) as HTMLTextAreaElement;
+
 describe('regression #162: accepting an invitation with a note', () => {
-  it('opens the thread and focuses the reply box', async () => {
+  it('opens the thread and asks for the cursor in ITS reply box', async () => {
+    // The composer takes the cursor itself when it mounts for the conversation
+    // named here — see ComposeBox. That the cursor really lands there is
+    // covered end to end in the accept-invitation integration test, with the
+    // real App and the real composer.
     await testDb.conversations.put(thread('conv-1'));
 
     await actions().acceptInvitation(invitation('Hi Michael — big fan.'));
@@ -79,7 +96,7 @@ describe('regression #162: accepting an invitation with a note', () => {
       expect(s.appView).toBe('inbox');
       expect(s.selectedConversationId).toBe('conv-1');
     });
-    expect(document.activeElement?.hasAttribute('data-compose-input')).toBe(true);
+    expect(useUIStore.getState().composerFocusFor).toBe('conv-1');
   });
 
   it('stays put when the invitation had no note', async () => {
@@ -131,7 +148,7 @@ describe('regression #162: accepting an invitation with a note', () => {
       expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
     );
     // On screen but not yet persisted — exactly the window that lost text.
-    (document.querySelector('[data-compose-input]') as HTMLTextAreaElement).value = 'Typed but unsaved';
+    composerFor('draft-ACoAAAsender').value = 'Typed but unsaved';
 
     await accept;
 
@@ -146,7 +163,7 @@ describe('regression #162: accepting an invitation with a note', () => {
       expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
     );
     await testDb.draftAttachments.put({ conversationId: 'draft-ACoAAAsender', text: 'one second ago' });
-    (document.querySelector('[data-compose-input]') as HTMLTextAreaElement).value = 'one second ago plus more';
+    composerFor('draft-ACoAAAsender').value = 'one second ago plus more';
 
     await accept;
 
@@ -204,6 +221,41 @@ describe('regression #162: accepting an invitation with a note', () => {
     await accept;
 
     expect(useUIStore.getState().selectedConversationId).toBe('conv-late');
+  });
+
+  it('carries the placeholder’s text, not whichever box is first in the DOM', async () => {
+    // The read used to be document.querySelector('[data-compose-input]') —
+    // the first composer in the document, whoever it belonged to. With another
+    // thread's box ahead of it, that copied a stranger's half-written reply
+    // onto this thread.
+    document.body.innerHTML =
+      '<textarea data-compose-input="someone-else"></textarea>' +
+      '<textarea data-compose-input="draft-ACoAAAsender"></textarea>' +
+      '<textarea data-compose-input="conv-late"></textarea>';
+    composerFor('someone-else').value = 'a reply to a different person';
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+    const accept = actions().acceptInvitation(invitation('Hi Michael'));
+
+    await waitFor(() =>
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
+    );
+    composerFor('draft-ACoAAAsender').value = 'my actual reply';
+
+    await accept;
+
+    expect((await testDb.draftAttachments.get('conv-late'))?.text).toBe('my actual reply');
+  });
+
+  it('carries nothing when only another conversation’s box has text', async () => {
+    document.body.innerHTML =
+      '<textarea data-compose-input="someone-else"></textarea>' +
+      '<textarea data-compose-input="draft-ACoAAAsender"></textarea>';
+    composerFor('someone-else').value = 'not mine to move';
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+
+    await actions().acceptInvitation(invitation('Hi Michael'));
+
+    expect(await testDb.draftAttachments.get('conv-late')).toBeUndefined();
   });
 
   it('never drops the reply into a group thread', async () => {

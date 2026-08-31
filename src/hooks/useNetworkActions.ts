@@ -48,15 +48,35 @@ async function findThread(profileUrn: string) {
  * trip away — twenty frames came and went long before that, so the focus was
  * silently dropped.
  */
-function focusComposer(budgetMs = 3000): void {
-  useUIStore.getState().setComposeActive(true);
+function focusComposer(conversationId: string): void {
+  // The composer claims the cursor itself as soon as it mounts for this
+  // conversation — see ComposeBox. Polling the DOM for one from out here left
+  // a window where the box existed unfocused, and focused whichever composer
+  // was mounted rather than the one we jumped to.
+  useUIStore.getState().requestComposerFocus(conversationId);
+}
+
+/** What is typed in a given conversation's reply box right now, if it is open. */
+function liveComposerText(conversationId: string): string {
+  const box = document.querySelector<HTMLTextAreaElement>(
+    `[data-compose-input="${CSS.escape(conversationId)}"]`
+  );
+  return box?.value ?? '';
+}
+
+/**
+ * Wait (briefly) for the composer to be showing this conversation.
+ *
+ * Until the swap has actually rendered, the composer is still bound to the
+ * placeholder and will flush what it holds to it on the way out — so deleting
+ * the placeholder's draft before that point just means it comes back.
+ */
+async function composerSettledOn(conversationId: string, budgetMs = 2000): Promise<void> {
   const deadline = Date.now() + budgetMs;
-  const tick = () => {
-    const el = document.querySelector<HTMLTextAreaElement>('[data-compose-input]');
-    if (el) { el.focus(); return; }
-    if (Date.now() < deadline) setTimeout(tick, 50);
-  };
-  tick();
+  while (Date.now() < deadline) {
+    if (document.querySelector(`[data-compose-input="${CSS.escape(conversationId)}"]`)) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
 }
 
 /**
@@ -211,7 +231,7 @@ export function useNetworkActions() {
     const existing = await findThread(inv.fromUrn);
     if (existing) {
       await navigateToConversation(existing.id);
-      focusComposer();
+      focusComposer(existing.id);
       return { id: existing.id, placeholder: false };
     }
 
@@ -239,7 +259,7 @@ export function useNetworkActions() {
     // surely, so it goes too.
     useUIStore.setState({ _pendingRestore: null, searchQuery: '' });
     store.openThread(placeholderId, 0);
-    focusComposer();
+    focusComposer(placeholderId);
     return { id: placeholderId, placeholder: true };
   }, []);
 
@@ -260,28 +280,46 @@ export function useNetworkActions() {
     }
     if (!real || token !== jumpToken) return;
 
-    // Carry anything typed while waiting, reading it off the textarea rather
-    // than out of the database. The composer only autosaves once a second, so
-    // the stored row is up to a second behind — and swapping the conversation
-    // out from under it clears the box, which made those keystrokes look lost
-    // even though a later save put them back.
-    const live = document.querySelector<HTMLTextAreaElement>('[data-compose-input]')?.value ?? '';
-    const stored = await db.draftAttachments.get(placeholderId).catch(() => undefined);
-    const text = live || stored?.text || '';
-    if (text || stored?.files?.length) {
-      await db.draftAttachments.put({
-        conversationId: real.id,
-        text: text || undefined,
-        files: stored?.files ?? [],
-        names: stored?.names ?? [],
-        types: stored?.types ?? [],
-      });
-    }
-    await db.draftAttachments.delete(placeholderId).catch(() => {});
+    // Hand the reply over rather than copying it.
+    //
+    // The composer keeps what is typed as the conversation under it changes
+    // (see ComposeBox), which is the only way to avoid losing keystrokes made
+    // between "read the box" and "the swap renders". The snapshot is a floor
+    // for the case where no composer is mounted to do the carrying.
+    const snapshot = liveComposerText(placeholderId);
+    useUIStore.getState().carryDraftAcross(placeholderId, real.id);
 
     await navigateToConversation(real.id);
-    focusComposer();
+    focusComposer(real.id);
+
+    // Before waiting for anything to render: the list merges threads for the
+    // same person and the placeholder is the newer of the two, so the real
+    // thread cannot appear — and its composer cannot mount — while it is still
+    // there.
     await db.conversations.delete(placeholderId);
+    await composerSettledOn(real.id);
+
+    // Nothing carried it — no composer was up — so move what was stored, and
+    // fall back to the snapshot if even that is missing.
+    const carried = await db.draftAttachments.get(real.id).catch(() => undefined);
+    if (!carried?.text && !carried?.files?.length) {
+      const stored = await db.draftAttachments.get(placeholderId).catch(() => undefined);
+      // On screen beats stored: the row is up to a second behind the box.
+      const text = snapshot || stored?.text;
+      if (text || stored?.files?.length) {
+        await db.draftAttachments.put({
+          conversationId: real.id,
+          text: text || undefined,
+          files: stored?.files ?? [],
+          names: stored?.names ?? [],
+          types: stored?.types ?? [],
+        });
+      }
+    }
+    // Whatever the departing composer flushed on its way out. `draft-<memberId>`
+    // is the same id every time this person is messaged, so left behind it
+    // would reappear prefilled later.
+    await db.draftAttachments.delete(placeholderId).catch(() => {});
   }, []);
 
   const openProfile = useCallback((target: { publicId: string; profileUrn?: string }) => {

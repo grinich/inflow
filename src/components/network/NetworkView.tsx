@@ -63,37 +63,50 @@ export function NetworkView() {
   // answering 400 on every call.
   const [failed, setFailed] = useState<Partial<Record<NetworkTab, string>>>({});
 
-  useEffect(() => {
-    let cancelled = false;
-    const note = (tab: NetworkTab) => <T extends { success: boolean; error?: string }>(res: T): T => {
-      if (cancelled) return res;
-      setFailed((prev) => (res.success ? prev : { ...prev, [tab]: res.error || 'Request failed' }));
-      // This tab's walk is done, whatever the others are still doing.
-      setLoading((prev) => ({ ...prev, [tab]: false }));
-      return res;
-    };
-    const fail = (tab: NetworkTab) => (err: unknown) =>
-      note(tab)({ success: false, error: String(err) } as { success: boolean; error?: string; data?: any });
+  /** What each tab asks the background for. */
+  const FETCH_FOR: Record<NetworkTab, { type: string }> = {
+    invitations: { type: 'FETCH_INVITATIONS' },
+    sent: { type: 'FETCH_SENT_INVITATIONS' },
+    connections: { type: 'FETCH_CONNECTIONS' },
+  };
 
-    Promise.allSettled([
-      sendBridgeMessage({ type: 'FETCH_INVITATIONS' }).then(note('invitations')).catch(fail('invitations')),
-      sendBridgeMessage({ type: 'FETCH_SENT_INVITATIONS' }).then(note('sent')).catch(fail('sent')),
-      sendBridgeMessage({ type: 'FETCH_CONNECTIONS' })
-        .then(note('connections'))
-        .then((res) => {
-          if (!cancelled && res.success) setHasMore(Boolean(res.data?.hasMore));
-          return res;
-        })
-        .catch(fail('connections')),
-    ]).finally(() => {
-      // Belt and braces: a walk that neither resolved nor rejected through
-      // `note` must not leave a spinner up forever.
-      if (!cancelled) setLoading({ invitations: false, connections: false, sent: false });
-    });
+  /** Tabs already fetched this mount, so switching back and forth is free. */
+  const fetched = useRef<Partial<Record<NetworkTab, boolean>>>({});
+
+  // Fetch the tab being LOOKED AT, and only that one.
+  //
+  // All three used to go out together on mount, so opening Invitations paid
+  // for a full walk of the sent list as well — the slowest of the three, and
+  // the one most likely not to be wanted. Nothing outside this view reads
+  // those tables, so there is no count or badge that needs them loaded.
+  useEffect(() => {
+    const tab = networkTab;
+    if (fetched.current[tab]) return;
+    fetched.current[tab] = true;
+    let cancelled = false;
+
+    sendBridgeMessage(FETCH_FOR[tab] as any)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.success) {
+          setFailed((prev) => ({ ...prev, [tab]: res.error || 'Request failed' }));
+        } else if (tab === 'connections') {
+          setHasMore(Boolean(res.data?.hasMore));
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setFailed((prev) => ({ ...prev, [tab]: String(err) }));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading((prev) => ({ ...prev, [tab]: false }));
+      });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+    // FETCH_FOR is a literal rebuilt each render; the tab is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [networkTab]);
 
   const invitations = useLiveQuery(
     () => db.invitations.where('status').equals('pending').sortBy('sentAt').then((arr) => arr.reverse()),

@@ -259,6 +259,57 @@ describe('accepting an invitation, end to end', () => {
     expect(useUIStore.getState().selectedConversationId).toBe('conv-accepted');
   }, 20_000);
 
+  it('focuses the reply box the moment it exists, not a poll later', async () => {
+    // "It misses the first character I type." The composer was focused by a
+    // 50ms poll for whatever [data-compose-input] happened to be in the DOM,
+    // so there was a window where the box was on screen and keystrokes went
+    // to the document instead — and if the element was later replaced, the
+    // focus went with it and nothing re-applied it.
+    threadArrivesAfterMs = 900;
+    await openNetworkView();
+
+    await pressEnter();
+
+    for (let i = 0; i < 40; i++) {
+      await act(async () => { await new Promise((r) => setTimeout(r, 25)); });
+      const box = document.querySelector('[data-compose-input]');
+      if (!box) continue;
+      // The first moment it exists, it must already have the cursor.
+      expect(document.activeElement).toBe(box);
+      return;
+    }
+    throw new Error('the reply box never appeared');
+  }, 20_000);
+
+  it('keeps what was typed when the real thread swaps in', async () => {
+    // The other half of the same report: the draft started while waiting
+    // vanished from the box when the placeholder was replaced.
+    threadArrivesAfterMs = 1000;
+    await openNetworkView();
+
+    await pressEnter();
+
+    const box = await waitFor(
+      () => {
+        const el = document.querySelector<HTMLTextAreaElement>('[data-compose-input]');
+        if (!el) throw new Error('no composer yet');
+        return el;
+      },
+      { timeout: 10_000 }
+    );
+    fireEvent.change(box, { target: { value: 'Great to meet you' } });
+
+    await waitFor(
+      () => expect(useUIStore.getState().selectedConversationId).toBe('conv-accepted'),
+      { timeout: 15_000 }
+    );
+    // Give the swapped-in composer time to load its draft.
+    await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
+
+    const after = document.querySelector<HTMLTextAreaElement>('[data-compose-input]');
+    expect(after?.value).toBe('Great to meet you');
+  }, 25_000);
+
   it('stays on the network list when the request had no note', async () => {
     await testDb.invitations.put(invitation({ message: '' }));
     await openNetworkView();
