@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "dev:shell": "INFLOW_LOCAL_SHELL=1 wxt build",
-    "site:dev": "cd site && vercel dev --listen 8765"
+    "site:dev": "cd site && vercel dev --listen 8765",
+    "mcpb:build": "node scripts/build-mcpb.mjs"
   },
   "dependencies": {
     "@wxt-dev/module-react": "^1.2.2",

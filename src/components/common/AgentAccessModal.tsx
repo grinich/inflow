@@ -1,12 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useUIStore } from '@/store/ui-store';
 import {
+  AGENT_BRIDGE_STATUS_KEY,
+  getAgentBridgeToken,
   getAgentToolsEnabled,
   getAgentWritesEnabled,
+  setAgentBridgeToken,
   setAgentToolsEnabled,
   setAgentWritesEnabled,
 } from '@/lib/agent-settings';
 import { AGENT_SEND_CAP_PER_HOUR } from '@/lib/agent-tools/send-cap';
+import { readLocal } from '@/lib/storage';
+
+const BRIDGE_STATUS_LABEL: Record<string, string> = {
+  connected: 'Connected to Claude Desktop',
+  disconnected: 'Paired — waiting for Claude Desktop (is Inflow.mcpb installed and Claude running?)',
+  unpaired: 'Not paired — ask Claude Desktop for your inflow pairing code',
+  disabled: 'Enable agent access above to connect',
+};
 
 function ToggleRow({
   label,
@@ -60,18 +71,38 @@ export function AgentAccessModal() {
 
   const [reads, setReads] = useState(false);
   const [writes, setWrites] = useState(false);
-  const [saved, setSaved] = useState({ reads: false, writes: false });
+  const [pairCode, setPairCode] = useState('');
+  const [saved, setSaved] = useState({ reads: false, writes: false, pairCode: '' });
+  const [bridgeState, setBridgeState] = useState<string | null>(null);
 
-  // Load persisted values when opening. Toggles edit local state only;
+  // Load persisted values when opening. Everything edits local state only;
   // nothing persists until Save — closing any other way discards.
   useEffect(() => {
     if (open) {
-      Promise.all([getAgentToolsEnabled(), getAgentWritesEnabled()]).then(([r, w]) => {
-        setReads(r);
-        setWrites(w);
-        setSaved({ reads: r, writes: w });
-      });
+      Promise.all([getAgentToolsEnabled(), getAgentWritesEnabled(), getAgentBridgeToken()]).then(
+        ([r, w, t]) => {
+          setReads(r);
+          setWrites(w);
+          setPairCode(t ?? '');
+          setSaved({ reads: r, writes: w, pairCode: t ?? '' });
+        }
+      );
     }
+  }, [open]);
+
+  // Live bridge status from the background (it writes on every transition).
+  useEffect(() => {
+    if (!open) return;
+    const load = () =>
+      readLocal<{ state?: string }>(AGENT_BRIDGE_STATUS_KEY).then((s) =>
+        setBridgeState(s?.state ?? null)
+      );
+    void load();
+    const listener = (changes: Record<string, unknown>, area: string) => {
+      if (area === 'local' && AGENT_BRIDGE_STATUS_KEY in changes) void load();
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
   }, [open]);
 
   const close = useCallback(() => setOpen(false), [setOpen]);
@@ -96,11 +127,13 @@ export function AgentAccessModal() {
     if (!next) setWrites(false);
   };
 
-  const dirty = reads !== saved.reads || writes !== saved.writes;
+  const dirty =
+    reads !== saved.reads || writes !== saved.writes || pairCode.trim() !== saved.pairCode;
 
   const handleSave = async () => {
     await setAgentToolsEnabled(reads);
     await setAgentWritesEnabled(writes);
+    await setAgentBridgeToken(pairCode);
     showToast({
       message: !reads
         ? 'Agent access disabled'
@@ -140,6 +173,26 @@ export function AgentAccessModal() {
           hint="Enable read access first."
           onChange={setWrites}
         />
+
+        <div className="mt-5 border-t border-ring pt-4">
+          <p className="text-sm font-medium text-fg">Claude Desktop</p>
+          <p className="mt-0.5 text-xs text-fg-secondary">
+            Install Inflow.mcpb in Claude Desktop, ask Claude for your inflow pairing code, and
+            enter it here.
+          </p>
+          <input
+            type="text"
+            value={pairCode}
+            onChange={(e) => setPairCode(e.target.value.toUpperCase())}
+            placeholder="INF-XXXXXX"
+            aria-label="Claude Desktop pairing code"
+            spellCheck={false}
+            className="mt-2 w-40 rounded-md bg-surface px-3 py-1.5 font-mono text-sm text-fg placeholder-fg-faint ring-1 ring-ring focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <p className="mt-1.5 text-xs text-fg-muted" data-testid="bridge-status">
+            {BRIDGE_STATUS_LABEL[bridgeState ?? ''] ?? 'Status unknown'}
+          </p>
+        </div>
 
         <p className="mt-4 text-xs text-fg-muted">
           Agent-sent messages are capped at {AGENT_SEND_CAP_PER_HOUR}/hour. Every agent action

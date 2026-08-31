@@ -1,0 +1,15 @@
+{
+  "name": "inflow-mcpb",
+  "private": true,
+  "version": "0.7.0",
+  "type": "module",
+  "description": "Claude Desktop bridge to the inflow Chrome extension",
+  "main": "server/index.mjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

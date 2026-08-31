@@ -12,6 +12,28 @@ import { readLocal } from './storage';
 
 export const AGENT_TOOLS_ENABLED_KEY = 'agentToolsEnabled';
 export const AGENT_WRITES_ENABLED_KEY = 'agentWritesEnabled';
+export const AGENT_BRIDGE_TOKEN_KEY = 'agentBridgeToken';
+/** Written by the background bridge (entrypoints/background/agent-bridge.ts),
+ *  read live by the Agent Access modal: { state, at }. */
+export const AGENT_BRIDGE_STATUS_KEY = 'agentBridgeStatus';
+
+const TOKEN_RE = /^INF-[A-Z2-7]{6}$/; // mirrors mcpb/server/bridge-core.mjs
+
+/** The Claude Desktop pairing code (Inflow.mcpb), or null when unpaired. */
+export async function getAgentBridgeToken(): Promise<string | null> {
+  const stored = await readLocal<string>(AGENT_BRIDGE_TOKEN_KEY);
+  return typeof stored === 'string' && TOKEN_RE.test(stored) ? stored : null;
+}
+
+/** Persist (or clear, with '') the pairing code. Normalizes case/whitespace. */
+export async function setAgentBridgeToken(raw: string): Promise<void> {
+  const token = raw.trim().toUpperCase();
+  if (!token) {
+    await chrome.storage.local.remove(AGENT_BRIDGE_TOKEN_KEY);
+    return;
+  }
+  await chrome.storage.local.set({ [AGENT_BRIDGE_TOKEN_KEY]: token });
+}
 
 /** Whether agents may call read tools (and see the tool list at all). */
 export async function getAgentToolsEnabled(): Promise<boolean> {

@@ -11,13 +11,15 @@ All notable changes to inflow are documented here. This project follows
   can now expose its inbox to AI agents as structured tools (`list_conversations`,
   `read_thread`, `search_conversations`, `get_unread_count`, `list_invitations`,
   `send_message`, `archive_conversation`, `mark_read`, `mark_unread`) instead of
-  making them screen-scrape LinkedIn. Three transports, one gate: Claude in
-  Chrome calls them from any inflow.im page over extension messaging (works
-  even with no inflow tab open); scripts on inflow.im/app get the same tools
-  through `window.inflowAgent`; and they register on
-  [WebMCP](https://developer.chrome.com/docs/ai/webmcp)
-  (`document.modelContext`) wherever the browser ships it, ready for the agents
-  that will speak it natively.
+  making them screen-scrape LinkedIn. Four transports, one gate: **Claude
+  Desktop connects with a double-click** — install the new `Inflow.mcpb`
+  bundle, ask Claude for your pairing code, paste it into inflow, done (no
+  terminal, no config files, works with no inflow tab open); Claude in
+  Chrome calls the tools from any inflow.im page over extension messaging;
+  scripts on inflow.im/app get them through `window.inflowAgent`; and they
+  register on [WebMCP](https://developer.chrome.com/docs/ai/webmcp)
+  (`document.modelContext`) wherever the browser ships it, ready for the
+  agents that will speak it natively.
 
   **Everything is off by default.** Two separate opt-ins live in the command
   palette under **Configure agent access** — one for reading, one for acting —

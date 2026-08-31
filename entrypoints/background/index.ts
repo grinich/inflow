@@ -11,6 +11,7 @@ import { clearSendQueue } from './send-queue';
 import { countUnreadFocused } from '@/lib/inbox-filters';
 import { openAppTab, reloadWebAppShellTabs } from './open-app-tab';
 import { setupExternalMessageRouter, setupExternalPortRouter, broadcastUnreadCount } from './external-messages';
+import { setupAgentBridge } from './agent-bridge';
 import { setupUpdateChecker } from './update-check';
 
 /** Count unread Focused-tab conversations and update the toolbar badge.
@@ -35,6 +36,7 @@ export default defineBackground(() => {
   setupMessageRouter();
   setupExternalMessageRouter();
   setupExternalPortRouter();
+  setupAgentBridge();
 
   // Check GitHub Releases for a newer version (independent of account/DB state).
   setupUpdateChecker();

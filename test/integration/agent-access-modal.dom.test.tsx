@@ -9,12 +9,16 @@ import '../dom-setup';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AgentAccessModal } from '@/components/common/AgentAccessModal';
 import {
+  AGENT_BRIDGE_STATUS_KEY,
+  getAgentBridgeToken,
   getAgentToolsEnabled,
   getAgentWritesEnabled,
+  setAgentBridgeToken,
   setAgentToolsEnabled,
   setAgentWritesEnabled,
 } from '@/lib/agent-settings';
 import { useUIStore } from '@/store/ui-store';
+import { fireStorageChanged, setLocalStore } from '../mocks/chrome';
 
 const readsToggle = () => screen.getByRole('switch', { name: 'Let agents read my inbox' });
 const writesToggle = () => screen.getByRole('switch', { name: 'Let agents act' });
@@ -89,6 +93,34 @@ it('Cancel and Escape discard changes', async () => {
   fireEvent.keyDown(window, { key: 'Escape' });
   await waitFor(() => expect(useUIStore.getState().agentAccessOpen).toBe(false));
   expect(await getAgentToolsEnabled()).toBe(false);
+});
+
+it('pairing code persists only on Save, lowercased input normalized', async () => {
+  render(<AgentAccessModal />);
+  const input = await screen.findByLabelText('Claude Desktop pairing code');
+
+  fireEvent.change(input, { target: { value: 'inf-abc234' } });
+  expect((input as HTMLInputElement).value).toBe('INF-ABC234');
+  expect(await getAgentBridgeToken()).toBeNull(); // not yet saved
+
+  fireEvent.click(saveButton());
+  await waitFor(async () => expect(await getAgentBridgeToken()).toBe('INF-ABC234'));
+  expect(useUIStore.getState().agentAccessOpen).toBe(false);
+});
+
+it('shows the live bridge status and updates when the background publishes', async () => {
+  await setAgentBridgeToken('INF-ABC234');
+  setLocalStore(AGENT_BRIDGE_STATUS_KEY, { state: 'disconnected', at: 1 });
+  render(<AgentAccessModal />);
+  await waitFor(() =>
+    expect(screen.getByTestId('bridge-status').textContent).toContain('waiting for Claude Desktop')
+  );
+
+  setLocalStore(AGENT_BRIDGE_STATUS_KEY, { state: 'connected', at: 2 });
+  fireStorageChanged({ [AGENT_BRIDGE_STATUS_KEY]: { newValue: { state: 'connected' } } });
+  await waitFor(() =>
+    expect(screen.getByTestId('bridge-status').textContent).toBe('Connected to Claude Desktop')
+  );
 });
 
 it('the knob is anchored inside the track (left-0), not floating at the static position', async () => {

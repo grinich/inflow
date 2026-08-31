@@ -28,6 +28,36 @@ Tool calls answer structured errors rather than hanging: with agent access disab
 every call (from any transport) returns *"Agent access is disabled…"* with the
 instructions to enable it.
 
+## Claude Desktop — Inflow.mcpb (the consumer path)
+
+`Inflow.mcpb` is a [Claude Desktop Extension](https://www.anthropic.com/engineering/desktop-extensions):
+a bundled MCP server that installs with a double-click (no terminal, no config
+files — Claude Desktop ships its own Node). It bridges Claude Desktop to the
+inflow extension over `ws://127.0.0.1:48632`; the extension dials out to it and
+serves the same gated executor as every other transport. Works with **no inflow
+tab open** — Chrome just has to be running.
+
+Setup:
+
+1. Install inflow (v0.8.0+) in Chrome and `Inflow.mcpb` in Claude Desktop
+   (Settings → Extensions → drag it in). Build it from source with `npm run mcpb:build`.
+2. Ask Claude Desktop: *"what's my inflow pairing code?"* (the `get_pairing_code` tool).
+3. In inflow: `⌘K` → **Configure agent access** → enable read (and optionally act),
+   paste the code under *Claude Desktop*, **Save**. The status line flips to
+   *Connected* within ~30 seconds.
+4. Ask Claude Desktop to work your inbox. If tools are missing, the
+   `inflow_status` tool explains exactly which step is incomplete.
+
+Security model: the pairing is mutual — the server proves it knows the code
+before the extension will talk to it (a local port-squatter gets nothing), and
+the extension proves the user pasted it (a random local process can't drive
+your inbox). Only `chrome-extension://` origins may even connect. All
+authorization still lives in the extension's toggles; the bridge only relays,
+and write actions surface as Chrome notifications when no inflow page is open.
+
+Sources of truth: `mcpb/` (server + manifest), `entrypoints/background/agent-bridge.ts`
+(extension side), protocol in `mcpb/server/bridge-core.mjs`.
+
 ## Connecting Claude today — external messaging (the path that works)
 
 Claude in Chrome **cannot** use the embedded app at inflow.im/app: its automation
