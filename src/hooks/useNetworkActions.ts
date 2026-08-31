@@ -373,7 +373,9 @@ export function useNetworkActions() {
 
   const openProfile = useCallback((target: { publicId: string; profileUrn?: string }) => {
     if (target.publicId) {
-      window.open(`https://www.linkedin.com/in/${target.publicId}/`, '_blank');
+      // Encoded: a vanity name is one path segment, and a malformed scrape
+      // should produce a dead link rather than a different LinkedIn page.
+      window.open(`https://www.linkedin.com/in/${encodeURIComponent(target.publicId)}/`, '_blank');
     }
   }, []);
 

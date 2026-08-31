@@ -180,34 +180,41 @@ describe('regression #169: invitation pages appear as they arrive', () => {
   });
 });
 
-/** The shape normalizeInvitations reads: a page of pending invitations. */
+/**
+ * A page of pending invitations, shaped like the real response.
+ *
+ * `paging` sits on `data`, which is where invitationPaging looks — an earlier
+ * version of this fixture nested it deeper, so `total` silently parsed as null
+ * and the walk's completeness logic was never exercised by it.
+ */
 function voyagerInvitations(start: number, count: number) {
+  const ids = Array.from({ length: count }, (_, i) => `urn:li:fs_relInvitation:${start + i}`);
   return {
     data: {
-      data: {
-        relationshipsDashInvitationsByInvitee: {
-          paging: { total: 41, start, count },
-          '*elements': Array.from({ length: count }, (_, i) => `urn:li:fsd_invitation:${start + i}`),
-        },
-      },
+      elements: ids.map((urn) => ({
+        $type: 'com.linkedin.voyager.relationships.invitation.InvitationView',
+        invitation: urn,
+      })),
+      paging: { start, count, total: 41 },
     },
-    included: Array.from({ length: count }, (_, i) => ({
-      $type: 'com.linkedin.voyager.dash.relationships.invitation.Invitation',
-      entityUrn: `urn:li:fsd_invitation:${start + i}`,
-      invitationType: 'CONNECTION',
-      sharedSecret: 'secret',
-      invitationState: 'PENDING',
-      sentTime: 1_750_000_000_000,
-      '*inviter': `urn:li:fsd_profile:ACoAA${start + i}`,
-    })).concat(
-      Array.from({ length: count }, (_, i) => ({
-        $type: 'com.linkedin.voyager.dash.identity.profile.Profile',
-        entityUrn: `urn:li:fsd_profile:ACoAA${start + i}`,
+    included: [
+      ...ids.map((urn, i) => ({
+        $type: 'com.linkedin.voyager.relationships.invitation.Invitation',
+        entityUrn: urn,
+        invitationType: 'CONNECTION',
+        sharedSecret: 'secret',
+        invitationState: 'PENDING',
+        sentTime: 1_750_000_000_000,
+        '*fromMember': `urn:li:fs_miniProfile:M${start + i}`,
+      })),
+      ...ids.map((_, i) => ({
+        $type: 'com.linkedin.voyager.identity.shared.MiniProfile',
+        entityUrn: `urn:li:fs_miniProfile:M${start + i}`,
         firstName: 'Person',
         lastName: String(start + i),
-        headline: '',
+        occupation: '',
         publicIdentifier: `p${start + i}`,
-      })) as any
-    ),
+      })),
+    ],
   };
 }

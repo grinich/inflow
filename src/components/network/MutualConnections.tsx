@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { useCachedImage } from '@/hooks/useCachedImage';
 import type { InvitationInsight } from '@/types/network';
 
 /**
@@ -17,6 +19,34 @@ export function mutualsLabel({ mutualCount, mutualNames }: InvitationInsight): s
 }
 
 /**
+ * One mutual's face.
+ *
+ * Through the image cache like every other avatar in the app: LinkedIn's CDN
+ * urls carry an expiry and a signature, so a raw <img> pointing at one works
+ * until it does not — and these rows are stored, so the url outlives the page
+ * that produced it. A face that fails is simply dropped; the sentence beside
+ * it carries the meaning, and a letter tile here would be noise.
+ */
+function MutualFace({ src }: { src: string }) {
+  const cached = useCachedImage(src || undefined);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [cached]);
+  if (!cached || failed) return null;
+  return (
+    <img
+      src={cached}
+      alt=""
+      // Decorative: the sentence beside it already names them, so a
+      // screen reader repeating each face adds nothing.
+      aria-hidden
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="h-5 w-5 rounded-full object-cover ring-2 ring-surface"
+    />
+  );
+}
+
+/**
  * The faces-and-sentence row LinkedIn shows under a profile: a small overlapped
  * stack of the mutuals it named, then the count.
  *
@@ -32,16 +62,7 @@ export function MutualConnections({ insight }: { insight: InvitationInsight }) {
       {faces.length > 0 && (
         <div className="flex shrink-0 -space-x-1.5">
           {faces.map((src, i) => (
-            <img
-              key={src + i}
-              src={src}
-              alt=""
-              // Decorative: the sentence beside it already names them, so a
-              // screen reader repeating each face adds nothing.
-              aria-hidden
-              loading="lazy"
-              className="h-5 w-5 rounded-full object-cover ring-2 ring-surface"
-            />
+            <MutualFace key={src + i} src={src} />
           ))}
         </div>
       )}

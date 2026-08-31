@@ -6,7 +6,22 @@
 // read: the insight hangs off the InvitationView, and the parser looked for it
 // on the Invitation. So the line silently never appeared.
 import '../dom-setup';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
+
+// Recorded rather than replaced: the hook returns the url until the bytes are
+// cached, so the existing assertions still hold and we can also see that these
+// faces go through it at all.
+const cachedFor: string[] = [];
+vi.mock('@/hooks/useCachedImage', async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return {
+    ...actual,
+    useCachedImage: (url?: string) => {
+      if (url) cachedFor.push(url);
+      return url;
+    },
+  };
+});
 import { InvitationDetail } from '@/components/network/InvitationDetail';
 import { mutualsLabel } from '@/components/network/MutualConnections';
 import type { Invitation } from '@/types/network';
@@ -84,5 +99,32 @@ describe('mutualsLabel', () => {
     [1, [], '1 mutual connection'],
   ])('reads %i / %j as %j', (count, names, expected) => {
     expect(label(count, names)).toBe(expected);
+  });
+});
+
+// Every avatar in the app goes through the image cache; these did not. LinkedIn
+// CDN urls carry an expiry and a signature, and invitation rows are stored — so
+// the url outlives the page that produced it and a raw <img> eventually shows a
+// broken face where every other avatar still works.
+describe('regression #161: mutual faces go through the image cache', () => {
+  beforeEach(() => { cachedFor.length = 0; });
+
+  it('loads the face through the cache rather than straight from the CDN', () => {
+    renderDetail();
+
+    expect(cachedFor).toContain('https://media.licdn.com/mutual/viren.jpg');
+  });
+
+  it('drops a face that fails to load instead of showing a broken image', () => {
+    // Decorative — the sentence beside it carries the meaning, so a broken
+    // image or a letter tile would both be noise.
+    const { container } = renderDetail();
+    const img = container.querySelector('img[src="https://media.licdn.com/mutual/viren.jpg"]')!;
+
+    fireEvent.error(img);
+
+    expect(container.querySelector('img[src^="https://media.licdn.com/mutual"]')).toBeNull();
+    // The sentence stays.
+    expect(screen.getByText(/mutual connection/)).toBeTruthy();
   });
 });
