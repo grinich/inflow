@@ -90,8 +90,9 @@ describe('gating', () => {
     enable({ writes: true });
     const list = await listTools();
     expect(list.tools.map((t) => t.name).sort()).toEqual([
-      'archive_conversation', 'get_unread_count', 'list_conversations',
-      'list_invitations', 'mark_read', 'mark_unread', 'read_thread',
+      'accept_invitation', 'archive_conversation', 'get_unread_count',
+      'ignore_invitation', 'list_conversations', 'list_invitations',
+      'mark_read', 'mark_unread', 'move_conversation', 'read_thread',
       'search_conversations', 'send_message',
     ]);
     for (const t of list.tools) {
@@ -326,5 +327,57 @@ describe('write tools', () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('not found');
     expect(mockSendBridgeMessage).not.toHaveBeenCalled();
+  });
+
+  it('move_conversation maps destinations to bridge types and echoes the category', async () => {
+    await testDb.conversations.put(makeConversation({ id: 'c1', category: 'PRIMARY_INBOX' }));
+
+    parse(await callTool('move_conversation', { conversationId: 'c1', to: 'other' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'MOVE_TO_OTHER', conversationId: 'c1' });
+    expect((await testDb.conversations.get('c1')).category).toBe('SECONDARY_INBOX');
+
+    parse(await callTool('move_conversation', { conversationId: 'c1', to: 'spam' }));
+    expect((await testDb.conversations.get('c1')).category).toBe('SPAM');
+
+    parse(await callTool('move_conversation', { conversationId: 'c1', to: 'focused' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'MOVE_TO_FOCUSED', conversationId: 'c1' });
+    expect((await testDb.conversations.get('c1')).category).toBe('PRIMARY_INBOX');
+    expect(useUIStore.getState().toast?.message).toContain('moved conversation');
+
+    const bad = await callTool('move_conversation', { conversationId: 'c1', to: 'archive' });
+    expect(bad.isError).toBe(true);
+    expect(bad.content[0].text).toContain('must be one of');
+  });
+
+  it('accept/ignore invitation bridge, echo the status, and refuse settled ones', async () => {
+    const invite = (id: string) => ({
+      id, sharedSecret: 's', fromUrn: 'u', name: `Sender ${id}`, headline: '',
+      pictureUrl: '', publicId: '', message: '', sentAt: 1, status: 'pending' as const,
+      mutualCount: 0, mutualNames: [], mutualPictures: [],
+    });
+    await testDb.invitations.bulkPut([invite('inv1'), invite('inv2')]);
+
+    const accepted = parse(await callTool('accept_invitation', { invitationId: 'inv1' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'ACCEPT_INVITATION', invitationId: 'inv1' });
+    expect(accepted).toEqual({ accepted: true, invitationId: 'inv1', from: 'Sender inv1' });
+    expect((await testDb.invitations.get('inv1')).status).toBe('accepted');
+    expect(useUIStore.getState().toast?.message).toBe(
+      'Agent accepted the connection request from Sender inv1'
+    );
+
+    parse(await callTool('ignore_invitation', { invitationId: 'inv2' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'IGNORE_INVITATION', invitationId: 'inv2' });
+    expect((await testDb.invitations.get('inv2')).status).toBe('ignored');
+
+    // Already settled: refuse rather than re-fire at LinkedIn.
+    mockSendBridgeMessage.mockClear();
+    const again = await callTool('accept_invitation', { invitationId: 'inv1' });
+    expect(again.isError).toBe(true);
+    expect(again.content[0].text).toContain('already accepted');
+    expect(mockSendBridgeMessage).not.toHaveBeenCalled();
+
+    const ghost = await callTool('ignore_invitation', { invitationId: 'nope' });
+    expect(ghost.isError).toBe(true);
+    expect(ghost.content[0].text).toContain('list_invitations');
   });
 });

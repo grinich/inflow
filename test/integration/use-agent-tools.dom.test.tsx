@@ -26,7 +26,8 @@ const READ_TOOLS = [
   'read_thread', 'search_conversations',
 ];
 const ALL_TOOLS = [
-  ...READ_TOOLS, 'archive_conversation', 'mark_read', 'mark_unread', 'send_message',
+  ...READ_TOOLS, 'accept_invitation', 'archive_conversation', 'ignore_invitation',
+  'mark_read', 'mark_unread', 'move_conversation', 'send_message',
 ].sort();
 
 function enable(reads: boolean, writes = false) {

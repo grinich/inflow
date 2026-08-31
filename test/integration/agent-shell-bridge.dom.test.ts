@@ -14,6 +14,15 @@ import {
   uninstallModelContextMock,
 } from '../mocks/model-context';
 
+import { trackTimers } from '../helpers/shell-timers';
+
+// The shell script leaves timers running; a tick after this file's jsdom env
+// is torn down crashes the worker (see test/helpers/shell-timers.ts).
+let __untrackTimers: (() => void) | null = null;
+beforeEach(() => { __untrackTimers = trackTimers(); });
+afterEach(() => { __untrackTimers?.(); __untrackTimers = null; });
+
+
 const APP_HTML = readFileSync(join(__dirname, '..', '..', 'site', 'app.html'), 'utf8');
 const BODY = /<body>([\s\S]*?)<script>/.exec(APP_HTML)![1];
 const SCRIPT = /<script>([\s\S]*?)<\/script>/.exec(APP_HTML)![1];

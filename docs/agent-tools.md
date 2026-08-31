@@ -112,7 +112,8 @@ The recipe for Claude:
 
 The v1 tools: `list_conversations`, `read_thread`, `search_conversations`,
 `get_unread_count`, `list_invitations` (reads); `send_message`, `archive_conversation`,
-`mark_read`, `mark_unread` (writes).
+`mark_read`, `mark_unread`, `move_conversation` (focused/other/spam),
+`accept_invitation`, `ignore_invitation` (writes).
 
 **Try it risk-free with demo mode**: `⌘K` → *Enter demo mode* runs the app — agent
 tools included — against generated fake data. (Demo mode intercepts the in-page

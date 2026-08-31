@@ -8,7 +8,7 @@
 // renders App itself, presses real keys, and lets the store, the database and
 // the components do their own work. Only the network is faked.
 import '../dom-setup';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
 import type { Invitation } from '@/types/network';
@@ -130,6 +130,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Unmount BEFORE closing the database: RTL's automatic cleanup runs after
+  // user afterEach hooks, so without this the App's live queries are still
+  // running when the db closes — an unhandled DatabaseClosedError that lands
+  // on whichever test runs next (it has flaked a release gate).
+  cleanup();
   testDb.close();
   await Dexie.delete(testDb.name);
 });

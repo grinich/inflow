@@ -18,6 +18,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { trackTimers } from '../helpers/shell-timers';
+
+// The shell script leaves timers running; a tick after this file's jsdom env
+// is torn down crashes the worker (see test/helpers/shell-timers.ts).
+let __untrackTimers: (() => void) | null = null;
+beforeEach(() => { __untrackTimers = trackTimers(); });
+afterEach(() => { __untrackTimers?.(); __untrackTimers = null; });
+
+
 const PAGE = readFileSync(
   join(__dirname, '..', '..', 'site', 'changelog.html'),
   'utf8',
