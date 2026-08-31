@@ -110,10 +110,24 @@ The recipe for Claude:
    and `{ type: 'AGENT_CALL_TOOL', tool, input }` on this page to work with my
    LinkedIn inbox."*
 
-The v1 tools: `list_conversations`, `read_thread`, `search_conversations`,
-`get_unread_count`, `list_invitations` (reads); `send_message`, `archive_conversation`,
-`mark_read`, `mark_unread`, `move_conversation` (focused/other/spam),
-`accept_invitation`, `ignore_invitation` (writes).
+**Reads**: `list_conversations`, `read_thread`, `search_conversations`,
+`get_unread_count`, `list_invitations`, `list_sent_invitations`, `list_connections`,
+`search_recipients`, `get_send_quota`.
+
+**Writes**: `send_message`, `start_conversation` (message someone new),
+`archive_conversation`, `mark_read`, `mark_unread`, `move_conversation`
+(focused/other/spam), `star_conversation`, `delete_conversation`,
+`react_to_message`, `edit_message`, `delete_message`, `accept_invitation`,
+`ignore_invitation`, `withdraw_invitation`.
+
+`send_message` and `start_conversation` count against the hourly cap;
+`get_send_quota` reports what's left so bulk work can pace itself. Message-level
+tools require canonical `urn:li:msg_message:` ids from `read_thread` — the
+SSE-delivered copies are deduped away and acting on one races that cleanup.
+
+**Not available** (would need new LinkedIn endpoints in the extension, not just
+tool definitions): profile lookup and people search, InMail, notifications and
+profile views, the feed, mute/block, and reporting an invitation.
 
 **Try it risk-free with demo mode**: `⌘K` → *Enter demo mode* runs the app — agent
 tools included — against generated fake data. (Demo mode intercepts the in-page

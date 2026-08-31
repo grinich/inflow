@@ -8,11 +8,12 @@ All notable changes to inflow are documented here. This project follows
 
 ### Added
 - **Agent tools — let Claude work your LinkedIn inbox through inflow.** The app
-  can now expose its inbox to AI agents as structured tools (`list_conversations`,
-  `read_thread`, `search_conversations`, `get_unread_count`, `list_invitations`,
-  `send_message`, `archive_conversation`, `mark_read`, `mark_unread`,
-  `move_conversation`, `accept_invitation`, `ignore_invitation`) instead of
-  making them screen-scrape LinkedIn. Four transports, one gate: **Claude
+  can now expose its inbox to AI agents as 23 structured tools instead of
+  making them screen-scrape LinkedIn: reading and searching conversations,
+  threads, invitations and connections; sending, replying and starting new
+  conversations; archiving, starring, moving between Focused/Other/Spam,
+  marking read/unread; reacting to, editing and deleting your own messages;
+  and accepting, ignoring or withdrawing connection requests. Four transports, one gate: **Claude
   Desktop connects with a double-click** — install the new `Inflow.mcpb`
   bundle, ask Claude for your pairing code, paste it into inflow, done (no
   terminal, no config files, works with no inflow tab open); Claude in

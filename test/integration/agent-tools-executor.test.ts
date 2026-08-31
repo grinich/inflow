@@ -90,10 +90,13 @@ describe('gating', () => {
     enable({ writes: true });
     const list = await listTools();
     expect(list.tools.map((t) => t.name).sort()).toEqual([
-      'accept_invitation', 'archive_conversation', 'get_unread_count',
-      'ignore_invitation', 'list_conversations', 'list_invitations',
-      'mark_read', 'mark_unread', 'move_conversation', 'read_thread',
-      'search_conversations', 'send_message',
+      'accept_invitation', 'archive_conversation', 'delete_conversation',
+      'delete_message', 'edit_message', 'get_send_quota', 'get_unread_count',
+      'ignore_invitation', 'list_connections', 'list_conversations',
+      'list_invitations', 'list_sent_invitations', 'mark_read', 'mark_unread',
+      'move_conversation', 'react_to_message', 'read_thread',
+      'search_conversations', 'search_recipients', 'send_message',
+      'star_conversation', 'start_conversation', 'withdraw_invitation',
     ]);
     for (const t of list.tools) {
       expect(t.description.length).toBeGreaterThan(0);
@@ -231,6 +234,59 @@ describe('read tools', () => {
     expect(parse(await callTool('get_unread_count', {}))).toEqual({ focusedUnread: 1 });
   });
 
+  it('search_recipients returns profileUrns for start_conversation', async () => {
+    mockSendBridgeMessage.mockResolvedValue({
+      success: true,
+      data: [
+        { name: 'Ada Lovelace', headline: 'Engineer', pictureUrl: 'x', profileUrn: 'urn:li:fsd_profile:ada' },
+        { name: 'Ada Byron', headline: 'Mathematician', pictureUrl: 'y', profileUrn: 'urn:li:fsd_profile:byron' },
+      ],
+    });
+    const data = parse(await callTool('search_recipients', { query: 'ada', limit: 1 }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'TYPEAHEAD_SEARCH', query: 'ada' });
+    expect(data.people).toEqual([
+      { name: 'Ada Lovelace', headline: 'Engineer', profileUrn: 'urn:li:fsd_profile:ada' },
+    ]);
+  });
+
+  it('list_sent_invitations serves pending outgoing requests newest-first', async () => {
+    await testDb.sentInvitations.bulkPut([
+      { id: 's1', toUrn: 'u1', name: 'Ada', headline: 'Eng', pictureUrl: '', publicId: '', message: 'hi', sentAt: 1000, status: 'pending' },
+      { id: 's2', toUrn: 'u2', name: 'Bob', headline: 'PM', pictureUrl: '', publicId: '', message: '', sentAt: 2000, status: 'pending' },
+      { id: 's3', toUrn: 'u3', name: 'Eve', headline: '', pictureUrl: '', publicId: '', message: '', sentAt: 3000, status: 'withdrawn' },
+    ]);
+    const data = parse(await callTool('list_sent_invitations', {}));
+    expect(data.invitations.map((i: any) => i.id)).toEqual(['s2', 's1']);
+    expect(data.invitations[1].note).toBe('hi');
+  });
+
+  it('list_connections filters and reports the pre-slice total', async () => {
+    await testDb.connections.bulkPut([
+      { profileUrn: 'u1', name: 'Ada Lovelace', headline: 'Engineer', pictureUrl: '', publicId: '', connectedAt: 3000 },
+      { profileUrn: 'u2', name: 'Bob Stone', headline: 'Engineer at Acme', pictureUrl: '', publicId: '', connectedAt: 2000 },
+      { profileUrn: 'u3', name: 'Eve Adams', headline: 'Designer', pictureUrl: '', publicId: '', connectedAt: 1000 },
+    ]);
+    const all = parse(await callTool('list_connections', {}));
+    expect(all.connections.map((c: any) => c.name)).toEqual(['Ada Lovelace', 'Bob Stone', 'Eve Adams']);
+
+    const engineers = parse(await callTool('list_connections', { query: 'engineer' }));
+    expect(engineers.total).toBe(2);
+
+    const limited = parse(await callTool('list_connections', { limit: 1 }));
+    expect(limited.connections).toHaveLength(1);
+    expect(limited.total).toBe(3);
+  });
+
+  it('get_send_quota reports what is left in the window', async () => {
+    const fresh = parse(await callTool('get_send_quota', {}));
+    expect(fresh).toMatchObject({ cap: AGENT_SEND_CAP_PER_HOUR, used: 0, remaining: AGENT_SEND_CAP_PER_HOUR });
+
+    setLocalStore(AGENT_SEND_TIMESTAMPS_KEY, [Date.now(), Date.now(), Date.now() - 2 * 3600_000]);
+    const used = parse(await callTool('get_send_quota', {}));
+    expect(used.used).toBe(2); // the hour-old entry aged out
+    expect(used.remaining).toBe(AGENT_SEND_CAP_PER_HOUR - 2);
+  });
+
   it('list_invitations refreshes best-effort and serializes pending rows newest-first', async () => {
     await testDb.invitations.bulkPut([
       {
@@ -347,6 +403,98 @@ describe('write tools', () => {
     const bad = await callTool('move_conversation', { conversationId: 'c1', to: 'archive' });
     expect(bad.isError).toBe(true);
     expect(bad.content[0].text).toContain('must be one of');
+  });
+
+  it('start_conversation creates a thread and counts against the send cap', async () => {
+    mockSendBridgeMessage.mockResolvedValue({ success: true, data: { conversationId: 'new-1' } });
+    const data = parse(
+      await callTool('start_conversation', { profileUrn: 'urn:li:fsd_profile:abc', body: ' hi ' })
+    );
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({
+      type: 'CREATE_CONVERSATION', recipientUrns: ['urn:li:fsd_profile:abc'], body: 'hi',
+    });
+    expect(data).toEqual({ sent: true, conversationId: 'new-1', profileUrn: 'urn:li:fsd_profile:abc' });
+    const stored = await chrome.storage.local.get(AGENT_SEND_TIMESTAMPS_KEY);
+    expect(stored[AGENT_SEND_TIMESTAMPS_KEY]).toHaveLength(1); // capped like send_message
+
+    const bad = await callTool('start_conversation', { profileUrn: 'not-a-urn', body: 'hi' });
+    expect(bad.isError).toBe(true);
+    expect(bad.content[0].text).toContain('must be a LinkedIn URN');
+  });
+
+  it('star_conversation and delete_conversation bridge and echo', async () => {
+    await testDb.conversations.put(makeConversation({ id: 'c1', starred: 0 }));
+
+    parse(await callTool('star_conversation', { conversationId: 'c1' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'STAR', conversationId: 'c1' });
+    expect((await testDb.conversations.get('c1')).starred).toBe(1);
+
+    parse(await callTool('star_conversation', { conversationId: 'c1', unstar: true }));
+    expect((await testDb.conversations.get('c1')).starred).toBe(0);
+
+    parse(await callTool('delete_conversation', { conversationId: 'c1' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'DELETE_CONVERSATION', conversationId: 'c1' });
+    expect(useUIStore.getState().toast?.message).toContain('deleted the conversation');
+  });
+
+  it('message-level tools require a canonical id and your own message', async () => {
+    await testDb.conversations.put(makeConversation({ id: 'c1' }));
+    await testDb.messages.bulkPut([
+      makeMessage({ id: 'urn:li:msg_message:mine', conversationId: 'c1', isFromMe: true }),
+      makeMessage({ id: 'urn:li:msg_message:theirs', conversationId: 'c1', isFromMe: false }),
+    ]);
+
+    // An SSE id races the dedup that deletes it — refuse it outright.
+    const sse = await callTool('react_to_message', {
+      conversationId: 'c1', messageId: 'urn:li:fsd_message:x', emoji: '👍',
+    });
+    expect(sse.isError).toBe(true);
+    expect(sse.content[0].text).toContain('not a stable message id');
+
+    parse(await callTool('react_to_message', {
+      conversationId: 'c1', messageId: 'urn:li:msg_message:theirs', emoji: '👍',
+    }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({
+      type: 'REACT_EMOJI', conversationId: 'c1', messageId: 'urn:li:msg_message:theirs', emoji: '👍',
+    });
+
+    parse(await callTool('edit_message', {
+      conversationId: 'c1', messageId: 'urn:li:msg_message:mine', body: 'fixed',
+    }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({
+      type: 'EDIT_MESSAGE', conversationId: 'c1', messageId: 'urn:li:msg_message:mine', body: 'fixed',
+    });
+
+    parse(await callTool('delete_message', {
+      conversationId: 'c1', messageId: 'urn:li:msg_message:mine',
+    }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({
+      type: 'RECALL_MESSAGE', conversationId: 'c1', messageId: 'urn:li:msg_message:mine',
+    });
+
+    // Editing someone else's message is refused before bridging.
+    mockSendBridgeMessage.mockClear();
+    const theirs = await callTool('edit_message', {
+      conversationId: 'c1', messageId: 'urn:li:msg_message:theirs', body: 'nope',
+    });
+    expect(theirs.isError).toBe(true);
+    expect(theirs.content[0].text).toContain('your own messages');
+    expect(mockSendBridgeMessage).not.toHaveBeenCalled();
+  });
+
+  it('withdraw_invitation bridges, echoes, and refuses settled ones', async () => {
+    await testDb.sentInvitations.put({
+      id: 'sent1', toUrn: 'u', name: 'Ada', headline: '', pictureUrl: '',
+      publicId: '', message: 'hi', sentAt: 1, status: 'pending',
+    });
+    const data = parse(await callTool('withdraw_invitation', { invitationId: 'sent1' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'WITHDRAW_INVITATION', invitationId: 'sent1' });
+    expect(data.to).toBe('Ada');
+    expect((await testDb.sentInvitations.get('sent1')).status).toBe('withdrawn');
+
+    const again = await callTool('withdraw_invitation', { invitationId: 'sent1' });
+    expect(again.isError).toBe(true);
+    expect(again.content[0].text).toContain('already withdrawn');
   });
 
   it('accept/ignore invitation bridge, echo the status, and refuse settled ones', async () => {

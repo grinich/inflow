@@ -14,6 +14,14 @@ export const AGENT_SEND_TIMESTAMPS_KEY = 'agentSendTimestamps';
 
 const WINDOW_MS = 60 * 60 * 1000;
 
+/** Sends inside the current window — what get_send_quota reports. */
+export async function countRecentSends(now = Date.now()): Promise<number> {
+  const stored = await readLocal<number[]>(AGENT_SEND_TIMESTAMPS_KEY);
+  return (Array.isArray(stored) ? stored : []).filter(
+    (t) => typeof t === 'number' && now - t < WINDOW_MS
+  ).length;
+}
+
 export async function checkAndRecordSend(
   now = Date.now()
 ): Promise<{ ok: true } | { ok: false; retryAfterMs: number }> {

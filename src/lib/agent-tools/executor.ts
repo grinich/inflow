@@ -59,7 +59,7 @@ export async function callTool(name: string, input: unknown): Promise<AgentToolR
     return errorResult(`invalid input for ${name}: ${validated.error}`);
   }
 
-  if (tool.name === 'send_message') {
+  if (tool.countsAsSend) {
     const cap = await checkAndRecordSend();
     if (!cap.ok) {
       const minutes = Math.max(1, Math.ceil(cap.retryAfterMs / 60000));

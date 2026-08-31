@@ -34,6 +34,8 @@ export interface AgentToolDef {
   write: boolean;
   /** Returns plain JSON-serializable data; throw an Error for a clean failure. */
   handler: (input: Record<string, unknown>) => Promise<unknown>;
+  /** Puts a message on the user's account: counts against the hourly send cap. */
+  countsAsSend?: boolean;
   /** Toast text shown to the user after a successful write. */
   successToast?: (data: any) => string;
 }
