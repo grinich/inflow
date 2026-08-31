@@ -43,7 +43,9 @@ jobs:
       - name: Build release notes
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          node scripts/release-notes.mjs "$VERSION" > release-notes.md
+          # A prerelease tag (v0.8.0-beta.1) uses its base version's CHANGELOG
+          # section — the section is written once, for the version it becomes.
+          node scripts/release-notes.mjs "${VERSION%%-*}" > release-notes.md
           echo "Built release notes for v$VERSION"
 
       - name: Create GitHub Release
@@ -51,6 +53,9 @@ jobs:
         with:
           body_path: release-notes.md
           generate_release_notes: true # appends an auto commit/PR changelog
+          # Hyphenated tags (v0.8.0-beta.1) are betas: marked prerelease, and
+          # the store jobs below skip them entirely.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/*.zip
             dist/Inflow.mcpb
@@ -67,6 +72,8 @@ jobs:
   chrome-web-store:
     name: Publish to Chrome Web Store
     needs: release
+    # Betas (any hyphenated tag) never go to the store.
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     env:
       # Public — it is the ID in the store listing URL.
@@ -155,6 +162,8 @@ jobs:
   edge-add-ons:
     name: Publish to Edge Add-ons
     needs: release
+    # Betas (any hyphenated tag) never go to the store.
+    if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

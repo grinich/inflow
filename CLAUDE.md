@@ -39,6 +39,11 @@ inflow is a Chrome extension (MV3) that provides a keyboard-driven messaging cli
    `npm run changelog:site` to regenerate the page on inflow.im
    (`npm test` fails if you forget)
 2. `npm version <patch|minor|major>` — bumps `package.json` + creates `vX.Y.Z` tag
+   - **Beta releases**: `npm version 0.X.0-beta.N` — the hyphenated tag makes CI
+     mark the GitHub Release as a prerelease and SKIP both store publishes
+     (Chrome manifest gets the base version; the full string lands in
+     `version_name`). Ship the same content to stores later by tagging the
+     bare version.
 3. `git push --follow-tags` — triggers the GitHub Actions release workflow
 4. CI runs tests, builds both zips, creates a GitHub Release, and uploads +
    publishes the store build to the Chrome Web Store automatically
