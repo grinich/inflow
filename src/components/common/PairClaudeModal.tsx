@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useUIStore } from '@/store/ui-store';
-import { getAgentToolsEnabled, setAgentBridgeToken } from '@/lib/agent-settings';
+import { setAgentBridgeToken, setAgentToolsEnabled } from '@/lib/agent-settings';
 
 /** The Claude (Anthropic) starburst mark — nominative use, identifying what
  *  is asking to connect. Drawn inline so no asset ships in the bundle. */
@@ -31,20 +31,15 @@ function ClaudeMark({ className }: { className?: string }) {
 /**
  * The pairing confirmation for a ?pair= launch link (Claude Desktop's
  * "connect to inflow" flow): one decision, Confirm or Cancel. Confirming
- * saves the pairing code — the bridge connects within seconds — and, when
- * agent access is still off, opens Agent Access so the user chooses what
- * Claude may actually do (pairing alone grants nothing).
+ * saves the pairing code AND enables read access — the dialog says so, since
+ * that's the consent being given — then opens Agent Access so the user can
+ * also allow actions if they want. Write access is never granted here.
  */
 export function PairClaudeModal() {
   const code = useUIStore((s) => s.pairRequestCode);
   const setPairRequest = useUIStore((s) => s.setPairRequest);
   const setAgentAccessOpen = useUIStore((s) => s.setAgentAccessOpen);
   const showToast = useUIStore((s) => s.showToast);
-  const [readsEnabled, setReadsEnabled] = useState(true);
-
-  useEffect(() => {
-    if (code) getAgentToolsEnabled().then(setReadsEnabled);
-  }, [code]);
 
   const cancel = useCallback(() => setPairRequest(null), [setPairRequest]);
 
@@ -66,12 +61,11 @@ export function PairClaudeModal() {
 
   const handleConfirm = async () => {
     await setAgentBridgeToken(code);
-    showToast({ message: 'Paired with Claude Desktop' });
+    await setAgentToolsEnabled(true); // exactly what the dialog copy promises
+    showToast({ message: 'Paired with Claude Desktop — read access enabled' });
     setPairRequest(null);
-    // Pairing alone grants nothing — take them to the actual consents.
-    // Re-read at click time: the effect's load may not have resolved yet
-    // when someone confirms quickly (same pattern as the command palette).
-    if (!(await getAgentToolsEnabled())) setAgentAccessOpen(true);
+    // Show where this lives and offer the "act" toggle without granting it.
+    setAgentAccessOpen(true);
   };
 
   return (
@@ -83,7 +77,9 @@ export function PairClaudeModal() {
         <ClaudeMark className="mx-auto h-12 w-12" />
         <h2 className="mt-3 text-base font-semibold text-fg-strong">Connect Claude Desktop</h2>
         <p className="mt-2 text-sm text-fg-secondary">
-          Claude Desktop is asking to pair with inflow so it can use your agent tools.
+          Claude Desktop is asking to pair with inflow. Connecting lets it{' '}
+          <span className="text-fg">read</span> your inbox; sending and archiving stay off
+          unless you enable them separately.
         </p>
         <div className="mx-auto mt-4 w-fit rounded-md bg-surface px-4 py-2 font-mono text-sm text-fg ring-1 ring-ring">
           {code}
@@ -91,11 +87,6 @@ export function PairClaudeModal() {
         <p className="mt-2 text-xs text-fg-muted">
           Make sure this matches the code Claude showed you.
         </p>
-        {!readsEnabled && (
-          <p className="mt-2 text-xs text-fg-muted">
-            Agent access is currently off — after connecting, you&apos;ll choose what Claude may do.
-          </p>
-        )}
         <div className="mt-5 flex justify-center gap-2">
           <button
             onClick={cancel}

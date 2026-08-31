@@ -15,9 +15,27 @@ import { readLocal } from '@/lib/storage';
 const BRIDGE_STATUS_LABEL: Record<string, string> = {
   connected: 'Connected to Claude Desktop',
   disconnected: 'Paired — waiting for Claude Desktop (is Inflow.mcpb installed and Claude running?)',
-  unpaired: 'Not paired — ask Claude Desktop for your inflow pairing code',
-  disabled: 'Enable agent access above to connect',
+  unpaired: 'Not paired yet',
+  disabled: 'Enable read access in step 3 to connect',
 };
+
+/** What the user types into Claude Desktop to kick off pairing. */
+const CLAUDE_PROMPT = 'Connect to my inflow LinkedIn inbox';
+
+function StepHeader({ n, title, done }: { n: number; title: string; done?: boolean }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white ${
+          done ? 'bg-green-600' : 'bg-blue-600'
+        }`}
+      >
+        {done ? '✓' : n}
+      </span>
+      <p className="text-sm font-medium text-fg">{title}</p>
+    </div>
+  );
+}
 
 function ToggleRow({
   label,
@@ -35,7 +53,7 @@ function ToggleRow({
   onChange: (next: boolean) => void;
 }) {
   return (
-    <div className={`mt-4 flex items-start justify-between gap-4 ${disabled ? 'opacity-50' : ''}`}>
+    <div className={`flex items-start justify-between gap-4 ${disabled ? 'opacity-50' : ''}`}>
       <div>
         <p className="text-sm font-medium text-fg">{label}</p>
         <p className="mt-0.5 text-xs text-fg-secondary">{disabled && hint ? hint : description}</p>
@@ -127,6 +145,15 @@ export function AgentAccessModal() {
     if (!next) setWrites(false);
   };
 
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(CLAUDE_PROMPT);
+      showToast({ message: 'Copied — paste it into Claude Desktop' });
+    } catch {
+      showToast({ message: 'Copy failed — select and copy the text manually' });
+    }
+  };
+
   const dirty =
     reads !== saved.reads || writes !== saved.writes || pairCode.trim() !== saved.pairCode;
 
@@ -146,97 +173,121 @@ export function AgentAccessModal() {
 
   if (!open) return null;
 
+  const connected = bridgeState === 'connected';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={close}>
       <div
-        className="w-full max-w-md rounded-xl bg-surface-raised p-6 shadow-2xl ring-1 ring-ring"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-surface-raised p-6 shadow-2xl ring-1 ring-ring"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-base font-semibold text-fg-strong">Agent access</h2>
-        <p className="mt-2 text-sm text-fg-secondary">
-          Let AI agents (like Claude) work with your inbox through inflow&apos;s tools instead of
-          screen-scraping. Everything is off by default; agents only reach inflow through pages you
-          point them at (inflow.im/app) or a WebMCP-capable browser.
+        <p className="mt-1 text-sm text-fg-secondary">
+          Let Claude work with your LinkedIn inbox through inflow&apos;s tools — three steps.
         </p>
 
-        <ToggleRow
-          label="Let agents read my inbox"
-          description="List conversations, read threads, search, see pending invitations."
-          checked={reads}
-          onChange={toggleReads}
-        />
-        <ToggleRow
-          label="Let agents act"
-          description="Send messages, archive, mark read/unread — on your real LinkedIn account."
-          checked={writes}
-          disabled={!reads}
-          hint="Enable read access first."
-          onChange={setWrites}
-        />
-
-        <div className="mt-5 border-t border-ring pt-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-fg">Claude Desktop</p>
-              <p className="mt-0.5 text-xs text-fg-secondary">
-                Install Inflow.mcpb (double-click it), ask Claude for your inflow pairing code,
-                and enter it here.
-              </p>
-            </div>
+        {/* Step 1 — install */}
+        <section className="mt-5">
+          <div className="flex items-center justify-between gap-4">
+            <StepHeader n={1} title="Install Inflow.mcpb" done={connected} />
             <a
               href="https://github.com/grinich/inflow/releases/latest/download/Inflow.mcpb"
               target="_blank"
               rel="noopener noreferrer"
               className="shrink-0 rounded-md bg-surface px-3 py-1.5 text-sm font-medium text-fg ring-1 ring-ring transition-colors hover:bg-surface-hover"
             >
-              Download Inflow.mcpb
+              Download
             </a>
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              type="text"
-              value={pairCode}
-              onChange={(e) => setPairCode(e.target.value.toUpperCase())}
-              placeholder="INF-XXXXXX"
-              aria-label="Claude Desktop pairing code"
-              spellCheck={false}
-              className="w-40 rounded-md bg-surface px-3 py-1.5 font-mono text-sm text-fg placeholder-fg-faint ring-1 ring-ring focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            {pairCode && (
-              <button
-                type="button"
-                onClick={() => setPairCode('')}
-                className="rounded-md px-2 py-1.5 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
-              >
-                Unpair
-              </button>
-            )}
-          </div>
-          {saved.pairCode && !pairCode && (
-            <p className="mt-1.5 text-xs text-amber-500">
-              Claude Desktop will be disconnected when you Save. To rotate the code itself,
-              also delete ~/.inflow/agent-bridge.json and restart Claude Desktop.
-            </p>
-          )}
-          <p className="mt-1.5 text-xs text-fg-muted" data-testid="bridge-status">
-            {BRIDGE_STATUS_LABEL[bridgeState ?? ''] ?? 'Status unknown'}
+          <p className="ml-[30px] mt-1 text-xs text-fg-secondary">
+            Download, then double-click it — Claude Desktop installs it as an extension.
           </p>
-        </div>
+        </section>
 
-        <p className="mt-4 text-xs text-fg-muted">
-          Agent-sent messages are capped at {AGENT_SEND_CAP_PER_HOUR}/hour. Every agent action
-          shows a notification here.{' '}
-          <a
-            href="https://github.com/grinich/inflow/blob/main/docs/agent-tools.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 underline hover:text-blue-400"
-          >
-            How to connect Claude
-          </a>
-        </p>
+        {/* Step 2 — connect */}
+        <section className="mt-5">
+          <StepHeader n={2} title="Connect Claude Desktop" done={connected} />
+          <div className="ml-[30px]">
+            <p className="mt-1 text-xs text-fg-secondary">Paste this into Claude Desktop:</p>
+            <button
+              type="button"
+              onClick={copyPrompt}
+              title="Click to copy"
+              className="mt-1.5 w-full rounded-md bg-surface px-3 py-2 text-left font-mono text-xs text-fg ring-1 ring-ring transition-colors hover:bg-surface-hover"
+            >
+              {CLAUDE_PROMPT}
+              <span className="float-right text-fg-muted">copy</span>
+            </button>
+            <p className="mt-1.5 text-xs text-fg-secondary">
+              Claude replies with a pairing link — click it and press Connect. Or enter the code
+              by hand:
+            </p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <input
+                type="text"
+                value={pairCode}
+                onChange={(e) => setPairCode(e.target.value.toUpperCase())}
+                placeholder="INF-XXXXXX"
+                aria-label="Claude Desktop pairing code"
+                spellCheck={false}
+                className="w-40 rounded-md bg-surface px-3 py-1.5 font-mono text-sm text-fg placeholder-fg-faint ring-1 ring-ring focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {pairCode && (
+                <button
+                  type="button"
+                  onClick={() => setPairCode('')}
+                  className="rounded-md px-2 py-1.5 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-hover"
+                >
+                  Unpair
+                </button>
+              )}
+            </div>
+            {saved.pairCode && !pairCode && (
+              <p className="mt-1.5 text-xs text-amber-500">
+                Claude Desktop will be disconnected when you Save. To rotate the code itself,
+                also delete ~/.inflow/agent-bridge.json and restart Claude Desktop.
+              </p>
+            )}
+            <p className="mt-1.5 text-xs text-fg-muted" data-testid="bridge-status">
+              {BRIDGE_STATUS_LABEL[bridgeState ?? ''] ?? 'Status unknown'}
+            </p>
+          </div>
+        </section>
 
-        <div className="mt-4 flex justify-end gap-2">
+        {/* Step 3 — permissions */}
+        <section className="mt-5">
+          <StepHeader n={3} title="Choose what agents may do" done={saved.reads} />
+          <div className="ml-[30px] mt-3 space-y-4">
+            <ToggleRow
+              label="Let agents read my inbox"
+              description="List conversations, read threads, search, see pending invitations."
+              checked={reads}
+              onChange={toggleReads}
+            />
+            <ToggleRow
+              label="Let agents act"
+              description="Send messages, archive, mark read/unread — on your real LinkedIn account."
+              checked={writes}
+              disabled={!reads}
+              hint="Enable read access first."
+              onChange={setWrites}
+            />
+            <p className="text-xs text-fg-muted">
+              Agent-sent messages are capped at {AGENT_SEND_CAP_PER_HOUR}/hour. Every agent action
+              shows a notification here.{' '}
+              <a
+                href="https://github.com/grinich/inflow/blob/main/docs/agent-tools.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-500 underline hover:text-blue-400"
+              >
+                Learn more
+              </a>
+            </p>
+          </div>
+        </section>
+
+        <div className="mt-5 flex justify-end gap-2">
           <button
             onClick={close}
             className="rounded-md px-3 py-1.5 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-hover"

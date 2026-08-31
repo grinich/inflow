@@ -95,15 +95,29 @@ it('Cancel and Escape discard changes', async () => {
   expect(await getAgentToolsEnabled()).toBe(false);
 });
 
-it('offers the Inflow.mcpb download at the stable latest-release URL', async () => {
+it('step 1 offers the Inflow.mcpb download at the stable latest-release URL', async () => {
   render(<AgentAccessModal />);
-  const link = await screen.findByRole('link', { name: 'Download Inflow.mcpb' });
+  const link = await screen.findByRole('link', { name: 'Download' });
   // The release workflow attaches dist/Inflow.mcpb, which is what makes this
   // latest/download URL resolve — change both together.
   expect(link).toHaveAttribute(
     'href',
     'https://github.com/grinich/inflow/releases/latest/download/Inflow.mcpb'
   );
+});
+
+it('step 2 copies the Claude prompt to the clipboard', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  });
+  render(<AgentAccessModal />);
+  fireEvent.click(await screen.findByRole('button', { name: /Connect to my inflow/ }));
+  await waitFor(() =>
+    expect(useUIStore.getState().toast?.message).toBe('Copied — paste it into Claude Desktop')
+  );
+  expect(writeText).toHaveBeenCalledWith('Connect to my inflow LinkedIn inbox');
 });
 
 it('pairing code persists only on Save, lowercased input normalized', async () => {
