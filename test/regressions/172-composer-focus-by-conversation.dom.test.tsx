@@ -15,11 +15,12 @@
 import '../dom-setup';
 
 import Dexie from 'dexie';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { applySchema } from '@/db/database';
 import { makeConversation } from '../fixtures/factories';
 import { useUIStore } from '@/store/ui-store';
+import { DRAFT_HANDOVER } from '@/lib/draft-handover';
 
 let testDb: any;
 
@@ -206,6 +207,57 @@ describe('regression #172: the reply box is addressed by conversation', () => {
     await act(async () => { view.unmount(); });
 
     expect((await testDb.draftAttachments.get('conv-1'))?.text).toBe('come back to this');
+  });
+
+  it('picks up a draft handed over after it already read an empty one', async () => {
+    // The failure I could not reproduce in a test and had to design against.
+    // The composer reads its draft once, on mount. If the accept flow moves
+    // the reply onto this thread a moment later, the row is right and the box
+    // is empty — which from the outside is exactly the same as losing it.
+    await mount('conv-real');
+    expect(boxFor('conv-real')!.value).toBe('');
+
+    await testDb.draftAttachments.put({
+      conversationId: 'conv-real', text: 'arrived late', files: [], names: [], types: [],
+    });
+    await act(async () => {
+      document.dispatchEvent(new CustomEvent(DRAFT_HANDOVER, { detail: 'conv-real' }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(boxFor('conv-real')!.value).toBe('arrived late'));
+  });
+
+  it('never overwrites a reply in progress with a handover', async () => {
+    // If they have started typing to this person already, that wins — a
+    // handover arriving late must not wipe live input.
+    await mount('conv-real');
+    const box = boxFor('conv-real')!;
+    await act(async () => { fireEvent.change(box, { target: { value: 'mine' } }); });
+    await testDb.draftAttachments.put({
+      conversationId: 'conv-real', text: 'arrived late', files: [], names: [], types: [],
+    });
+
+    await act(async () => {
+      document.dispatchEvent(new CustomEvent(DRAFT_HANDOVER, { detail: 'conv-real' }));
+      await Promise.resolve();
+    });
+
+    expect(box.value).toBe('mine');
+  });
+
+  it('ignores a handover meant for another conversation', async () => {
+    await mount('conv-real');
+    await testDb.draftAttachments.put({
+      conversationId: 'conv-real', text: 'not yours', files: [], names: [], types: [],
+    });
+
+    await act(async () => {
+      document.dispatchEvent(new CustomEvent(DRAFT_HANDOVER, { detail: 'somewhere-else' }));
+      await Promise.resolve();
+    });
+
+    expect(boxFor('conv-real')!.value).toBe('');
   });
 
   it('clears the request once claimed, so it cannot steal focus later', async () => {

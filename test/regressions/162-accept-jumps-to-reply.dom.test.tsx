@@ -258,6 +258,33 @@ describe('regression #162: accepting an invitation with a note', () => {
     expect(await testDb.draftAttachments.get('conv-late')).toBeUndefined();
   });
 
+  it('recovers a reply the departing composer left on the placeholder', async () => {
+    // The ordering that broke it in the browser and never in a test: the
+    // composer's flush is not redirected (or lands late), so the reply ends up
+    // under the placeholder id — which used to be deleted unconditionally a
+    // moment later, leaving an empty box and the text nowhere visible.
+    setTimeout(() => { void testDb.conversations.put(thread('conv-late')); }, 600);
+    const accept = actions().acceptInvitation(invitation('Hi Michael'));
+
+    await waitFor(() =>
+      expect(useUIStore.getState().selectedConversationId).toBe('draft-ACoAAAsender')
+    );
+    // Nothing in the box; the text arrives on the placeholder row instead,
+    // exactly as an unredirected flush would leave it — and AFTER the swap has
+    // been noticed, which is the ordering that made this invisible.
+    composerFor('draft-ACoAAAsender').value = '';
+    setTimeout(() => {
+      void testDb.draftAttachments.put({
+        conversationId: 'draft-ACoAAAsender', text: 'flushed late', files: [], names: [], types: [],
+      });
+    }, 900);
+
+    await accept;
+
+    expect((await testDb.draftAttachments.get('conv-late'))?.text).toBe('flushed late');
+    expect(await testDb.draftAttachments.get('draft-ACoAAAsender')).toBeUndefined();
+  }, 20_000);
+
   it('never drops the reply into a group thread', async () => {
     // participantUrns excludes the viewer, so a 1:1 has exactly one entry.
     // Matching loosely here would send the reply to an extra person.

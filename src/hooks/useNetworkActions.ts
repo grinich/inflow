@@ -5,6 +5,7 @@ import { useUIStore, type InboxTab } from '@/store/ui-store';
 import { navigateToConversation } from '@/lib/navigate-to-conversation';
 import type { Invitation, SentInvitation, Connection } from '@/types/network';
 import type { Conversation } from '@/types/conversation';
+import { DRAFT_HANDOVER } from '@/lib/draft-handover';
 
 /**
  * Which inbox folder a conversation is visible in — mirrors the per-tab queries
@@ -76,6 +77,62 @@ async function composerSettledOn(conversationId: string, budgetMs = 2000): Promi
   while (Date.now() < deadline) {
     if (document.querySelector(`[data-compose-input="${CSS.escape(conversationId)}"]`)) return;
     await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/**
+ * Make sure the reply ends up on the real thread, however the pieces land.
+ *
+ * The departing composer flushes what is typed as it goes (see ComposeBox) and
+ * that flush is normally redirected here. But it is a separate write from a
+ * separate component, and assuming it has already happened is what left a
+ * reply stranded on a placeholder row that had just been deleted — an empty
+ * box on screen, the text nowhere the user could see it. So watch for
+ * anything left behind rather than checking once, and if it turns up after
+ * the composer has already rendered empty, tell it to pick it up.
+ */
+async function handOverDraft(
+  fromId: string,
+  toId: string,
+  /** The box's contents when the swap began. */
+  snapshot: string,
+  /** What was stored against `fromId` at that same moment. */
+  storedBefore: string,
+  budgetMs = 2500
+): Promise<void> {
+  const get = (id: string) => db.draftAttachments.get(id).catch(() => undefined);
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    const [dest, left] = await Promise.all([get(toId), get(fromId)]);
+    if (dest?.text || dest?.files?.length) {
+      // Already here — the flush was redirected as intended.
+      if (left) await db.draftAttachments.delete(fromId).catch(() => {});
+      return;
+    }
+    // Which of the two is newer. The stored row changing since the swap began
+    // means the composer flushed on its way out, and that flush is by
+    // definition the last thing typed; an unchanged row is just its periodic
+    // save, up to a second behind the box we sampled.
+    const flushed = left?.text !== undefined && left.text !== storedBefore;
+    const text = flushed ? left!.text : snapshot || left?.text;
+    if (text || left?.files?.length) {
+      await db.draftAttachments.put({
+        conversationId: toId,
+        text: text || undefined,
+        files: left?.files ?? [],
+        names: left?.names ?? [],
+        types: left?.types ?? [],
+      });
+      await db.draftAttachments.delete(fromId).catch(() => {});
+      // The composer may already be up and empty; it will not re-read on its own.
+      document.dispatchEvent(new CustomEvent(DRAFT_HANDOVER, { detail: toId }));
+      return;
+    }
+    if (Date.now() >= deadline) {
+      await db.draftAttachments.delete(fromId).catch(() => {});
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 100));
   }
 }
 
@@ -287,6 +344,7 @@ export function useNetworkActions() {
     // between "read the box" and "the swap renders". The snapshot is a floor
     // for the case where no composer is mounted to do the carrying.
     const snapshot = liveComposerText(placeholderId);
+    const storedBefore = (await db.draftAttachments.get(placeholderId).catch(() => undefined))?.text ?? '';
     useUIStore.getState().carryDraftAcross(placeholderId, real.id);
 
     await navigateToConversation(real.id);
@@ -299,27 +357,8 @@ export function useNetworkActions() {
     await db.conversations.delete(placeholderId);
     await composerSettledOn(real.id);
 
-    // Nothing carried it — no composer was up — so move what was stored, and
-    // fall back to the snapshot if even that is missing.
-    const carried = await db.draftAttachments.get(real.id).catch(() => undefined);
-    if (!carried?.text && !carried?.files?.length) {
-      const stored = await db.draftAttachments.get(placeholderId).catch(() => undefined);
-      // On screen beats stored: the row is up to a second behind the box.
-      const text = snapshot || stored?.text;
-      if (text || stored?.files?.length) {
-        await db.draftAttachments.put({
-          conversationId: real.id,
-          text: text || undefined,
-          files: stored?.files ?? [],
-          names: stored?.names ?? [],
-          types: stored?.types ?? [],
-        });
-      }
-    }
-    // Whatever the departing composer flushed on its way out. `draft-<memberId>`
-    // is the same id every time this person is messaged, so left behind it
-    // would reappear prefilled later.
-    await db.draftAttachments.delete(placeholderId).catch(() => {});
+    // Converge on the reply ending up here, whatever order things landed in.
+    await handOverDraft(placeholderId, real.id, snapshot, storedBefore);
   }, []);
 
   const openProfile = useCallback((target: { publicId: string; profileUrn?: string }) => {

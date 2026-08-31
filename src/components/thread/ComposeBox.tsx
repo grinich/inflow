@@ -8,6 +8,7 @@ import { EmojiAutocomplete } from './EmojiAutocomplete';
 import { useAutocomplete } from '@/hooks/useAutocomplete';
 import { useReplySuggestions } from '@/hooks/useReplySuggestions';
 import type { Message } from '@/types/message';
+import { DRAFT_HANDOVER } from '@/lib/draft-handover';
 
 const FILE_ICONS: Record<string, string> = {
   'image': '🖼',
@@ -216,6 +217,30 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         textareaRef.current.focus();
       }
     }, [replyingTo]);
+
+    // Pick up a draft handed to this conversation after we already read ours.
+    //
+    // The accept flow moves the reply typed against a placeholder onto the
+    // real thread the moment it syncs, which can land after this composer has
+    // mounted and read an empty row. Without this the text is in the database
+    // and not on screen — the same thing as losing it, from the outside.
+    useEffect(() => {
+      function onHandover(e: Event) {
+        if ((e as CustomEvent).detail !== conversationId) return;
+        // Never over an in-progress reply: what is being typed wins.
+        if (bodyRef.current !== '' || attachmentsRef.current.length > 0) return;
+        loadDraft(conversationId).then((draft) => {
+          if (!draft.text && !draft.files.length) return;
+          if (bodyRef.current !== '' || attachmentsRef.current.length > 0) return;
+          lastSavedKeyRef.current = draftKey(draft.text, draft.files);
+          draftLoadedRef.current = true;
+          setBody(draft.text);
+          setAttachments(draft.files);
+        });
+      }
+      document.addEventListener(DRAFT_HANDOVER, onHandover);
+      return () => document.removeEventListener(DRAFT_HANDOVER, onHandover);
+    }, [conversationId]);
 
     // Take the cursor when something asked for THIS conversation's reply box.
     //
