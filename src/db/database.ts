@@ -94,7 +94,7 @@ export interface Tombstone {
 
 export const TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-type InflowDatabase = Dexie & {
+export type InflowDatabase = Dexie & {
   conversations: EntityTable<Conversation, 'id'>;
   messages: EntityTable<Message, 'id'>;
   profiles: EntityTable<Profile, 'urn'>;

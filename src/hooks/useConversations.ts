@@ -1,9 +1,13 @@
 import { useRef } from 'react';
-import Dexie from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/db/database';
 import { useDbGeneration } from '@/hooks/useDbGeneration';
-import { isFocusedCategory } from '@/lib/inbox-filters';
+import {
+  applySearchFilters,
+  mergeDuplicateConversations,
+  parseSearchQuery,
+  queryTabConversations,
+} from '@/lib/conversation-query';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
 import type { Conversation } from '@/types/conversation';
 
@@ -44,235 +48,26 @@ export function useConversations() {
     // later identical 'is:unread' query rebuilds a fresh set instead of reusing
     // conversations that have since been read.
     if (!searchQuery) filterSnapshotRef.current = null;
-    let results: Conversation[];
 
-    if (inboxTab === 'focused') {
-      // Use the original proven index for Focused inbox
-      results = await db.conversations
-        .where('[archived+lastActivityAt]')
-        .between([0, Dexie.minKey], [0, Dexie.maxKey])
-        .reverse()
-        .toArray();
-      // Further filter out conversations that are in Other (SECONDARY_INBOX).
-      // Shared with the toolbar badge (see inbox-filters) so counts agree.
-      results = results.filter((c) => isFocusedCategory(c.category));
-    } else if (inboxTab === 'other') {
-      results = await db.conversations
-        .where('[category+lastActivityAt]')
-        .between(['SECONDARY_INBOX', Dexie.minKey], ['SECONDARY_INBOX', Dexie.maxKey])
-        .reverse()
-        .toArray();
-    } else if (inboxTab === 'archived') {
-      results = await db.conversations
-        .where('[archived+lastActivityAt]')
-        .between([1, Dexie.minKey], [1, Dexie.maxKey])
-        .reverse()
-        .toArray();
-    } else if (inboxTab === 'spam') {
-      results = await db.conversations
-        .where('[category+lastActivityAt]')
-        .between(['SPAM', Dexie.minKey], ['SPAM', Dexie.maxKey])
-        .reverse()
-        .toArray();
-    } else {
-      results = [];
-    }
-
-    // Deduplicate 1:1 conversations that share the same participant URN.
-    // LinkedIn can create multiple threads with the same person (InMail,
-    // message requests, system migrations). Merge them into the most recent one.
-    {
-      const byParticipant = new Map<string, number[]>();
-      for (let i = 0; i < results.length; i++) {
-        const c = results[i];
-        if (c.participantUrns.length !== 1) continue; // skip group convs
-        const key = c.participantUrns[0];
-        const indices = byParticipant.get(key);
-        if (indices) indices.push(i);
-        else byParticipant.set(key, [i]);
-      }
-
-      const toRemove = new Set<number>();
-      for (const indices of byParticipant.values()) {
-        if (indices.length < 2) continue;
-        // Sort by lastActivityAt descending — first one wins
-        indices.sort((a, b) => results[b].lastActivityAt - results[a].lastActivityAt);
-        const primary = results[indices[0]];
-        const mergedIds: string[] = [];
-        for (let j = 1; j < indices.length; j++) {
-          const other = results[indices[j]];
-          mergedIds.push(other.id);
-          // Preserve unread/starred from merged conversations
-          if (other.read === 0) primary.read = 0;
-          if (other.starred === 1) primary.starred = 1;
-        }
-        primary.mergedIds = mergedIds;
-        for (let j = 1; j < indices.length; j++) toRemove.add(indices[j]);
-      }
-
-      if (toRemove.size > 0) {
-        results = results.filter((_, i) => !toRemove.has(i));
-      }
-    }
+    let results = mergeDuplicateConversations(await queryTabConversations(db, inboxTab));
 
     if (searchQuery) {
-      let q = searchQuery;
-      let requireAttachments = false;
-      let requireUnread = false;
-      let requireStarred = false;
-      let requireRead = false;
-      let requireGroup = false;
-      let requireDraft = false;
-      let fromName: string | null = null;
-      let afterTs: number | null = null;
-      let beforeTs: number | null = null;
-
-      // Parse has:draft filter (case-insensitive)
-      if (/has:draft/i.test(q)) {
-        requireDraft = true;
-        q = q.replace(/has:draft/gi, '').trim();
+      const parsed = parseSearchQuery(searchQuery);
+      // The unread snapshot lives here, not in conversation-query: only the
+      // hook knows the query/tab it was captured for and when to invalidate.
+      const snap = filterSnapshotRef.current;
+      const useSnapshot =
+        parsed.filters.unread && snap && snap.query === searchQuery && snap.tab === inboxTab;
+      const filtered = await applySearchFilters(
+        db,
+        results,
+        parsed,
+        useSnapshot ? { unreadIdSet: snap.ids } : undefined
+      );
+      if (filtered.unreadIds) {
+        filterSnapshotRef.current = { query: searchQuery, tab: inboxTab, ids: filtered.unreadIds };
       }
-
-      // Parse has:attachment filter (case-insensitive)
-      if (/has:attachment/i.test(q)) {
-        requireAttachments = true;
-        q = q.replace(/has:attachment/gi, '').trim();
-      }
-
-      // Parse is:unread filter (case-insensitive)
-      if (/is:unread/i.test(q)) {
-        requireUnread = true;
-        q = q.replace(/is:unread/gi, '').trim();
-      }
-
-      // Parse is:starred filter
-      if (/is:starred/i.test(q)) {
-        requireStarred = true;
-        q = q.replace(/is:starred/gi, '').trim();
-      }
-
-      // Parse is:read filter
-      if (/is:read/i.test(q)) {
-        requireRead = true;
-        q = q.replace(/is:read/gi, '').trim();
-      }
-
-      // Parse is:group filter
-      if (/is:group/i.test(q)) {
-        requireGroup = true;
-        q = q.replace(/is:group/gi, '').trim();
-      }
-
-      // Parse from:name filter
-      const fromMatch = q.match(/from:(\S+)/i);
-      if (fromMatch) {
-        fromName = fromMatch[1].toLowerCase();
-        q = q.replace(/from:\S+/gi, '').trim();
-      }
-
-
-      // Parse after:YYYY-MM-DD filter
-      const afterMatch = q.match(/after:(\d{4}-\d{2}-\d{2})/i);
-      if (afterMatch) {
-        const t = Date.parse(afterMatch[1]);
-        if (!Number.isNaN(t)) afterTs = t; // ignore impossible dates (e.g. 2026-13-40)
-        q = q.replace(/after:\d{4}-\d{2}-\d{2}/gi, '').trim();
-      }
-
-      // Parse before:YYYY-MM-DD filter
-      const beforeMatch = q.match(/before:(\d{4}-\d{2}-\d{2})/i);
-      if (beforeMatch) {
-        const t = Date.parse(beforeMatch[1]);
-        if (!Number.isNaN(t)) beforeTs = t;
-        q = q.replace(/before:\d{4}-\d{2}-\d{2}/gi, '').trim();
-      }
-
-      // Parse newer:Nd filter (e.g. newer:7d)
-      const newerMatch = q.match(/newer:(\d+)d/i);
-      if (newerMatch) {
-        afterTs = Date.now() - parseInt(newerMatch[1], 10) * 86400000;
-        q = q.replace(/newer:\d+d/gi, '').trim();
-      }
-
-      // Parse older:Nd filter (e.g. older:30d)
-      const olderMatch = q.match(/older:(\d+)d/i);
-      if (olderMatch) {
-        beforeTs = Date.now() - parseInt(olderMatch[1], 10) * 86400000;
-        q = q.replace(/older:\d+d/gi, '').trim();
-      }
-
-      if (requireAttachments) {
-        results = results.filter((c) => c.hasAttachments === 1);
-      }
-
-      if (requireDraft) {
-        const allDrafts = await db.draftAttachments.toArray();
-        const draftIds = new Set(
-          allDrafts
-            .filter((d) => (d.text && d.text.length > 0) || (d.files && d.files.length > 0))
-            .map((d) => d.conversationId)
-        );
-        results = results.filter((c) => draftIds.has(c.id));
-      }
-
-      if (requireUnread) {
-        const snap = filterSnapshotRef.current;
-        if (snap && snap.query === searchQuery && snap.tab === inboxTab) {
-          // Use snapshotted IDs so the list stays stable while browsing
-          results = results.filter((c) => snap.ids.has(c.id));
-        } else {
-          results = results.filter((c) => c.read === 0);
-          filterSnapshotRef.current = {
-            query: searchQuery,
-            tab: inboxTab,
-            ids: new Set(results.map((c) => c.id)),
-          };
-        }
-      }
-
-      if (requireStarred) {
-        results = results.filter((c) => c.starred === 1);
-      }
-
-      if (requireRead) {
-        results = results.filter((c) => c.read === 1);
-      }
-
-      if (requireGroup) {
-        results = results.filter((c) => c.participantUrns.length >= 2);
-      }
-
-      if (fromName) {
-        const name = fromName;
-        results = results.filter((c) =>
-          c.participantNames.some((n) => n.toLowerCase().includes(name))
-        );
-      }
-
-      if (afterTs !== null) {
-        const ts = afterTs;
-        results = results.filter((c) => c.lastActivityAt >= ts);
-      }
-
-      if (beforeTs !== null) {
-        const ts = beforeTs;
-        results = results.filter((c) => c.lastActivityAt < ts);
-      }
-
-      // Token strips above leave doubled internal spaces ("project is:unread
-      // update" → "project  update"); collapse them like stripFilterTokens
-      // does, or a mid-query token makes the free-text match nothing while
-      // the highlighter (which uses stripFilterTokens) highlights it anyway.
-      q = q.replace(/\s+/g, ' ').trim();
-
-      if (q) {
-        const lower = q.toLowerCase();
-        results = results.filter(
-          (c) =>
-            c.participantNames.some((n) => n.toLowerCase().includes(lower)) ||
-            c.lastMessage.toLowerCase().includes(lower)
-        );
-      }
+      results = filtered.results;
     }
 
     return results;
