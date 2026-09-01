@@ -9,6 +9,7 @@ import {
   queryTabConversations,
 } from '@/lib/conversation-query';
 import { countUnreadFocused } from '@/lib/inbox-filters';
+import { getFocusedInboxEnabled } from '@/lib/focused-inbox';
 import { dedupeMessagesForDisplay } from '@/lib/message-dedup';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 import type { Conversation } from '@/types/conversation';
@@ -178,7 +179,10 @@ export const agentToolCatalog: AgentToolDef[] = [
       const d = requireDb();
       const tab = (input.tab as 'focused' | 'other' | 'archived' | 'spam') ?? 'focused';
       const limit = (input.limit as number) ?? 25;
-      let results = mergeDuplicateConversations(await queryTabConversations(d, tab));
+      const split = await getFocusedInboxEnabled();
+      let results = mergeDuplicateConversations(
+        await queryTabConversations(d, tab, { combineInbox: !split })
+      );
       if (input.query) {
         const parsed = parseSearchQuery(input.query as string);
         results = (await applySearchFilters(d, results, parsed)).results;
@@ -273,7 +277,8 @@ export const agentToolCatalog: AgentToolDef[] = [
     write: false,
     inputSchema: { type: 'object', properties: {} },
     async handler() {
-      return { focusedUnread: await countUnreadFocused(requireDb()) };
+      const split = await getFocusedInboxEnabled();
+      return { focusedUnread: await countUnreadFocused(requireDb(), !split) };
     },
   },
 

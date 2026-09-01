@@ -15,10 +15,15 @@ export function isFocusedCategory(category: string | undefined): boolean {
  * they just never count as unread.)
  */
 export function isFocusedConversation(
-  c: Pick<Conversation, 'archived' | 'category' | 'draft'>
+  c: Pick<Conversation, 'archived' | 'category' | 'draft'>,
+  combineInbox = false
 ): boolean {
   if (c.draft === 1) return false;
   if (c.archived === 1) return false;
+  // With LinkedIn's Focused/Other split turned off there is one inbox, so the
+  // badge counts everything in it — otherwise unread messages sitting in the
+  // (hidden) Other category would never be counted.
+  if (combineInbox) return c.category !== 'SPAM';
   return isFocusedCategory(c.category);
 }
 
@@ -33,21 +38,26 @@ export function isFocusedConversation(
  */
 export function belongsToTab(
   c: Pick<Conversation, 'archived' | 'category'>,
-  tab: 'focused' | 'other' | 'archived' | 'spam'
+  tab: 'focused' | 'other' | 'archived' | 'spam',
+  combineInbox = false
 ): boolean {
   if (tab === 'archived') return c.archived === 1;
   if (tab === 'spam') return c.category === 'SPAM';
   if (tab === 'other') return c.category === 'SECONDARY_INBOX';
+  if (combineInbox) return c.archived !== 1 && c.category !== 'SPAM';
   return c.archived !== 1 && isFocusedCategory(c.category);
 }
 
 /** Count unread Focused-tab conversations (drives the toolbar badge). */
-export async function countUnreadFocused(db: {
-  conversations: { where(index: string): { equals(v: number): { filter(f: (c: Conversation) => boolean): { count(): Promise<number> } } } };
-}): Promise<number> {
+export async function countUnreadFocused(
+  db: {
+    conversations: { where(index: string): { equals(v: number): { filter(f: (c: Conversation) => boolean): { count(): Promise<number> } } } };
+  },
+  combineInbox = false
+): Promise<number> {
   return db.conversations
     .where('read')
     .equals(0)
-    .filter((c) => isFocusedConversation(c))
+    .filter((c) => isFocusedConversation(c, combineInbox))
     .count();
 }

@@ -1,0 +1,108 @@
+/**
+ * An account that turned LinkedIn's Focused/Other split off sees ONE inbox
+ * over there, so inflow must show one too.
+ *
+ * The thing that makes this safe: LinkedIn keeps categorising conversations
+ * either way — a SECONDARY_INBOX query still returns rows with the setting off
+ * — so sync is untouched and nothing is lost. Only the presentation changes.
+ * The failure this guards against is the opposite: showing a Focused tab that
+ * silently hides everything LinkedIn filed as Other, on an account that asked
+ * for no such split.
+ */
+import Dexie from 'dexie';
+import { applySchema, type InflowDatabase } from '@/db/database';
+import { queryTabConversations } from '@/lib/conversation-query';
+import { belongsToTab, countUnreadFocused, isFocusedConversation } from '@/lib/inbox-filters';
+import { visibleTabs } from '@/components/conversations/ConversationListHeader';
+import { FOCUSED_INBOX_KEY, getFocusedInboxEnabled } from '@/lib/focused-inbox';
+import { makeConversation, resetFactories } from '../fixtures/factories';
+import { setLocalStore } from '../mocks/chrome';
+
+let db: InflowDatabase;
+
+beforeEach(async () => {
+  resetFactories();
+  db = new Dexie(`TestDB_focused_${Date.now()}_${Math.random()}`) as InflowDatabase;
+  applySchema(db);
+  await db.open();
+  await db.conversations.bulkPut([
+    makeConversation({ id: 'primary', category: 'PRIMARY_INBOX', archived: 0, read: 0 }),
+    makeConversation({ id: 'secondary', category: 'SECONDARY_INBOX', archived: 0, read: 0 }),
+    makeConversation({ id: 'archived', category: 'ARCHIVE', archived: 1, read: 0 }),
+    makeConversation({ id: 'spam', category: 'SPAM', archived: 0, read: 0 }),
+  ]);
+});
+
+afterEach(async () => {
+  db.close();
+  await Dexie.delete(db.name);
+});
+
+describe('the stored setting', () => {
+  it('defaults to the split being ON — the safe direction', async () => {
+    // Unknown must not collapse the inbox: a redundant Other tab is cosmetic,
+    // a hidden one loses conversations from view.
+    expect(await getFocusedInboxEnabled()).toBe(true);
+  });
+
+  it('is off only when explicitly stored false', async () => {
+    setLocalStore(FOCUSED_INBOX_KEY, false);
+    expect(await getFocusedInboxEnabled()).toBe(false);
+    setLocalStore(FOCUSED_INBOX_KEY, 'nonsense');
+    expect(await getFocusedInboxEnabled()).toBe(true);
+  });
+});
+
+describe('with the split ON (LinkedIn default)', () => {
+  it('keeps Focused and Other apart', async () => {
+    const focused = await queryTabConversations(db, 'focused');
+    expect(focused.map((c) => c.id)).toEqual(['primary']);
+    const other = await queryTabConversations(db, 'other');
+    expect(other.map((c) => c.id)).toEqual(['secondary']);
+  });
+
+  it('counts only the focused half in the badge', async () => {
+    expect(await countUnreadFocused(db)).toBe(1);
+  });
+
+  it('shows all four tabs', () => {
+    expect(visibleTabs(true).map((t) => t.label)).toEqual([
+      'Focused', 'Other', 'Archive', 'Spam',
+    ]);
+  });
+});
+
+describe('with the split OFF', () => {
+  it('folds Other into one inbox, still excluding archive and spam', async () => {
+    const inbox = await queryTabConversations(db, 'focused', { combineInbox: true });
+    expect(inbox.map((c) => c.id).sort()).toEqual(['primary', 'secondary']);
+  });
+
+  it('counts every unread in that one inbox', async () => {
+    // The bug this pins: an unread Other conversation not reaching the badge
+    // on an account with no Other tab to find it in.
+    expect(await countUnreadFocused(db, true)).toBe(2);
+  });
+
+  it('drops the Other tab and calls the first one Inbox', () => {
+    const tabs = visibleTabs(false);
+    expect(tabs.map((t) => t.label)).toEqual(['Inbox', 'Archive', 'Spam']);
+    // Archive stays 3 and Spam stays 4 — the keys must not shift under
+    // anyone's fingers just because a LinkedIn setting changed.
+    expect(tabs.map((t) => t.key)).toEqual(['1', '3', '4']);
+  });
+
+  it('treats a secondary conversation as belonging to the inbox', () => {
+    const secondary = { archived: 0, category: 'SECONDARY_INBOX' };
+    expect(belongsToTab(secondary, 'focused')).toBe(false);
+    expect(belongsToTab(secondary, 'focused', true)).toBe(true);
+    // Archive and spam are still their own places.
+    expect(belongsToTab({ archived: 1, category: 'ARCHIVE' }, 'focused', true)).toBe(false);
+    expect(belongsToTab({ archived: 0, category: 'SPAM' }, 'focused', true)).toBe(false);
+  });
+
+  it('still excludes drafts from the unread count', () => {
+    expect(isFocusedConversation({ archived: 0, category: 'SECONDARY_INBOX', draft: 1 }, true))
+      .toBe(false);
+  });
+});

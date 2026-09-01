@@ -12,10 +12,18 @@ import { isFocusedCategory } from '@/lib/inbox-filters';
 import type { Conversation } from '@/types/conversation';
 import type { InboxTab } from '@/store/ui-store';
 
-/** The tab's conversations, newest first, before dedup and search filtering. */
+/**
+ * The tab's conversations, newest first, before dedup and search filtering.
+ *
+ * `combineInbox` mirrors an account that turned LinkedIn's Focused/Other split
+ * off: the focused tab becomes the whole inbox (everything not archived and
+ * not spam), and the Other tab is not shown at all. LinkedIn keeps
+ * categorising rows regardless, so this is purely how they are presented.
+ */
 export async function queryTabConversations(
   db: InflowDatabase,
-  tab: InboxTab
+  tab: InboxTab,
+  opts?: { combineInbox?: boolean }
 ): Promise<Conversation[]> {
   if (tab === 'focused') {
     // Use the original proven index for Focused inbox
@@ -24,8 +32,9 @@ export async function queryTabConversations(
       .between([0, Dexie.minKey], [0, Dexie.maxKey])
       .reverse()
       .toArray();
-    // Further filter out conversations that are in Other (SECONDARY_INBOX).
+    // With the split on, drop the rows that live in Other (SECONDARY_INBOX).
     // Shared with the toolbar badge (see inbox-filters) so counts agree.
+    if (opts?.combineInbox) return results.filter((c) => c.category !== 'SPAM');
     return results.filter((c) => isFocusedCategory(c.category));
   }
   if (tab === 'other') {

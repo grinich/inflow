@@ -18,6 +18,7 @@
  */
 
 import { countUnreadFocused } from '@/lib/inbox-filters';
+import { getFocusedInboxEnabled } from '@/lib/focused-inbox';
 import { db } from '@/db/database';
 import { setAgentBridgeCaller } from '@/lib/agent-tools/bridge-caller';
 import { callTool, listTools } from '@/lib/agent-tools/executor';
@@ -110,7 +111,8 @@ export function setupExternalPortRouter(): void {
       }
     });
 
-    countUnreadFocused(db)
+    getFocusedInboxEnabled()
+      .then((split) => countUnreadFocused(db, !split))
       .then((count) => postToShell(port, { type: 'UNREAD_COUNT', count }))
       .catch(() => {}); // DB may not be ready yet — the next broadcast catches up
   });

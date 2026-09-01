@@ -8,6 +8,7 @@ import {
   parseSearchQuery,
   queryTabConversations,
 } from '@/lib/conversation-query';
+import { useFocusedInbox } from '@/hooks/useFocusedInbox';
 import { useUIStore, type InboxTab } from '@/store/ui-store';
 import type { Conversation } from '@/types/conversation';
 
@@ -25,6 +26,8 @@ export function useConversations() {
   // Re-subscribe queries when the DB opens/switches — a query that ran while
   // `db` was null observed no tables and would stay blank forever otherwise.
   const dbGen = useDbGeneration();
+  // With LinkedIn's Focused/Other split off, the focused tab is the whole inbox.
+  const focusedInbox = useFocusedInbox();
 
   // Snapshot filter results so the list stays stable while browsing.
   // e.g. `is:unread` captures matching IDs on first run; subsequent live-query
@@ -49,7 +52,9 @@ export function useConversations() {
     // conversations that have since been read.
     if (!searchQuery) filterSnapshotRef.current = null;
 
-    let results = mergeDuplicateConversations(await queryTabConversations(db, inboxTab));
+    let results = mergeDuplicateConversations(
+      await queryTabConversations(db, inboxTab, { combineInbox: !focusedInbox })
+    );
 
     if (searchQuery) {
       const parsed = parseSearchQuery(searchQuery);
@@ -71,7 +76,7 @@ export function useConversations() {
     }
 
     return results;
-  }, [searchQuery, inboxTab, dbGen]);
+  }, [searchQuery, inboxTab, dbGen, focusedInbox]);
 
   // Check if discovery is in progress for the current tab's category
   const category = TAB_TO_CATEGORY[inboxTab];

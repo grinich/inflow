@@ -3,6 +3,7 @@ import { useUIStore, type InboxTab } from '@/store/ui-store';
 import { queryHasUnread, setUnreadInQuery } from '@/lib/app-route';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { keyboardFocusOnly } from '@/lib/focus-on-keyboard-only';
+import { useFocusedInbox } from '@/hooks/useFocusedInbox';
 
 const FILTER_SUGGESTIONS = [
   { filter: 'is:unread', description: 'Unread conversations' },
@@ -28,6 +29,19 @@ const TABS: { id: InboxTab; label: string; key: string }[] = [
   { id: 'spam', label: 'Spam', key: '4' },
 ];
 
+/**
+ * The tabs to show. An account with LinkedIn's Focused/Other split turned off
+ * has one inbox, so Other disappears and Focused is just "Inbox" — mirroring
+ * what LinkedIn itself shows. The keys don't shift: Archive stays 3 and Spam
+ * stays 4, so muscle memory survives the setting being toggled.
+ */
+export function visibleTabs(focusedInboxEnabled: boolean) {
+  if (focusedInboxEnabled) return TABS;
+  return TABS.filter((t) => t.id !== 'other').map((t) =>
+    t.id === 'focused' ? { ...t, label: 'Inbox' } : t
+  );
+}
+
 /** Map UI tab to LinkedIn API category for on-demand sync. */
 export const TAB_CATEGORY: Record<InboxTab, string | null> = {
   focused: null, // synced proactively by the poller
@@ -44,6 +58,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [dropdownDismissed, setDropdownDismissed] = useState(false);
+  const tabs = visibleTabs(useFocusedInbox());
 
   function handleTabSelect(tab: InboxTab) {
     setInboxTab(tab);
@@ -176,7 +191,7 @@ export function ConversationListHeader({ conversationCount }: { conversationCoun
             }}
             className="cursor-pointer appearance-none rounded-md bg-surface-input py-1 pl-2 pr-6 text-[11px] font-medium text-fg-strong outline-none ring-1 ring-transparent transition-colors focus:ring-blue-500/50"
           >
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <option key={tab.id} value={tab.id}>
                 {tab.label}
               </option>

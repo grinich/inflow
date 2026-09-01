@@ -13,13 +13,15 @@ import { openAppTab, reloadWebAppShellTabs } from './open-app-tab';
 import { setupExternalMessageRouter, setupExternalPortRouter, broadcastUnreadCount } from './external-messages';
 import { setupAgentBridge } from './agent-bridge';
 import { setupUpdateChecker } from './update-check';
+import { fetchFocusedInboxEnabled } from './api/messaging-settings';
+import { getFocusedInboxEnabled, setFocusedInboxEnabled } from '@/lib/focused-inbox';
 
 /** Count unread Focused-tab conversations and update the toolbar badge.
  *  Uses the same predicate as the Focused list (isFocusedConversation) so the
  *  badge can never disagree with what the list shows. */
 async function updateBadge() {
   try {
-    const count = await countUnreadFocused(db);
+    const count = await countUnreadFocused(db, !(await getFocusedInboxEnabled()));
     chrome.action.setBadgeText({ text: count > 0 ? String(count) : '' });
     chrome.action.setBadgeBackgroundColor({ color: '#2563EB' });
     // Mirror the same count to connected web shells (dock badge + tab title).
@@ -30,6 +32,19 @@ async function updateBadge() {
 }
 
 import { markDbReady } from './db-ready';
+
+/**
+ * Mirror LinkedIn's Focused-inbox preference into local storage for the UI.
+ * Best-effort: an unreadable setting keeps whatever was stored, so a blip
+ * can't collapse or split the inbox behind the user's back.
+ */
+function refreshFocusedInboxSetting(): void {
+  void fetchFocusedInboxEnabled()
+    .then((enabled) => {
+      if (enabled !== null) return setFocusedInboxEnabled(enabled);
+    })
+    .catch(() => {});
+}
 
 export default defineBackground(() => {
   debugLog('info', 'Background service worker started');
@@ -61,6 +76,7 @@ export default defineBackground(() => {
     // Start sync subsystems after DB is pointed at the right account
     setupPoller();
     startRealtime();
+    refreshFocusedInboxSetting();
 
     // Drain any actions queued while offline
     drainActionQueue().catch((err) => {
@@ -71,6 +87,11 @@ export default defineBackground(() => {
   // Update badge on startup and periodically
   updateBadge();
   setInterval(updateBadge, 5_000);
+
+  // Re-read LinkedIn's Focused-inbox preference hourly, so turning the split
+  // on or off over there reaches the UI without a reinstall. One small
+  // request; failures leave the last known value in place.
+  setInterval(refreshFocusedInboxSetting, 60 * 60 * 1000);
 
   // -----------------------------------------------------------------------
   // Proactive account-switch detection via cookie monitoring
