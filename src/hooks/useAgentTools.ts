@@ -5,7 +5,7 @@ import {
   getAgentToolsEnabled,
   getAgentWritesEnabled,
 } from '@/lib/agent-settings';
-import { isModelContextAvailable, registerAgentTools } from '@/lib/agent-tools/model-context';
+import { registerAgentTools, whenModelContextReady } from '@/lib/agent-tools/model-context';
 import { onShellAgentRequest, publishAgentToolsChanged } from '@/lib/shell-messages';
 
 /**
@@ -59,15 +59,20 @@ export function useAgentTools(): void {
     // Let an embedding shell refresh whatever registrations it proxies.
     publishAgentToolsChanged();
 
-    if (!enabled.reads || !isModelContextAvailable()) return;
+    if (!enabled.reads) return;
     let cancelled = false;
     let cleanup: (() => void) | undefined;
-    void registerAgentTools().then((c) => {
-      if (cancelled) c();
-      else cleanup = c;
+    // Wait for a WebMCP surface rather than checking once: agent extensions
+    // inject theirs when the user grants site access, usually after we loaded.
+    const stopWaiting = whenModelContextReady(() => {
+      void registerAgentTools().then((c) => {
+        if (cancelled) c();
+        else cleanup = c;
+      });
     });
     return () => {
       cancelled = true;
+      stopWaiting();
       cleanup?.();
     };
   }, [enabled.reads, enabled.writes]);

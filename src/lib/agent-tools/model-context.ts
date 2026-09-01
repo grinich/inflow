@@ -38,6 +38,48 @@ export function isModelContextAvailable(): boolean {
 }
 
 /**
+ * Call `onReady` once a WebMCP surface exists — now, or whenever one shows up.
+ * Returns a stop function.
+ *
+ * A one-shot check at mount is not enough: agent extensions inject their own
+ * implementation into the page rather than relying on Chrome's origin trial,
+ * and they register that content script at RUNTIME — typically when the user
+ * grants the agent access to the site, which is usually after our page has
+ * loaded and already looked. (Verified against ChatGPT for Chrome's
+ * content-scripts/webmcp.js, which defines modelContext on document and
+ * navigator with configurable:false, so it cannot be watched with a setter —
+ * hence polling.) The poll is a `typeof` check a few times a minute and stops
+ * the moment it finds one.
+ */
+export function whenModelContextReady(onReady: () => void): () => void {
+  if (isModelContextAvailable()) {
+    onReady();
+    return () => {};
+  }
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+    window.removeEventListener('focus', check);
+    document.removeEventListener('visibilitychange', check);
+  };
+  function check() {
+    if (stopped) return;
+    if (isModelContextAvailable()) {
+      stop();
+      onReady();
+    }
+  }
+  // Activating an agent on the page puts focus through the sidebar and back,
+  // so these usually beat the timer to it.
+  const timer = setInterval(check, 2000);
+  window.addEventListener('focus', check);
+  document.addEventListener('visibilitychange', check);
+  return stop;
+}
+
+/**
  * Register every currently-enabled tool. Returns a cleanup that unregisters
  * them all — defensively, since the trial API has returned different handle
  * shapes (an object with unregister(), or nothing, relying on the signal).

@@ -583,10 +583,34 @@ html,body{height:100%;overflow:hidden}
   // so WebMCP-capable agents see inflow's tools on inflow.im without knowing
   // about the iframe. document.modelContext is current Chrome; the navigator
   // spelling is the pre-150 alias.
+  // Agent extensions (ChatGPT for Chrome, and likely others) inject their own
+  // WebMCP implementation into the page instead of waiting for Chrome's
+  // origin trial, and they register that content script at RUNTIME — when the
+  // user grants the agent access to this site, which is normally after this
+  // page has loaded and already looked. So watch for it appearing rather than
+  // checking once. It is defined non-configurable, so a setter can't see it;
+  // a typeof check every few seconds costs nothing and stops on the first hit.
+  var agentMcTimer = null;
+  function watchForModelContext() {
+    if (agentMcTimer) return;
+    agentMcTimer = setInterval(function () {
+      if (document.modelContext || navigator.modelContext) {
+        clearInterval(agentMcTimer);
+        agentMcTimer = null;
+        refreshAgentModelContext();
+      }
+    }, 2000);
+    // Activating an agent moves focus through its panel and back.
+    window.addEventListener('focus', refreshAgentModelContext);
+  }
+
   var agentToolHandles = [];
   function refreshAgentModelContext() {
     var mc = document.modelContext || navigator.modelContext;
-    if (!mc || typeof mc.registerTool !== 'function') return;
+    if (!mc || typeof mc.registerTool !== 'function') {
+      watchForModelContext();
+      return;
+    }
     for (var i = 0; i < agentToolHandles.length; i++) {
       try {
         if (agentToolHandles[i] && agentToolHandles[i].unregister) agentToolHandles[i].unregister();
