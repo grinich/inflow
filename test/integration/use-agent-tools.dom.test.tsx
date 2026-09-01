@@ -23,14 +23,16 @@ import {
 
 const READ_TOOLS = [
   'get_send_quota', 'get_unread_count', 'list_connections', 'list_conversations',
-  'list_invitations', 'list_sent_invitations', 'read_thread',
+  'list_drafts', 'list_invitations', 'list_sent_invitations', 'read_thread',
   'search_conversations', 'search_recipients',
-];
+].sort();
 const ALL_TOOLS = [
   ...READ_TOOLS, 'accept_invitation', 'archive_conversation', 'delete_conversation',
   'delete_message', 'edit_message', 'ignore_invitation', 'mark_read', 'mark_unread',
-  'move_conversation', 'react_to_message', 'send_message', 'star_conversation',
-  'start_conversation', 'withdraw_invitation',
+  'move_to_focused', 'move_to_other', 'move_to_spam', 'react_to_message',
+  'save_draft', 'send_draft', 'send_message', 'star_conversation',
+  'start_conversation', 'unarchive_conversation', 'unstar_conversation',
+  'withdraw_invitation',
 ].sort();
 
 function enable(reads: boolean, writes = false) {

@@ -93,10 +93,12 @@ describe('gating', () => {
       'accept_invitation', 'archive_conversation', 'delete_conversation',
       'delete_message', 'edit_message', 'get_send_quota', 'get_unread_count',
       'ignore_invitation', 'list_connections', 'list_conversations',
-      'list_invitations', 'list_sent_invitations', 'mark_read', 'mark_unread',
-      'move_conversation', 'react_to_message', 'read_thread',
-      'search_conversations', 'search_recipients', 'send_message',
-      'star_conversation', 'start_conversation', 'withdraw_invitation',
+      'list_drafts', 'list_invitations', 'list_sent_invitations', 'mark_read',
+      'mark_unread', 'move_to_focused', 'move_to_other', 'move_to_spam',
+      'react_to_message', 'read_thread', 'save_draft', 'search_conversations',
+      'search_recipients', 'send_draft', 'send_message', 'star_conversation',
+      'start_conversation', 'unarchive_conversation', 'unstar_conversation',
+      'withdraw_invitation',
     ]);
     for (const t of list.tools) {
       expect(t.description.length).toBeGreaterThan(0);
@@ -277,6 +279,24 @@ describe('read tools', () => {
     expect(limited.total).toBe(3);
   });
 
+  it('paginates the local lists with nextOffset, null at the end', async () => {
+    await testDb.conversations.bulkPut(
+      Array.from({ length: 5 }, (_, i) =>
+        makeConversation({ id: `c${i}`, lastActivityAt: 5000 - i })
+      )
+    );
+    const first = parse(await callTool('list_conversations', { limit: 2 }));
+    expect(first.conversations.map((c: any) => c.id)).toEqual(['c0', 'c1']);
+    expect(first).toMatchObject({ total: 5, nextOffset: 2 });
+
+    const second = parse(await callTool('list_conversations', { limit: 2, offset: first.nextOffset }));
+    expect(second.conversations.map((c: any) => c.id)).toEqual(['c2', 'c3']);
+
+    const last = parse(await callTool('list_conversations', { limit: 2, offset: 4 }));
+    expect(last.conversations.map((c: any) => c.id)).toEqual(['c4']);
+    expect(last.nextOffset).toBeNull(); // an agent knows to stop
+  });
+
   it('get_send_quota reports what is left in the window', async () => {
     const fresh = parse(await callTool('get_send_quota', {}));
     expect(fresh).toMatchObject({ cap: AGENT_SEND_CAP_PER_HOUR, used: 0, remaining: AGENT_SEND_CAP_PER_HOUR });
@@ -355,14 +375,14 @@ describe('write tools', () => {
     expect(useUIStore.getState().toast).toBeNull(); // no toast on failure
   });
 
-  it('archive_conversation bridges and writes the local echo (both directions)', async () => {
+  it('archive and unarchive are separate tools, each bridging and echoing', async () => {
     await testDb.conversations.put(makeConversation({ id: 'c1', archived: 0 }));
     parse(await callTool('archive_conversation', { conversationId: 'c1' }));
     expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'ARCHIVE', conversationId: 'c1' });
     expect((await testDb.conversations.get('c1')).archived).toBe(1);
     expect(useUIStore.getState().toast?.message).toContain('Agent archived');
 
-    parse(await callTool('archive_conversation', { conversationId: 'c1', unarchive: true }));
+    parse(await callTool('unarchive_conversation', { conversationId: 'c1' }));
     expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'UNARCHIVE', conversationId: 'c1' });
     expect((await testDb.conversations.get('c1')).archived).toBe(0);
   });
@@ -385,24 +405,21 @@ describe('write tools', () => {
     expect(mockSendBridgeMessage).not.toHaveBeenCalled();
   });
 
-  it('move_conversation maps destinations to bridge types and echoes the category', async () => {
+  it('each move destination is its own discoverable tool', async () => {
     await testDb.conversations.put(makeConversation({ id: 'c1', category: 'PRIMARY_INBOX' }));
 
-    parse(await callTool('move_conversation', { conversationId: 'c1', to: 'other' }));
+    parse(await callTool('move_to_other', { conversationId: 'c1' }));
     expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'MOVE_TO_OTHER', conversationId: 'c1' });
     expect((await testDb.conversations.get('c1')).category).toBe('SECONDARY_INBOX');
 
-    parse(await callTool('move_conversation', { conversationId: 'c1', to: 'spam' }));
+    parse(await callTool('move_to_spam', { conversationId: 'c1' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'MOVE_TO_SPAM', conversationId: 'c1' });
     expect((await testDb.conversations.get('c1')).category).toBe('SPAM');
 
-    parse(await callTool('move_conversation', { conversationId: 'c1', to: 'focused' }));
+    parse(await callTool('move_to_focused', { conversationId: 'c1' }));
     expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'MOVE_TO_FOCUSED', conversationId: 'c1' });
     expect((await testDb.conversations.get('c1')).category).toBe('PRIMARY_INBOX');
     expect(useUIStore.getState().toast?.message).toContain('moved conversation');
-
-    const bad = await callTool('move_conversation', { conversationId: 'c1', to: 'archive' });
-    expect(bad.isError).toBe(true);
-    expect(bad.content[0].text).toContain('must be one of');
   });
 
   it('start_conversation creates a thread and counts against the send cap', async () => {
@@ -429,7 +446,8 @@ describe('write tools', () => {
     expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'STAR', conversationId: 'c1' });
     expect((await testDb.conversations.get('c1')).starred).toBe(1);
 
-    parse(await callTool('star_conversation', { conversationId: 'c1', unstar: true }));
+    parse(await callTool('unstar_conversation', { conversationId: 'c1' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({ type: 'UNSTAR', conversationId: 'c1' });
     expect((await testDb.conversations.get('c1')).starred).toBe(0);
 
     parse(await callTool('delete_conversation', { conversationId: 'c1' }));
@@ -480,6 +498,54 @@ describe('write tools', () => {
     expect(theirs.isError).toBe(true);
     expect(theirs.content[0].text).toContain('your own messages');
     expect(mockSendBridgeMessage).not.toHaveBeenCalled();
+  });
+
+  it('drafts round-trip: save (nothing sent), list, send, clear', async () => {
+    await testDb.conversations.put(
+      makeConversation({ id: 'c1', participantNames: ['Jane Doe'] })
+    );
+
+    parse(await callTool('save_draft', { conversationId: 'c1', body: 'a reply to review' }));
+    expect(mockSendBridgeMessage).not.toHaveBeenCalled(); // saving must never send
+    expect(useUIStore.getState().toast?.message).toContain('saved a draft');
+
+    const listed = parse(await callTool('list_drafts', {}));
+    expect(listed.drafts).toEqual([
+      { conversationId: 'c1', body: 'a reply to review', attachmentCount: 0, participants: ['Jane Doe'] },
+    ]);
+
+    parse(await callTool('send_draft', { conversationId: 'c1' }));
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith({
+      type: 'SEND_MESSAGE', conversationId: 'c1', body: 'a reply to review',
+    });
+    expect(await testDb.draftAttachments.get('c1')).toBeUndefined(); // cleared after sending
+    const stored = await chrome.storage.local.get(AGENT_SEND_TIMESTAMPS_KEY);
+    expect(stored[AGENT_SEND_TIMESTAMPS_KEY]).toHaveLength(1); // counted against the cap
+
+    const nothing = await callTool('send_draft', { conversationId: 'c1' });
+    expect(nothing.isError).toBe(true);
+    expect(nothing.content[0].text).toContain('no draft to send');
+  });
+
+  it('save_draft preserves attached files and discards on an empty body', async () => {
+    await testDb.conversations.put(makeConversation({ id: 'c1' }));
+    await testDb.draftAttachments.put({
+      conversationId: 'c1', text: 'old', files: [new Blob(['x'])], names: ['a.txt'], types: ['text/plain'],
+    });
+
+    parse(await callTool('save_draft', { conversationId: 'c1', body: 'new text' }));
+    const kept = await testDb.draftAttachments.get('c1');
+    expect(kept.text).toBe('new text');
+    expect(kept.names).toEqual(['a.txt']); // the user's attachment survived
+
+    // With files present an empty body edits the text, it does not delete.
+    parse(await callTool('save_draft', { conversationId: 'c1', body: '' }));
+    expect(await testDb.draftAttachments.get('c1')).toBeDefined();
+
+    await testDb.draftAttachments.put({ conversationId: 'c1', text: 'text only', files: [], names: [], types: [] });
+    const discarded = parse(await callTool('save_draft', { conversationId: 'c1', body: '' }));
+    expect(discarded.discarded).toBe(true);
+    expect(await testDb.draftAttachments.get('c1')).toBeUndefined();
   });
 
   it('withdraw_invitation bridges, echoes, and refuses settled ones', async () => {

@@ -12,6 +12,7 @@ import {
   extractSection,
   unwrap,
   HOW_TO_UPDATE,
+  HOW_TO_INSTALL_BETA,
   // @ts-expect-error — plain ESM script, no type declarations.
 } from '../../scripts/release-notes.mjs';
 
@@ -122,5 +123,36 @@ describe('release notes', () => {
 
   it('refuses a version that has no section rather than shipping an empty body', () => {
     expect(() => buildReleaseNotes('9.9.9', CHANGELOG)).toThrow(/9\.9\.9/);
+  });
+
+  describe('prerelease tags', () => {
+    it('reads the base version section and swaps in the beta install steps', () => {
+      const notes = buildReleaseNotes('0.6.0-beta.2', CHANGELOG) as string;
+
+      // Same body as the stable notes for that version…
+      expect(notes).toContain('![The inƒlow app icon]');
+      // …but a beta is in no store, so the store-update copy must NOT appear.
+      expect(notes).toContain(HOW_TO_INSTALL_BETA);
+      expect(notes).not.toContain(HOW_TO_UPDATE);
+      // The reader is told what they are looking at before the changes.
+      expect(notes.startsWith('> **0.6.0-beta.2** — a pre-release')).toBe(true);
+    });
+
+    it('gives the beta reader the actual steps, not a pointer elsewhere', () => {
+      const notes = buildReleaseNotes('0.6.0-beta.2', CHANGELOG) as string;
+      for (const step of [
+        'chrome://extensions',
+        'Developer mode',
+        'Load unpacked',
+        'Inflow.mcpb',
+        'Connect to my inflow LinkedIn inbox',
+      ]) {
+        expect(notes).toContain(step);
+      }
+    });
+
+    it('errors on the BASE version when a prerelease has no section', () => {
+      expect(() => buildReleaseNotes('9.9.9-beta.1', CHANGELOG)).toThrow(/9\.9\.9/);
+    });
   });
 });

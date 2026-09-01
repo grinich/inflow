@@ -102,6 +102,59 @@ async function bridge(message: BridgeMessage): Promise<BridgeResponse> {
 const firstParticipant = (data: { participants?: string[] }) =>
   data.participants?.[0] || 'conversation';
 
+/**
+ * Offset pagination for the local lists. These are Dexie walks, not LinkedIn
+ * calls, so a numeric offset is stable enough and far simpler than an opaque
+ * cursor; `nextOffset` is null at the end so an agent knows to stop rather
+ * than probing for an empty page.
+ */
+function paginate<T>(rows: T[], offset: number, limit: number) {
+  const page = rows.slice(offset, offset + limit);
+  const next = offset + page.length;
+  return { page, total: rows.length, nextOffset: next < rows.length ? next : null };
+}
+
+const OFFSET_PROP = {
+  type: 'number' as const,
+  minimum: 0,
+  description: 'Skip this many rows — pass a previous call\'s nextOffset to continue.',
+};
+
+/**
+ * Conversation state changes share one shape: verify, bridge, echo the single
+ * field locally so later reads agree before the next sync. Each direction is
+ * its own tool rather than a boolean parameter — a tool list is a menu, and
+ * `unarchive_conversation` is findable in a way that `archive(unarchive:true)`
+ * is not.
+ */
+async function setArchived(conversationId: string, archived: boolean) {
+  const conv = await requireConversation(conversationId);
+  const resp = await bridge({ type: archived ? 'ARCHIVE' : 'UNARCHIVE', conversationId });
+  if (!resp.success) throw new Error(resp.error || 'archive failed');
+  await requireDb().conversations.update(conversationId, { archived: archived ? 1 : 0 });
+  return { archived, conversationId, participants: conv.participantNames };
+}
+
+async function setStarred(conversationId: string, starred: boolean) {
+  const conv = await requireConversation(conversationId);
+  const resp = await bridge({ type: starred ? 'STAR' : 'UNSTAR', conversationId });
+  if (!resp.success) throw new Error(resp.error || 'star failed');
+  await requireDb().conversations.update(conversationId, { starred: starred ? 1 : 0 });
+  return { starred, conversationId, participants: conv.participantNames };
+}
+
+async function moveConversation(conversationId: string, to: 'focused' | 'other' | 'spam') {
+  const conv = await requireConversation(conversationId);
+  const type =
+    to === 'focused' ? 'MOVE_TO_FOCUSED' : to === 'other' ? 'MOVE_TO_OTHER' : 'MOVE_TO_SPAM';
+  const resp = await bridge({ type, conversationId });
+  if (!resp.success) throw new Error(resp.error || 'move failed');
+  const category =
+    to === 'focused' ? 'PRIMARY_INBOX' : to === 'other' ? 'SECONDARY_INBOX' : 'SPAM';
+  await requireDb().conversations.update(conversationId, { category });
+  return { moved: to, conversationId, participants: conv.participantNames };
+}
+
 export const agentToolCatalog: AgentToolDef[] = [
   {
     name: 'list_conversations',
@@ -118,6 +171,7 @@ export const agentToolCatalog: AgentToolDef[] = [
         },
         query: { type: 'string', maxLength: 200, description: SEARCH_GRAMMAR },
         limit: { type: 'number', minimum: 1, maximum: 100, description: 'Default 25.' },
+        offset: OFFSET_PROP,
       },
     },
     async handler(input) {
@@ -129,10 +183,8 @@ export const agentToolCatalog: AgentToolDef[] = [
         const parsed = parseSearchQuery(input.query as string);
         results = (await applySearchFilters(d, results, parsed)).results;
       }
-      return {
-        conversations: results.slice(0, limit).map(toConversationSummary),
-        total: results.length,
-      };
+      const { page, total, nextOffset } = paginate(results, (input.offset as number) ?? 0, limit);
+      return { conversations: page.map(toConversationSummary), total, nextOffset };
     },
   },
 
@@ -230,13 +282,23 @@ export const agentToolCatalog: AgentToolDef[] = [
     description:
       `List pending incoming connection requests, newest first. ${UNTRUSTED}`,
     write: false,
-    inputSchema: { type: 'object', properties: {} },
-    async handler() {
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', minimum: 1, maximum: 200, description: 'Default 50.' },
+        offset: OFFSET_PROP,
+      },
+    },
+    async handler(input) {
       await bridge({ type: 'FETCH_INVITATIONS' }); // best-effort refresh; serve cache either way
       const rows = await requireDb().invitations.toArray();
-      const invitations = rows
+      const pending = rows
         .filter((i) => i.status === 'pending')
-        .sort((a, b) => b.sentAt - a.sentAt)
+        .sort((a, b) => b.sentAt - a.sentAt);
+      const { page, total, nextOffset } = paginate(
+        pending, (input.offset as number) ?? 0, (input.limit as number) ?? 50
+      );
+      const invitations = page
         .map((i) => ({
           id: i.id,
           from: i.name,
@@ -245,7 +307,7 @@ export const agentToolCatalog: AgentToolDef[] = [
           sentAt: new Date(i.sentAt).toISOString(),
           mutualConnections: i.mutualCount,
         }));
-      return { invitations };
+      return { invitations, total, nextOffset };
     },
   },
 
@@ -279,29 +341,36 @@ export const agentToolCatalog: AgentToolDef[] = [
 
   {
     name: 'archive_conversation',
-    description: 'Archive (or unarchive) a conversation.',
+    description: 'Archive a conversation (removes it from the inbox; reversible with unarchive_conversation).',
     write: true,
     inputSchema: {
       type: 'object',
       properties: {
         conversationId: { type: 'string', description: 'From list_conversations.' },
-        unarchive: { type: 'boolean', description: 'Restore instead. Default false.' },
       },
       required: ['conversationId'],
     },
     async handler(input) {
-      const conversationId = input.conversationId as string;
-      const unarchive = input.unarchive === true;
-      const conv = await requireConversation(conversationId);
-      const resp = await bridge({ type: unarchive ? 'UNARCHIVE' : 'ARCHIVE', conversationId });
-      if (!resp.success) throw new Error(resp.error || 'archive failed');
-      // Local echo so the UI and later agent reads see the new state before
-      // the next sync confirms it (writes only the field the action changes).
-      await requireDb().conversations.update(conversationId, { archived: unarchive ? 0 : 1 });
-      return { archived: !unarchive, conversationId, participants: conv.participantNames };
+      return setArchived(input.conversationId as string, true);
     },
-    successToast: (data) =>
-      `Agent ${data.archived ? 'archived' : 'unarchived'} conversation with ${firstParticipant(data)}`,
+    successToast: (data) => `Agent archived conversation with ${firstParticipant(data)}`,
+  },
+
+  {
+    name: 'unarchive_conversation',
+    description: 'Restore an archived conversation to the inbox.',
+    write: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', description: "From list_conversations with tab 'archived'." },
+      },
+      required: ['conversationId'],
+    },
+    async handler(input) {
+      return setArchived(input.conversationId as string, false);
+    },
+    successToast: (data) => `Agent unarchived conversation with ${firstParticipant(data)}`,
   },
 
   {
@@ -349,33 +418,54 @@ export const agentToolCatalog: AgentToolDef[] = [
   },
 
   {
-    name: 'move_conversation',
-    description:
-      'Move a conversation between the Focused, Other, and Spam inboxes (the same move a user makes from the toolbar).',
+    name: 'move_to_focused',
+    description: 'Move a conversation into the Focused inbox.',
     write: true,
     inputSchema: {
       type: 'object',
       properties: {
         conversationId: { type: 'string', description: 'From list_conversations.' },
-        to: { type: 'string', enum: ['focused', 'other', 'spam'], description: 'Destination inbox.' },
       },
-      required: ['conversationId', 'to'],
+      required: ['conversationId'],
     },
     async handler(input) {
-      const conversationId = input.conversationId as string;
-      const to = input.to as 'focused' | 'other' | 'spam';
-      const conv = await requireConversation(conversationId);
-      const type =
-        to === 'focused' ? 'MOVE_TO_FOCUSED' : to === 'other' ? 'MOVE_TO_OTHER' : 'MOVE_TO_SPAM';
-      const resp = await bridge({ type, conversationId });
-      if (!resp.success) throw new Error(resp.error || 'move failed');
-      const category =
-        to === 'focused' ? 'PRIMARY_INBOX' : to === 'other' ? 'SECONDARY_INBOX' : 'SPAM';
-      await requireDb().conversations.update(conversationId, { category });
-      return { moved: to, conversationId, participants: conv.participantNames };
+      return moveConversation(input.conversationId as string, 'focused');
     },
-    successToast: (data) =>
-      `Agent moved conversation with ${firstParticipant(data)} to ${data.moved}`,
+    successToast: (data) => `Agent moved conversation with ${firstParticipant(data)} to Focused`,
+  },
+
+  {
+    name: 'move_to_other',
+    description: 'Move a conversation into the Other inbox.',
+    write: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', description: 'From list_conversations.' },
+      },
+      required: ['conversationId'],
+    },
+    async handler(input) {
+      return moveConversation(input.conversationId as string, 'other');
+    },
+    successToast: (data) => `Agent moved conversation with ${firstParticipant(data)} to Other`,
+  },
+
+  {
+    name: 'move_to_spam',
+    description: 'Mark a conversation as spam and move it to the Spam folder. Use this for unwanted recruiter or sales blasts.',
+    write: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', description: 'From list_conversations.' },
+      },
+      required: ['conversationId'],
+    },
+    async handler(input) {
+      return moveConversation(input.conversationId as string, 'spam');
+    },
+    successToast: (data) => `Agent moved conversation with ${firstParticipant(data)} to Spam`,
   },
 
   {
@@ -399,6 +489,97 @@ export const agentToolCatalog: AgentToolDef[] = [
       return { accepted: true, invitationId, from: invitation.name };
     },
     successToast: (data) => `Agent accepted the connection request from ${data.from}`,
+  },
+
+  {
+    name: 'list_drafts',
+    description:
+      `Unsent draft replies saved in inflow's composer — yours, not the other person's. ` +
+      `Use send_draft to send one, or save_draft to prepare a reply for the user to review.`,
+    write: false,
+    inputSchema: { type: 'object', properties: {} },
+    async handler() {
+      const d = requireDb();
+      const drafts = await d.draftAttachments.toArray();
+      const withText = drafts.filter((x) => (x.text && x.text.length > 0) || x.files?.length);
+      const convs = await d.conversations.bulkGet(withText.map((x) => x.conversationId));
+      return {
+        drafts: withText.map((x, i) => ({
+          conversationId: x.conversationId,
+          body: x.text ?? '',
+          attachmentCount: x.files?.length ?? 0,
+          participants: convs[i]?.participantNames ?? [],
+        })),
+      };
+    },
+  },
+
+  {
+    name: 'save_draft',
+    description:
+      "Save (or overwrite) an unsent draft reply in a conversation's composer — the user sees it waiting in inflow and can edit before sending. Nothing is sent. Pass an empty body to discard the draft.",
+    write: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', description: 'From list_conversations.' },
+        body: { type: 'string', maxLength: 8000, description: 'Draft text. Empty discards it.' },
+      },
+      required: ['conversationId', 'body'],
+    },
+    async handler(input) {
+      const conversationId = input.conversationId as string;
+      const body = input.body as string;
+      const conv = await requireConversation(conversationId);
+      const d = requireDb();
+      const existing = await d.draftAttachments.get(conversationId);
+      if (!body.trim() && !existing?.files?.length) {
+        await d.draftAttachments.delete(conversationId);
+        return { saved: false, discarded: true, conversationId, participants: conv.participantNames };
+      }
+      // Preserve any files the user already attached — a text draft must not
+      // silently drop them.
+      await d.draftAttachments.put({
+        conversationId,
+        text: body,
+        files: existing?.files ?? [],
+        names: existing?.names ?? [],
+        types: existing?.types ?? [],
+      });
+      return { saved: true, conversationId, participants: conv.participantNames };
+    },
+    successToast: (data) =>
+      data.discarded
+        ? `Agent discarded the draft to ${firstParticipant(data)}`
+        : `Agent saved a draft reply to ${firstParticipant(data)}`,
+  },
+
+  {
+    name: 'send_draft',
+    description:
+      'Send the draft already saved in a conversation, then clear it. Counts against the hourly send cap like any other send.',
+    write: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', description: 'From list_drafts.' },
+      },
+      required: ['conversationId'],
+    },
+    async handler(input) {
+      const conversationId = input.conversationId as string;
+      const conv = await requireConversation(conversationId);
+      const d = requireDb();
+      const draft = await d.draftAttachments.get(conversationId);
+      const body = (draft?.text ?? '').trim();
+      if (!body) throw new Error('no draft to send — call save_draft first');
+      const resp = await bridge({ type: 'SEND_MESSAGE', conversationId, body });
+      if (!resp.success) throw new Error(resp.error || 'send failed');
+      await d.draftAttachments.delete(conversationId);
+      return { sent: true, conversationId, to: conv.participantNames };
+    },
+    countsAsSend: true,
+    successToast: (data) => `Agent sent the draft to ${data.to?.[0] || 'conversation'}`,
   },
 
   {
@@ -435,14 +616,26 @@ export const agentToolCatalog: AgentToolDef[] = [
     description:
       `Connection requests you sent that are still pending, newest first. ${UNTRUSTED}`,
     write: false,
-    inputSchema: { type: 'object', properties: {} },
-    async handler() {
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', minimum: 1, maximum: 200, description: 'Default 50.' },
+        offset: OFFSET_PROP,
+      },
+    },
+    async handler(input) {
       await bridge({ type: 'FETCH_SENT_INVITATIONS' }); // best-effort refresh
       const rows = await requireDb().sentInvitations.toArray();
+      const pending = rows
+        .filter((i) => i.status === 'pending')
+        .sort((a, b) => b.sentAt - a.sentAt);
+      const { page, total, nextOffset } = paginate(
+        pending, (input.offset as number) ?? 0, (input.limit as number) ?? 50
+      );
       return {
-        invitations: rows
-          .filter((i) => i.status === 'pending')
-          .sort((a, b) => b.sentAt - a.sentAt)
+        total,
+        nextOffset,
+        invitations: page
           .map((i) => ({
             id: i.id,
             to: i.name,
@@ -463,6 +656,7 @@ export const agentToolCatalog: AgentToolDef[] = [
       properties: {
         limit: { type: 'number', minimum: 1, maximum: 200, description: 'Default 50.' },
         query: { type: 'string', maxLength: 200, description: 'Optional name/headline filter.' },
+        offset: OFFSET_PROP,
       },
     },
     async handler(input) {
@@ -474,9 +668,11 @@ export const agentToolCatalog: AgentToolDef[] = [
           (c) => c.name.toLowerCase().includes(q) || c.headline.toLowerCase().includes(q)
         );
       }
+      const { page, total, nextOffset } = paginate(rows, (input.offset as number) ?? 0, limit);
       return {
-        total: rows.length,
-        connections: rows.slice(0, limit).map((c) => ({
+        total,
+        nextOffset,
+        connections: page.map((c) => ({
           name: c.name,
           headline: c.headline,
           profileUrn: c.profileUrn,
@@ -536,27 +732,36 @@ export const agentToolCatalog: AgentToolDef[] = [
 
   {
     name: 'star_conversation',
-    description: 'Star (or unstar) a conversation.',
+    description: 'Star a conversation.',
     write: true,
     inputSchema: {
       type: 'object',
       properties: {
         conversationId: { type: 'string', description: 'From list_conversations.' },
-        unstar: { type: 'boolean', description: 'Remove the star instead. Default false.' },
       },
       required: ['conversationId'],
     },
     async handler(input) {
-      const conversationId = input.conversationId as string;
-      const unstar = input.unstar === true;
-      const conv = await requireConversation(conversationId);
-      const resp = await bridge({ type: unstar ? 'UNSTAR' : 'STAR', conversationId });
-      if (!resp.success) throw new Error(resp.error || 'star failed');
-      await requireDb().conversations.update(conversationId, { starred: unstar ? 0 : 1 });
-      return { starred: !unstar, conversationId, participants: conv.participantNames };
+      return setStarred(input.conversationId as string, true);
     },
-    successToast: (data) =>
-      `Agent ${data.starred ? 'starred' : 'unstarred'} conversation with ${firstParticipant(data)}`,
+    successToast: (data) => `Agent starred conversation with ${firstParticipant(data)}`,
+  },
+
+  {
+    name: 'unstar_conversation',
+    description: 'Remove the star from a conversation.',
+    write: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conversationId: { type: 'string', description: 'From list_conversations.' },
+      },
+      required: ['conversationId'],
+    },
+    async handler(input) {
+      return setStarred(input.conversationId as string, false);
+    },
+    successToast: (data) => `Agent unstarred conversation with ${firstParticipant(data)}`,
   },
 
   {

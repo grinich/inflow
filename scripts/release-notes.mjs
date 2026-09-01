@@ -95,12 +95,49 @@ export function unwrap(lines) {
     .replace(/\n+$/, '');
 }
 
+/**
+ * Betas are not in any store, so "Chrome updates it for you" is wrong for
+ * them — a beta is a manual install, and the notes have to say exactly how.
+ * Written for someone who was handed the link and has never sideloaded an
+ * extension.
+ */
+export const HOW_TO_INSTALL_BETA = `## How to install this beta
+
+This is a **pre-release**: it is not in the Chrome Web Store, so Chrome will not install or update it for you. Two pieces, and you can stop after the first.
+
+**1. The extension (required)**
+
+1. Download \`inflow-<version>-chrome.zip\` from the Assets below and unzip it.
+2. Open \`chrome://extensions\` and turn on **Developer mode** (top right).
+3. Click **Load unpacked** and select the unzipped folder (the one containing \`manifest.json\`).
+4. Open the inflow icon in your toolbar and sign in — it uses your existing LinkedIn session in this browser.
+
+Already running a store copy of inflow? This loads alongside it as a separate extension with its own local database, so it re-syncs your conversations from LinkedIn and leaves the store copy untouched.
+
+**2. Claude Desktop connection (optional)**
+
+1. Download \`Inflow.mcpb\` from the Assets below and double-click it — Claude Desktop installs it as an extension (Settings → Extensions).
+2. In Claude Desktop, ask: *"Connect to my inflow LinkedIn inbox"*. It replies with a pairing link.
+3. Click the link. inflow opens and asks you to confirm the connection — press **Connect**.
+4. That enables reading your inbox. To also let Claude send, archive and reply, flip **Let agents act** in the same panel and press Save.
+
+**Updating to the next beta**: repeat step 1 with the new zip, then click **Reload** (↻) on the inflow card at \`chrome://extensions\`. Reinstall \`Inflow.mcpb\` only if the release notes mention bridge changes.
+
+**Uninstalling**: remove the card at \`chrome://extensions\`, and remove the inflow extension from Claude Desktop's Settings → Extensions.`;
+
 export function buildReleaseNotes(version, markdown = readFileSync(SOURCE, 'utf8')) {
-  const body = unwrap(extractSection(markdown, version));
+  // A prerelease tag (0.8.0-beta.3) documents the version it will become.
+  const isBeta = version.includes('-');
+  const baseVersion = version.split('-')[0];
+  const body = unwrap(extractSection(markdown, baseVersion));
   if (!body.trim()) {
-    throw new Error(`No CHANGELOG.md section found for version ${version}`);
+    throw new Error(`No CHANGELOG.md section found for version ${baseVersion}`);
   }
-  return `${body}\n\n${HOW_TO_UPDATE}\n`;
+  const footer = isBeta ? HOW_TO_INSTALL_BETA : HOW_TO_UPDATE;
+  const preamble = isBeta
+    ? `> **${version}** — a pre-release for testing, not in the Chrome Web Store. Install instructions are at the bottom.\n\n`
+    : '';
+  return `${preamble}${body}\n\n${footer}\n`;
 }
 
 const invokedDirectly =

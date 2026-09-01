@@ -43,9 +43,10 @@ jobs:
       - name: Build release notes
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          # A prerelease tag (v0.8.0-beta.1) uses its base version's CHANGELOG
-          # section — the section is written once, for the version it becomes.
-          node scripts/release-notes.mjs "${VERSION%%-*}" > release-notes.md
+          # Full version, suffix included: the script reads the base version's
+          # CHANGELOG section (written once, for the version it becomes) and
+          # uses the suffix to pick the beta install instructions.
+          node scripts/release-notes.mjs "$VERSION" > release-notes.md
           echo "Built release notes for v$VERSION"
 
       - name: Create GitHub Release

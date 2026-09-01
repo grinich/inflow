@@ -112,13 +112,23 @@ The recipe for Claude:
 
 **Reads**: `list_conversations`, `read_thread`, `search_conversations`,
 `get_unread_count`, `list_invitations`, `list_sent_invitations`, `list_connections`,
-`search_recipients`, `get_send_quota`.
+`list_drafts`, `search_recipients`, `get_send_quota`.
 
 **Writes**: `send_message`, `start_conversation` (message someone new),
-`archive_conversation`, `mark_read`, `mark_unread`, `move_conversation`
-(focused/other/spam), `star_conversation`, `delete_conversation`,
+`save_draft` / `send_draft`, `archive_conversation` / `unarchive_conversation`,
+`mark_read` / `mark_unread`, `move_to_focused` / `move_to_other` / `move_to_spam`,
+`star_conversation` / `unstar_conversation`, `delete_conversation`,
 `react_to_message`, `edit_message`, `delete_message`, `accept_invitation`,
 `ignore_invitation`, `withdraw_invitation`.
+
+Each direction of a toggle is its own tool (`unarchive_conversation`, not
+`archive_conversation(unarchive: true)`) — a tool list is a menu, and an agent
+scanning it should see every action it can take without reading schemas.
+
+The local lists (`list_conversations`, `list_invitations`,
+`list_sent_invitations`, `list_connections`) take `offset` and return
+`nextOffset` — null when there is no more, so paging terminates without probing
+for an empty page.
 
 `send_message` and `start_conversation` count against the hourly cap;
 `get_send_quota` reports what's left so bulk work can pace itself. Message-level
