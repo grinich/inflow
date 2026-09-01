@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "inflow",
   "display_name": "inflow — LinkedIn Messaging",
-  "version": "0.7.0",
+  "version": "0.8.0-beta.4",
   "description": "Let Claude read and act on your LinkedIn inbox through the inflow Chrome extension. Requires inflow (v0.8.0+) with agent access enabled; everything runs locally in your browser.",
   "author": {
     "name": "inflow",

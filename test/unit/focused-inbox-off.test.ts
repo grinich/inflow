@@ -14,6 +14,7 @@ import { applySchema, type InflowDatabase } from '@/db/database';
 import { queryTabConversations } from '@/lib/conversation-query';
 import { belongsToTab, countUnreadFocused, isFocusedConversation } from '@/lib/inbox-filters';
 import { visibleTabs } from '@/components/conversations/ConversationListHeader';
+import { moveTargetLabel, otherSlotApplies } from '@/lib/conversation-move';
 import { FOCUSED_INBOX_KEY, getFocusedInboxEnabled } from '@/lib/focused-inbox';
 import { useUIStore } from '@/store/ui-store';
 import { makeConversation, resetFactories } from '../fixtures/factories';
@@ -135,5 +136,40 @@ describe('reaching a tab that no longer exists', () => {
   it('still allows Other while the split is on', () => {
     useUIStore.getState().setInboxTab('other');
     expect(useUIStore.getState().inboxTab).toBe('other');
+  });
+});
+
+describe('the Move to Other slot', () => {
+  const inInbox = { category: 'PRIMARY_INBOX' };
+  const inOther = { category: 'SECONDARY_INBOX' };
+  const inSpam = { category: 'SPAM' };
+
+  it('is offered everywhere while the split is on', () => {
+    for (const [conv, tab] of [
+      [inInbox, 'focused'], [inOther, 'other'], [inSpam, 'spam'], [inInbox, 'archived'],
+    ] as const) {
+      expect(otherSlotApplies(conv, tab)).toBe(true);
+    }
+    expect(moveTargetLabel('other')).toBe('Move to Other');
+    expect(moveTargetLabel('focused')).toBe('Move to Focused');
+  });
+
+  it('disappears from the inbox when the split is off — the move is invisible', () => {
+    // Both halves are the same list, so shuffling between them does nothing
+    // the user can see.
+    expect(otherSlotApplies(inInbox, 'focused', true)).toBe(false);
+    expect(otherSlotApplies(inOther, 'focused', true)).toBe(false);
+  });
+
+  it('stays where it still does something: out of Archive, and out of Spam', () => {
+    // In Archive it is one of the two ways back out, alongside E.
+    expect(otherSlotApplies(inInbox, 'archived', true)).toBe(true);
+    // In Spam it is "not spam" — losing it would strand conversations there.
+    expect(otherSlotApplies(inSpam, 'spam', true)).toBe(true);
+  });
+
+  it('names the one inbox rather than a half the user cannot see', () => {
+    expect(moveTargetLabel('other', true)).toBe('Move to Inbox');
+    expect(moveTargetLabel('focused', true)).toBe('Move to Inbox');
   });
 });

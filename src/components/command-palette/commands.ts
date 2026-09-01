@@ -26,6 +26,10 @@ export function buildCommands(actions: {
   selectedInArchive: boolean;
   moveToOtherOrFocusedSelected: () => void;
   selectedInOther: boolean;
+  /** False hides the `O` slot — the move is invisible with one combined inbox. */
+  otherSlotShown?: boolean;
+  /** Overrides the slot's label, so it can read "Move to Inbox". */
+  otherSlotLabel?: string;
   moveToSpamSelected: () => void;
   markReadSelected: () => void;
   markUnreadSelected: () => void;
@@ -76,12 +80,17 @@ export function buildCommands(actions: {
       shortcut: 'E',
       action: actions.archiveSelected,
     },
-    {
-      id: 'move-to-other',
-      label: actions.selectedInOther ? 'Move to Focused' : 'Move to Other',
-      shortcut: 'O',
-      action: actions.moveToOtherOrFocusedSelected,
-    },
+    // Hidden when the Focused/Other split is off and the move would be
+    // invisible; see otherSlotApplies. Archive and Spam still offer it, and
+    // those are decided by the caller via otherSlotShown.
+    ...(actions.otherSlotShown === false
+      ? []
+      : [{
+          id: 'move-to-other',
+          label: actions.otherSlotLabel ?? (actions.selectedInOther ? 'Move to Focused' : 'Move to Other'),
+          shortcut: 'O',
+          action: actions.moveToOtherOrFocusedSelected,
+        }]),
     { id: 'move-to-spam', label: 'Mark as spam', shortcut: '!', action: actions.moveToSpamSelected },
     { id: 'mark-read', label: 'Mark as read', shortcut: '', action: actions.markReadSelected },
     { id: 'mark-unread', label: 'Mark as unread', shortcut: 'U', action: actions.markUnreadSelected },

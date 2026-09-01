@@ -2,7 +2,7 @@ import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { ContextMenu, type ContextMenuItem } from '@/components/common/ContextMenu';
 import type { Conversation } from '@/types/conversation';
-import { otherSlotTarget, moveTargetLabel } from '@/lib/conversation-move';
+import { otherSlotTarget, moveTargetLabel, otherSlotApplies } from '@/lib/conversation-move';
 
 interface ConversationContextMenuProps {
   conversation: Conversation;
@@ -21,6 +21,7 @@ interface ConversationContextMenuProps {
 export function ConversationContextMenu({ conversation, x, y, onClose }: ConversationContextMenuProps) {
   const actions = useOptimisticAction();
   const inboxTab = useUIStore((s) => s.inboxTab);
+  const combineInbox = !useUIStore((s) => s.focusedInboxEnabled);
 
   const items: ContextMenuItem[] = [
     {
@@ -44,14 +45,19 @@ export function ConversationContextMenu({ conversation, x, y, onClose }: Convers
           ? actions.markRead(conversation.id, conversation.mergedIds)
           : actions.markUnread(conversation.id),
     },
-    {
-      label: moveTargetLabel(otherSlotTarget(conversation, inboxTab)),
-      shortcut: 'O',
-      onSelect: () =>
-        otherSlotTarget(conversation, inboxTab) === 'focused'
-          ? actions.moveToFocused(conversation)
-          : actions.moveToOther(conversation),
-    },
+    // With the Focused/Other split off this move is invisible — both halves
+    // are the same list — so the slot only appears where it still does
+    // something: back out of Archive, or out of Spam.
+    ...(otherSlotApplies(conversation, inboxTab, combineInbox)
+      ? [{
+          label: moveTargetLabel(otherSlotTarget(conversation, inboxTab), combineInbox),
+          shortcut: 'O',
+          onSelect: () =>
+            otherSlotTarget(conversation, inboxTab) === 'focused'
+              ? actions.moveToFocused(conversation)
+              : actions.moveToOther(conversation),
+        }]
+      : []),
     {
       label: 'Mark as spam',
       shortcut: '!',

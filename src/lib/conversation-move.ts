@@ -28,6 +28,26 @@ export function otherSlotTarget(
   return conversation.category === 'SECONDARY_INBOX' ? 'focused' : 'other';
 }
 
-export function moveTargetLabel(target: MoveTarget): string {
+export function moveTargetLabel(target: MoveTarget, combineInbox = false): string {
+  // With LinkedIn's Focused/Other split off there is one inbox, so naming
+  // either half would describe a place the user cannot see.
+  if (combineInbox) return 'Move to Inbox';
   return target === 'focused' ? 'Move to Focused' : 'Move to Other';
+}
+
+/**
+ * Whether the `O` slot has anything to offer.
+ *
+ * With the split off, shuffling a conversation between Focused and Other is a
+ * move between two halves of one list — invisible, so the surfaces hide it.
+ * It still earns its place in two tabs: Archive (where it is one of the two
+ * ways back out, alongside `E`) and Spam (where it is "not spam").
+ */
+export function otherSlotApplies(
+  conversation: Pick<Conversation, 'category'>,
+  inboxTab: InboxTab,
+  combineInbox = false
+): boolean {
+  if (!combineInbox) return true;
+  return inboxTab === 'archived' || conversation.category === 'SPAM';
 }

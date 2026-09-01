@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Command } from 'cmdk';
 import { useUIStore } from '@/store/ui-store';
 import { useFocusedInbox } from '@/hooks/useFocusedInbox';
-import { otherSlotTarget } from '@/lib/conversation-move';
+import { otherSlotTarget, otherSlotApplies, moveTargetLabel } from '@/lib/conversation-move';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { isDemoMode, enableDemoMode, disableDemoMode } from '@/lib/demo-mode';
@@ -77,6 +77,12 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       else moveToOther(selectedConv);
     },
     selectedInOther: selectedConv ? otherSlotTarget(selectedConv, inboxTab) === 'focused' : false,
+    otherSlotShown: selectedConv
+      ? otherSlotApplies(selectedConv, inboxTab, !focusedInboxEnabled)
+      : true,
+    otherSlotLabel: selectedConv
+      ? moveTargetLabel(otherSlotTarget(selectedConv, inboxTab), !focusedInboxEnabled)
+      : undefined,
     moveToSpamSelected: () => {
       // Route through the confirmation modal, like the keyboard shortcut does.
       if (selectedConv) useUIStore.getState().setSpamConfirmId(selectedConv.id);

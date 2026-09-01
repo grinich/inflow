@@ -58,6 +58,19 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
+describe('the sprite the swap depends on', () => {
+  it('ships an edge-mark and its gradient on every page', () => {
+    // The icon swap points <use> at #edge-mark. A page that lost the symbol
+    // would render an empty box on its install button — invisible in the
+    // script's own tests, which only check the href.
+    for (const page of ['index.html', 'changelog.html', 'privacy.html', 'app.html']) {
+      const html = readFileSync(join(SITE, page), 'utf8');
+      expect(html, `${page} defines the Edge symbol`).toContain('id="edge-mark"');
+      expect(html, `${page} defines the gradient it fills with`).toContain('id="edg-grad"');
+    }
+  });
+});
+
 describe('on Chrome', () => {
   it('leaves every page exactly as written', () => {
     for (const page of ['index.html', 'changelog.html', 'privacy.html', 'app.html']) {
@@ -102,11 +115,18 @@ describe('on Edge', () => {
     expect(text).not.toMatch(/View in (Chrome|Edge) Store/);
   });
 
-  it('drops the Chrome logo rather than showing it on an Edge button', () => {
+  it('swaps the Chrome logo for the Edge one, never showing the wrong mark', () => {
     boot('index.html', { brands: [{ brand: 'Microsoft Edge' }] });
-    for (const link of edgeLinks()) {
-      expect(link.querySelector('use[href="#chrome-mark"]')).toBeNull();
+    const icons = [...document.querySelectorAll('a[href*="microsoftedge"] use')];
+    expect(icons.length).toBeGreaterThan(0);
+    for (const use of icons) {
+      expect(use.getAttribute('href')).toBe('#edge-mark');
+      // The two marks are drawn on different grids — a stale viewBox would
+      // render the Edge glyph cropped or tiny.
+      expect(use.closest('svg')?.getAttribute('viewBox')).toBe('0 0 24 24');
     }
+    expect(document.querySelectorAll('a[href*="microsoftedge"] use[href="#chrome-mark"]'))
+      .toHaveLength(0);
   });
 });
 

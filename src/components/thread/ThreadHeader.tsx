@@ -7,7 +7,7 @@ import { useUIStore } from '@/store/ui-store';
 import { readLocal } from '@/lib/storage';
 import { GroupAvatar } from '../common/GroupAvatar';
 import type { Conversation } from '@/types/conversation';
-import { otherSlotTarget, moveTargetLabel } from '@/lib/conversation-move';
+import { otherSlotTarget, moveTargetLabel, otherSlotApplies } from '@/lib/conversation-move';
 
 /** Strip ", United States" (or ", US" / ", USA") from US locations to show just "City, State". */
 function shortenLocation(location: string): string {
@@ -21,6 +21,7 @@ interface ThreadHeaderProps {
 export function ThreadHeader({ conversation }: ThreadHeaderProps) {
   const { archiveConversation, moveToFocused, moveToOther, moveToSpam, markUnread, starConversation: starConv } = useOptimisticAction();
   const inboxTab = useUIStore((s) => s.inboxTab);
+  const combineInbox = !useUIStore((s) => s.focusedInboxEnabled);
   const isInArchive = inboxTab === 'archived';
   const otherSlot = otherSlotTarget(conversation, inboxTab);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -237,13 +238,15 @@ export function ThreadHeader({ conversation }: ThreadHeaderProps) {
                 <span>Mark as Unread</span>
                 <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">U</kbd>
               </button>
-              <button
-                onClick={() => { (otherSlot === 'focused' ? moveToFocused : moveToOther)(conversation); setMenuOpen(false); }}
-                className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg-strong"
-              >
-                <span>{moveTargetLabel(otherSlot)}</span>
-                <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">O</kbd>
-              </button>
+              {otherSlotApplies(conversation, inboxTab, combineInbox) && (
+                <button
+                  onClick={() => { (otherSlot === 'focused' ? moveToFocused : moveToOther)(conversation); setMenuOpen(false); }}
+                  className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-sm text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg-strong"
+                >
+                  <span>{moveTargetLabel(otherSlot, combineInbox)}</span>
+                  <kbd className="rounded bg-surface px-1 py-px font-mono text-[10px] text-fg-faint ring-1 ring-ring">O</kbd>
+                </button>
+              )}
               {conversation.category === 'SPAM' ? (
                 <button
                   onClick={() => { moveToOther(conversation); setMenuOpen(false); }}

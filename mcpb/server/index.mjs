@@ -31,7 +31,9 @@ import {
   generatePairingToken,
 } from './bridge-core.mjs';
 
-const VERSION = '0.7.0';
+const VERSION = '0.8.0-beta.4';
+// A test run must not fight the user's real Claude Desktop for the port.
+const PORT = Number(process.env.INFLOW_BRIDGE_PORT) || BRIDGE_PORT;
 const log = (...args) => console.error('[inflow-mcpb]', ...args);
 
 // ---------------------------------------------------------------------------
@@ -40,7 +42,8 @@ const log = (...args) => console.error('[inflow-mcpb]', ...args);
 // ---------------------------------------------------------------------------
 
 function loadOrCreateToken() {
-  const dir = join(homedir(), '.inflow');
+  // INFLOW_STATE_DIR keeps tests off the real pairing token in ~/.inflow.
+  const dir = process.env.INFLOW_STATE_DIR || join(homedir(), '.inflow');
   const file = join(dir, 'agent-bridge.json');
   try {
     const parsed = JSON.parse(readFileSync(file, 'utf8'));
@@ -94,7 +97,7 @@ const bridge = new BridgeCore({
 
 function statusText() {
   const state = portConflict
-    ? `Port ${BRIDGE_PORT} is in use by another process — quit it (or a second copy of this server) and restart Claude Desktop.`
+    ? `Port ${PORT} is in use by another process — quit it (or a second copy of this server) and restart Claude Desktop.`
     : bridge.connected
       ? 'Connected to the inflow extension. LinkedIn tools are live.'
       : 'Waiting for the inflow extension. Checklist: 1) Chrome is running with the inflow extension installed (v0.8.0+), 2) agent access is enabled in inflow (⌘K → Configure agent access), 3) the bridge is paired — call get_pairing_code and give the user its pairing link (opens inflow with the code prefilled). The extension retries every 30 seconds.';
@@ -195,14 +198,14 @@ setInterval(() => {
 const onServerError = (e) => {
   if (e.code === 'EADDRINUSE') {
     portConflict = true;
-    log(`port ${BRIDGE_PORT} in use — bridge disabled, MCP server still up`);
+    log(`port ${PORT} in use — bridge disabled, MCP server still up`);
   } else {
     log('bridge server error:', e.message);
   }
 };
 http.on('error', onServerError);
 wss.on('error', onServerError);
-http.listen(BRIDGE_PORT, '127.0.0.1', () => log(`bridge listening on 127.0.0.1:${BRIDGE_PORT}`));
+http.listen(PORT, '127.0.0.1', () => log(`bridge listening on 127.0.0.1:${PORT}`));
 
 // ---------------------------------------------------------------------------
 

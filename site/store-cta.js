@@ -68,11 +68,15 @@
     var links = document.querySelectorAll('a[href*="' + CHROME_HOST + '"]');
     for (var i = 0; i < links.length; i++) {
       links[i].setAttribute('href', EDGE_URL);
-      // The Chrome logo would be wrong on a button that installs from Edge
-      // Add-ons. There is no Edge mark in the sprite, so drop the icon rather
-      // than show the wrong one; the label still says where it goes.
-      var ico = links[i].querySelector('svg.btn-ico use[href="#chrome-mark"]');
-      if (ico) ico.parentNode.remove();
+      // Showing Google's Chrome mark on a button that installs from Edge
+      // Add-ons would be plainly wrong, so swap it for the Edge one. Both
+      // sprites ship on every page; the viewBox differs between them.
+      var use = links[i].querySelector('use[href="#chrome-mark"]');
+      if (use) {
+        use.setAttribute('href', '#edge-mark');
+        var svg = use.closest('svg');
+        if (svg) svg.setAttribute('viewBox', '0 0 24 24');
+      }
     }
 
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);

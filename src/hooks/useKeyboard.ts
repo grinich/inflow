@@ -4,7 +4,7 @@ import { useOptimisticAction } from './useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
 import type { Conversation } from '@/types/conversation';
-import { otherSlotTarget } from '@/lib/conversation-move';
+import { otherSlotTarget, otherSlotApplies } from '@/lib/conversation-move';
 
 export function useKeyboard(conversations: Conversation[], composeRef: React.RefObject<HTMLTextAreaElement | null>) {
   const conversationsRef = useRef(conversations);
@@ -315,7 +315,10 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         const conv = store.selectedConversationId
           ? convs.find((c) => c.id === store.selectedConversationId)
           : convs[store.selectedIndex];
-        if (conv) {
+        // Same rule the menus use: with the Focused/Other split off this move
+        // is invisible outside Archive and Spam, so the key does nothing
+        // rather than silently shuffling a row within one list.
+        if (conv && otherSlotApplies(conv, store.inboxTab, !store.focusedInboxEnabled)) {
           if (otherSlotTarget(conv, store.inboxTab) === 'focused') act.moveToFocused(conv);
           else act.moveToOther(conv);
         }
