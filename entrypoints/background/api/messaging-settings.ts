@@ -1,5 +1,6 @@
 import { voyagerFetch } from './client';
 import { debugLog } from '@/lib/debug-log';
+import { setFocusedInboxEnabled } from '@/lib/focused-inbox';
 
 /**
  * LinkedIn's own messaging preferences. inflow reads exactly one of them:
@@ -23,4 +24,23 @@ export async function fetchFocusedInboxEnabled(): Promise<boolean | null> {
     debugLog('warn', `[SETTINGS] focused-inbox read failed: ${e}`);
     return null;
   }
+}
+
+/**
+ * Mirror the preference into local storage for the UI. Best-effort: an
+ * unreadable setting keeps whatever was stored, so a network blip can't
+ * collapse or split the inbox behind the user's back.
+ *
+ * There is no push for this. LinkedIn's realtime stream subscribes to
+ * conversations, messages, seen receipts, invitations, badges and alerts —
+ * verified by reading its ClientConnection topic list, and by toggling the
+ * setting twice with the stream open and seeing nothing but heartbeats. So
+ * this is polled: on startup, hourly, and whenever the app is looked at.
+ */
+export function refreshFocusedInboxSetting(): void {
+  void fetchFocusedInboxEnabled()
+    .then((enabled) => {
+      if (enabled !== null) return setFocusedInboxEnabled(enabled);
+    })
+    .catch(() => {});
 }

@@ -15,6 +15,7 @@ import { queryTabConversations } from '@/lib/conversation-query';
 import { belongsToTab, countUnreadFocused, isFocusedConversation } from '@/lib/inbox-filters';
 import { visibleTabs } from '@/components/conversations/ConversationListHeader';
 import { FOCUSED_INBOX_KEY, getFocusedInboxEnabled } from '@/lib/focused-inbox';
+import { useUIStore } from '@/store/ui-store';
 import { makeConversation, resetFactories } from '../fixtures/factories';
 import { setLocalStore } from '../mocks/chrome';
 
@@ -104,5 +105,35 @@ describe('with the split OFF', () => {
   it('still excludes drafts from the unread count', () => {
     expect(isFocusedConversation({ archived: 0, category: 'SECONDARY_INBOX', draft: 1 }, true))
       .toBe(false);
+  });
+});
+
+describe('reaching a tab that no longer exists', () => {
+  beforeEach(() => {
+    useUIStore.setState({ inboxTab: 'focused', focusedInboxEnabled: true });
+  });
+
+  it('refuses the Other tab once the split is off', () => {
+    const store = useUIStore.getState();
+    store.setFocusedInboxEnabled(false);
+    // The `2` key, the command palette and a restored #/inbox/other route all
+    // funnel through setInboxTab — guarding there covers every one of them,
+    // including whatever gets added next.
+    useUIStore.getState().setInboxTab('other');
+    expect(useUIStore.getState().inboxTab).toBe('focused');
+  });
+
+  it('moves off Other when the split is turned off while sitting there', () => {
+    useUIStore.getState().setInboxTab('other');
+    expect(useUIStore.getState().inboxTab).toBe('other');
+    // Otherwise the user is stranded: the dropdown no longer lists the tab
+    // they are on, so there is no way back.
+    useUIStore.getState().setFocusedInboxEnabled(false);
+    expect(useUIStore.getState().inboxTab).toBe('focused');
+  });
+
+  it('still allows Other while the split is on', () => {
+    useUIStore.getState().setInboxTab('other');
+    expect(useUIStore.getState().inboxTab).toBe('other');
   });
 });

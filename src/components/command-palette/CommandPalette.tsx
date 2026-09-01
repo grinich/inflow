@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Command } from 'cmdk';
 import { useUIStore } from '@/store/ui-store';
+import { useFocusedInbox } from '@/hooks/useFocusedInbox';
 import { otherSlotTarget } from '@/lib/conversation-move';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
@@ -32,6 +33,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
   const setInboxTab = useUIStore((s) => s.setInboxTab);
   const setAppView = useUIStore((s) => s.setAppView);
   const appView = useUIStore((s) => s.appView);
+  const focusedInboxEnabled = useFocusedInbox();
 
   // Commands that land somewhere in the inbox have to leave the Network route
   // first — otherwise they select/compose against a view that isn't rendered.
@@ -204,6 +206,7 @@ export function CommandPalette({ conversations, composeRef }: CommandPaletteProp
       });
     },
     aiSuggestionsEnabled: aiSuggestionsOn,
+    focusedInboxEnabled,
     joinWhatsApp: () => {
       window.open('https://chat.whatsapp.com/Cgj71APZz0uBkW5Y4WOhQO', '_blank');
     },

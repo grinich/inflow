@@ -83,6 +83,8 @@ interface UIState {
   agentAccessOpen: boolean;
   /** Pairing code from a ?pair= launch link, shown by PairClaudeModal. */
   pairRequestCode: string | null;
+  /** Mirrors LinkedIn's Focused/Other setting; false means one combined inbox. */
+  focusedInboxEnabled: boolean;
   tabMemory: Partial<Record<InboxTab, TabMemory>>;
   _pendingRestore: TabMemory | null;
 
@@ -122,6 +124,7 @@ interface UIState {
   setAISetupOpen: (open: boolean) => void;
   setAgentAccessOpen: (open: boolean) => void;
   setPairRequest: (code: string | null) => void;
+  setFocusedInboxEnabled: (enabled: boolean) => void;
   openThread: (conversationId: string, index: number) => void;
   closeThread: () => void;
   setTheme: (theme: Theme) => void;
@@ -230,6 +233,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   aiSetupOpen: false,
   agentAccessOpen: false,
   pairRequestCode: null,
+  focusedInboxEnabled: true,
   tabMemory: {},
   _pendingRestore: null,
 
@@ -259,6 +263,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
   setInboxTab: (tab) => {
     const s = get();
+    // With LinkedIn's Focused/Other split off there is no Other tab — and no
+    // way back out of it, since it isn't in the folder dropdown either. Coerce
+    // here rather than at each entry point, so the `2` key, the command
+    // palette, a restored #/inbox/other route and anything added later all
+    // land somewhere real.
+    if (tab === 'other' && !s.focusedInboxEnabled) tab = 'focused';
     if (tab === s.inboxTab) return;
     // Save current tab's selection
     const updatedMemory = {
@@ -296,6 +306,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   setAISetupOpen: (open) => set({ aiSetupOpen: open }),
   setAgentAccessOpen: (open) => set({ agentAccessOpen: open }),
   setPairRequest: (code) => set({ pairRequestCode: code }),
+  setFocusedInboxEnabled: (enabled) => {
+    set({ focusedInboxEnabled: enabled });
+    // Already sitting on Other when the split is turned off: move, or the user
+    // is stranded on a tab the dropdown no longer offers.
+    if (!enabled && get().inboxTab === 'other') get().setInboxTab('focused');
+  },
 
   showToast: (toast) => {
     if (toastTimeout) clearTimeout(toastTimeout);

@@ -44,6 +44,12 @@ export function buildCommands(actions: {
   currentTheme: 'light' | 'dark' | 'system';
   goToFocused: () => void;
   goToOther: () => void;
+  /**
+   * False when LinkedIn's Focused/Other split is off — there is no Other tab.
+   * Optional, and only an explicit false hides the entry: an omitted or
+   * not-yet-loaded value must leave the inbox looking normal.
+   */
+  focusedInboxEnabled?: boolean;
   goToArchived: () => void;
   goToSpam: () => void;
   goToNetwork: () => void;
@@ -89,8 +95,15 @@ export function buildCommands(actions: {
     { id: 'compose', label: 'Compose new message', shortcut: 'C', action: actions.compose },
     { id: 'undo', label: 'Undo last action', shortcut: 'Z', action: actions.undo },
     { id: 'back', label: 'Go back to inbox', shortcut: 'Esc', action: actions.goBack },
-    { id: 'go-focused', label: 'Go to Focused inbox', shortcut: '1', action: actions.goToFocused },
-    { id: 'go-other', label: 'Go to Other inbox', shortcut: '2', action: actions.goToOther },
+    {
+      id: 'go-focused',
+      label: actions.focusedInboxEnabled === false ? 'Go to Inbox' : 'Go to Focused inbox',
+      shortcut: '1',
+      action: actions.goToFocused,
+    },
+    ...(actions.focusedInboxEnabled !== false
+      ? [{ id: 'go-other', label: 'Go to Other inbox', shortcut: '2', action: actions.goToOther }]
+      : []),
     { id: 'go-archived', label: 'Go to Archived', shortcut: '3', action: actions.goToArchived },
     { id: 'go-spam', label: 'Go to Spam', shortcut: '4', action: actions.goToSpam },
     { id: 'go-network', label: 'Go to Network (invitations & connections)', shortcut: 'G N', action: actions.goToNetwork },

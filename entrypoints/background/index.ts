@@ -13,8 +13,8 @@ import { openAppTab, reloadWebAppShellTabs } from './open-app-tab';
 import { setupExternalMessageRouter, setupExternalPortRouter, broadcastUnreadCount } from './external-messages';
 import { setupAgentBridge } from './agent-bridge';
 import { setupUpdateChecker } from './update-check';
-import { fetchFocusedInboxEnabled } from './api/messaging-settings';
-import { getFocusedInboxEnabled, setFocusedInboxEnabled } from '@/lib/focused-inbox';
+import { refreshFocusedInboxSetting } from './api/messaging-settings';
+import { getFocusedInboxEnabled } from '@/lib/focused-inbox';
 
 /** Count unread Focused-tab conversations and update the toolbar badge.
  *  Uses the same predicate as the Focused list (isFocusedConversation) so the
@@ -32,19 +32,6 @@ async function updateBadge() {
 }
 
 import { markDbReady } from './db-ready';
-
-/**
- * Mirror LinkedIn's Focused-inbox preference into local storage for the UI.
- * Best-effort: an unreadable setting keeps whatever was stored, so a blip
- * can't collapse or split the inbox behind the user's back.
- */
-function refreshFocusedInboxSetting(): void {
-  void fetchFocusedInboxEnabled()
-    .then((enabled) => {
-      if (enabled !== null) return setFocusedInboxEnabled(enabled);
-    })
-    .catch(() => {});
-}
 
 export default defineBackground(() => {
   debugLog('info', 'Background service worker started');

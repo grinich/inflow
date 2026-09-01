@@ -32,6 +32,7 @@ import { applyPendingReceipts, consumePendingReceipts } from './realtime/pending
 import { planSseDedup, preserveSseFields, withoutRecalled } from '@/lib/message-dedup';
 import { repairConversationParticipants } from './sync/repair-participants';
 import { reconcileRecalledMessages } from './sync/reconcile-messages';
+import { refreshFocusedInboxSetting } from './api/messaging-settings';
 import { debugLog, getDebugLogs, clearDebugLogs } from '@/lib/debug-log';
 import { getBackfillCutoff } from '@/lib/sync-settings';
 import { db, mergeProfiles } from '@/db/database';
@@ -573,6 +574,12 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       // tombstone must not keep blocking sync from re-inserting it.
       await db.tombstones.delete(result.conversationId).catch(() => {});
       return { success: true, data: result };
+    }
+    case 'REFRESH_MESSAGING_SETTINGS': {
+      // No push exists for LinkedIn's Focused-inbox preference (its realtime
+      // stream carries no settings topic), so the UI asks on focus.
+      refreshFocusedInboxSetting();
+      return { success: true };
     }
     case 'CHECK_FOR_UPDATE': {
       const status = await checkForUpdate();
