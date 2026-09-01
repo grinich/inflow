@@ -121,6 +121,53 @@ describe('changelog store badges', () => {
     expect(badges()[1].cls).toContain('is-live');
   });
 
+  describe('the beta entry', () => {
+    /** The generated markup for a beta release, per build-changelog.mjs. */
+    function renderWithBeta() {
+      document.body.innerHTML = `
+        <article class="rel is-beta"><div class="rel-meta">
+          <h2 class="rel-ver">0.8.0</h2>
+          <span class="rel-latest is-beta">Beta</span>
+          <span class="rel-beta-link"></span>
+        </div><div class="rel-body"></div></article>
+        <article class="rel"><div class="rel-meta">
+          <h2 class="rel-ver">0.5.2</h2><time class="rel-date">1 January 2026</time>
+        </div><div class="rel-body"></div></article>`;
+    }
+    const link = () => document.querySelector<HTMLAnchorElement>('.rel-beta-link a');
+
+    it('links the current prerelease, so the markdown never names a stale tag', async () => {
+      renderWithBeta();
+      await run(() =>
+        json({
+          ...LIVE,
+          github: {
+            latestStable: '0.5.2',
+            latestPrerelease: {
+              version: '0.8.0-beta.4',
+              tag: 'v0.8.0-beta.4',
+              url: 'https://github.com/grinich/inflow/releases/tag/v0.8.0-beta.4',
+            },
+          },
+        })
+      );
+      expect(link()?.href).toBe('https://github.com/grinich/inflow/releases/tag/v0.8.0-beta.4');
+      expect(link()?.textContent).toBe('Try 0.8.0-beta.4 →');
+    });
+
+    it('keeps the Beta chip rather than relabelling it Development', async () => {
+      renderWithBeta();
+      await run(() => json({ ...LIVE, github: { latestStable: '0.5.2' } }));
+      expect(document.querySelector('.rel.is-beta .rel-latest')?.textContent).toBe('Beta');
+    });
+
+    it('adds no link when there is no prerelease to point at', async () => {
+      renderWithBeta();
+      await run(() => json({ ...LIVE, github: { latestStable: '0.5.2' } }));
+      expect(link()).toBeNull();
+    });
+  });
+
   it('re-labels the Latest chip to Live when the newest version is the live one', async () => {
     renderReleases(['0.5.2', '0.5.1']);
     await run(() => json(LIVE));

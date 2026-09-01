@@ -66,6 +66,54 @@ describe('changelog site build', () => {
     expect(html.indexOf('rel-latest')).toBeLessThan(html.indexOf('1.0.0'));
   });
 
+  describe('a version still in beta', () => {
+    const MARKDOWN = `# Changelog
+
+## [2.1.0] - Beta
+
+### Added
+- The thing being tested by beta users.
+
+## [2.0.0] - 2026-08-01
+
+### Added
+- Shipped.
+`;
+
+    it('is rendered with a Beta chip and no invented ship date', () => {
+      const releases = parseReleases(MARKDOWN) as Array<{
+        version: string;
+        date: string | null;
+        beta?: boolean;
+      }>;
+      expect(releases[0]).toMatchObject({ version: '2.1.0', date: null, beta: true });
+
+      const html = renderReleases(releases) as string;
+      expect(html).toContain('<article class="rel is-beta">');
+      expect(html).toContain('<span class="rel-latest is-beta">Beta</span>');
+      // "Beta" must never be rendered as if it were a date.
+      expect(html).not.toContain('<time class="rel-date" datetime="Beta"');
+      // Its features are listed — the point is telling people what to try.
+      expect(html).toContain('The thing being tested by beta users.');
+    });
+
+    it('leaves Latest on the newest release that actually shipped', () => {
+      const html = renderReleases(parseReleases(MARKDOWN)) as string;
+      // One plain Latest (on 2.0.0) and one Beta chip — never Latest on a beta.
+      expect(html.match(/class="rel-latest"/g)).toHaveLength(1);
+      expect(html.indexOf('class="rel-latest is-beta"')).toBeLessThan(
+        html.indexOf('class="rel-latest"'),
+      );
+    });
+
+    it('leaves an empty slot for the page to hang the current beta link in', () => {
+      // The tag is not written into the markdown: it would go stale on the
+      // next beta. The page fills this from /api/store-status at runtime.
+      const html = renderReleases(parseReleases(MARKDOWN)) as string;
+      expect(html).toContain('<span class="rel-beta-link"></span>');
+    });
+  });
+
   it('formats dates without letting a timezone shift the day', () => {
     // `new Date('2026-07-13')` is UTC midnight, which is 12 July in the Americas.
     expect(formatDate('2026-07-13')).toBe('13 July 2026');

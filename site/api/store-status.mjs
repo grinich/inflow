@@ -40,13 +40,17 @@ async function fetchListing() {
 }
 
 /**
- * The newest STABLE GitHub release version ('0.7.0'), or null. This is the
- * "was it actually submitted?" signal: pushing a stable tag is what triggers
- * the store publish, while beta tags (v0.8.0-beta.1) skip the stores — so the
- * changelog must not call a version "in review" without a stable release.
- * Best-effort: any failure returns null and the page just shows no badge.
+ * GitHub release state the changelog needs, or null on any failure (the page
+ * then shows no badge, which is the correct fallback):
+ *
+ *   latestStable — newest shipped version. Pushing a stable tag is what
+ *     triggers the store publish, so this is the "was it actually submitted?"
+ *     signal; beta tags skip the stores, and a version must not read as "in
+ *     review" without one.
+ *   latestPrerelease — newest beta, so the changelog's beta entry can link to
+ *     a current download without the markdown naming a tag that goes stale.
  */
-async function fetchLatestStable() {
+async function fetchReleaseState() {
   try {
     const res = await fetch('https://api.github.com/repos/grinich/inflow/releases?per_page=15', {
       headers: {
@@ -58,10 +62,19 @@ async function fetchLatestStable() {
     if (!res.ok) return null;
     const releases = await res.json();
     if (!Array.isArray(releases)) return null;
-    const stable = releases.find(
-      (r) => r && !r.draft && !r.prerelease && /^v\d+\.\d+\.\d+$/.test(r.tag_name || '')
-    );
-    return stable ? stable.tag_name.slice(1) : null;
+    const live = releases.filter((r) => r && !r.draft && /^v\d+\.\d+\.\d+/.test(r.tag_name || ''));
+    const stable = live.find((r) => !r.prerelease && /^v\d+\.\d+\.\d+$/.test(r.tag_name));
+    const beta = live.find((r) => r.prerelease);
+    const out = {};
+    if (stable) out.latestStable = stable.tag_name.slice(1);
+    if (beta) {
+      out.latestPrerelease = {
+        version: beta.tag_name.slice(1),
+        tag: beta.tag_name,
+        url: beta.html_url,
+      };
+    }
+    return Object.keys(out).length ? out : null;
   } catch {
     return null;
   }
@@ -71,7 +84,7 @@ export default async function handler(_req, res) {
   res.setHeader('content-type', 'application/json; charset=utf-8');
 
   try {
-    const [listing, latestStable] = await Promise.all([fetchListing(), fetchLatestStable()]);
+    const [listing, github] = await Promise.all([fetchListing(), fetchReleaseState()]);
     const chrome = parseListing(listing);
     if (!chrome) throw new Error('listing did not parse');
 
@@ -79,7 +92,7 @@ export default async function handler(_req, res) {
     res.status(200).end(JSON.stringify({
       ok: true,
       chrome,
-      ...(latestStable ? { github: { latestStable } } : {}),
+      ...(github ? { github } : {}),
       checkedAt: new Date().toISOString(),
     }));
   } catch (err) {

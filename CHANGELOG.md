@@ -4,7 +4,7 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.8.0] - 2026-08-31
+## [0.8.0] - Beta
 
 ### Added
 - **Agent tools — let Claude work your LinkedIn inbox through inflow.** The app

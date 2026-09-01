@@ -35,6 +35,26 @@ inflow is a Chrome extension (MV3) that provides a keyboard-driven messaging cli
 
 ## Release process
 
+### Betas come first, and the changelog says so
+
+Work that is shipping as a beta gets its CHANGELOG.md section immediately, with
+**`## [0.8.0] - Beta`** in place of a date. That renders on inflow.im/changelog
+as a **Beta** chip with the feature summary and a "Try 0.8.0-beta.N →" link;
+the link comes from `/api/store-status` at runtime (newest GitHub prerelease),
+so **never write a beta tag into the markdown** — it would go stale on the next
+beta. "Latest" stays on the newest release that actually shipped, and a beta is
+never marked "Submitted — in review" (that needs a stable release).
+
+Cutting each beta: `npm version 0.8.0-beta.N` — a hyphenated tag makes CI mark
+the GitHub Release a prerelease, attach the assets, and **skip both store
+publishes**. The release notes get manual install instructions automatically
+(see `HOW_TO_INSTALL_BETA` in `scripts/release-notes.mjs`); the stable
+store-update copy is only used for a bare version tag.
+
+When the version really ships, swap `- Beta` for the release date
+(`## [0.8.0] - 2026-09-05`), regenerate the page, and tag the bare version —
+the entry becomes a normal release and the stores publish.
+
 1. Update `CHANGELOG.md` with the new version section, then run
    `npm run changelog:site` to regenerate the page on inflow.im
    (`npm test` fails if you forget)

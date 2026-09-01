@@ -62,6 +62,13 @@
   font-size:.6875rem;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
   color:var(--accent);border:1px solid currentColor;border-radius:999px;padding:2px 9px;
 }
+/* A version that exists only as a prerelease — in development, not shipped. */
+.rel-latest.is-beta{color:var(--tag-changed)}
+.rel-beta-link:empty{display:none}
+.rel-beta-link a{
+  font-size:.8125rem;color:var(--accent);text-decoration:none;
+}
+.rel-beta-link a:hover{text-decoration:underline}
 /* Store state, filled in by the /api/store-status fetch below. Absent until
    that answers, so the page is complete and correct without it. */
 .rel-store{
@@ -216,11 +223,11 @@
 
   <div class="wrap doc">
     <!-- CHANGELOG:START -->
-    <article class="rel">
+    <article class="rel is-beta">
       <div class="rel-meta">
         <h2 class="rel-ver">0.8.0</h2>
-        <time class="rel-date" datetime="2026-08-31">31 August 2026</time>
-        <span class="rel-latest">Latest</span>
+        <span class="rel-latest is-beta">Beta</span>
+        <span class="rel-beta-link"></span>
       </div>
       <div class="rel-body">
         <section class="rel-group">
@@ -236,6 +243,7 @@
       <div class="rel-meta">
         <h2 class="rel-ver">0.7.0</h2>
         <time class="rel-date" datetime="2026-08-30">30 August 2026</time>
+        <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
         <p> <img src="https://inflow.im/img/0.7.0-network-invitations.png" width="32%" loading="lazy" alt="The Network view's Invitations tab — a request from Noah Bennett selected, his note shown as a message and mutual connections under the headline"> <img src="https://inflow.im/img/0.7.0-network-connections.png" width="32%" loading="lazy" alt="The Connections tab, sorted by date, with Sarah Chen selected and a Message button"> <img src="https://inflow.im/img/0.7.0-network-sent.png" width="32%" loading="lazy" alt="The Sent tab — a request to Priya Raman with the note that was attached and a Withdraw button"> </p>
@@ -956,6 +964,22 @@
       // submitted to the store. Beta-only versions (no stable release yet)
       // must not read as "in review".
       var submitted = data.github && data.github.latestStable;
+      var beta = data.github && data.github.latestPrerelease;
+
+      // The beta entry links to whatever the newest prerelease is right now,
+      // so CHANGELOG.md never has to carry a tag that goes stale with the
+      // next beta.
+      if (beta && beta.url) {
+        var slot = document.querySelector('.rel.is-beta .rel-beta-link');
+        if (slot && !slot.firstChild) {
+          var a = document.createElement('a');
+          a.href = beta.url;
+          a.rel = 'noopener';
+          a.textContent = 'Try ' + beta.version + ' →';
+          a.title = 'Install instructions are in the release notes';
+          slot.appendChild(a);
+        }
+      }
 
       releases.forEach(function (rel) {
         var verEl = rel.querySelector('.rel-ver');
@@ -987,8 +1011,9 @@
         } else if (order > 0) {
           // Newer than what the store serves. "In review" only when a stable
           // release exists for it \u2014 that push is what submits to the store;
-          // anything else is development/beta work.
-          if (chip) chip.textContent = 'Development';
+          // anything else is development/beta work. A Beta chip is already
+          // more specific than "Development", so leave it be.
+          if (chip && !rel.classList.contains('is-beta')) chip.textContent = 'Development';
           if (submitted && cmp(version, submitted) <= 0) {
             el = badge('is-pending', 'Submitted \u2014 in review');
           }

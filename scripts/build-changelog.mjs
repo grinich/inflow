@@ -131,7 +131,18 @@ function parseReleases(markdown) {
     if (heading) {
       flushParagraph();
       flushQuote();
-      release = { version: heading[1], date: heading[2] ?? null, intro: [], groups: [] };
+      // The field after the dash is a date for a shipped release, or the word
+      // "Beta" for one that exists only as a prerelease. A beta has no ship
+      // date to print — inventing one would claim it shipped.
+      const status = heading[2] ?? null;
+      const isBeta = status !== null && /^beta$/i.test(status);
+      release = {
+        version: heading[1],
+        date: isBeta ? null : status,
+        beta: isBeta,
+        intro: [],
+        groups: [],
+      };
       group = null;
       releases.push(release);
       continue;
@@ -229,7 +240,16 @@ function renderReleases(releases) {
         `        <time class="rel-date" datetime="${rel.date}">${formatDate(rel.date)}</time>`,
       );
     }
-    if (rel === latest) meta.push('        <span class="rel-latest">Latest</span>');
+    // A beta is in development: it gets its own chip, and the page's script
+    // hangs the current prerelease link off it (the newest beta tag, so the
+    // markdown never has to name a tag that goes stale). "Latest" stays with
+    // the newest release that actually shipped.
+    if (rel.beta) {
+      meta.push('        <span class="rel-latest is-beta">Beta</span>');
+      meta.push('        <span class="rel-beta-link"></span>');
+    } else if (rel === latest) {
+      meta.push('        <span class="rel-latest">Latest</span>');
+    }
 
     const body = [];
     for (const block of rel.intro) {
@@ -252,7 +272,7 @@ function renderReleases(releases) {
 
     out.push(
       [
-        '    <article class="rel">',
+        `    <article class="rel${rel.beta ? ' is-beta' : ''}">`,
         '      <div class="rel-meta">',
         ...meta,
         '      </div>',
