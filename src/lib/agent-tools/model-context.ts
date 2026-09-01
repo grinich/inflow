@@ -60,7 +60,7 @@ export function whenModelContextReady(onReady: () => void): () => void {
   const stop = () => {
     if (stopped) return;
     stopped = true;
-    clearInterval(timer);
+    stopPolling();
     window.removeEventListener('focus', check);
     document.removeEventListener('visibilitychange', check);
   };
@@ -71,13 +71,29 @@ export function whenModelContextReady(onReady: () => void): () => void {
       onReady();
     }
   }
-  // Activating an agent on the page puts focus through the sidebar and back,
-  // so these usually beat the timer to it.
-  const timer = setInterval(check, 2000);
+
+  // The interval is a safety net and must not outlive its usefulness: with no
+  // agent extension installed — the common case — it would otherwise tick
+  // every couple of seconds for as long as the tab is open, forever, on every
+  // page. Poll only for a short while after load, then rely on the listeners.
+  const timer = setInterval(check, POLL_INTERVAL_MS);
+  const pollDeadline = setTimeout(stopPolling, POLL_WINDOW_MS);
+  function stopPolling() {
+    clearInterval(timer);
+    clearTimeout(pollDeadline);
+  }
+
+  // These cost nothing and stay for the life of the page, because the moment
+  // that actually matters — the user granting an agent access to the site —
+  // moves focus through its panel and back long after any poll window.
   window.addEventListener('focus', check);
   document.addEventListener('visibilitychange', check);
   return stop;
 }
+
+const POLL_INTERVAL_MS = 2000;
+/** How long to poll after load before leaving it to the focus listeners. */
+const POLL_WINDOW_MS = 120_000;
 
 /**
  * Register every currently-enabled tool. Returns a cleanup that unregisters

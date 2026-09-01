@@ -42,7 +42,7 @@ beforeEach(async () => {
   await testDb.open();
   useUIStore.setState({
     inboxTab: 'focused', selectedConversationId: null, searchQuery: '',
-    _pendingRestore: null,
+    _pendingRestore: null, focusedInboxEnabled: true,
   });
 });
 
@@ -120,5 +120,34 @@ describe('navigateToConversation', () => {
     expect(state().selectedConversationId).toBe('not-here-yet');
     // No row to read a tab from, so the current one is left alone.
     expect(state().inboxTab).toBe('focused');
+  });
+});
+
+describe('with LinkedIn\'s Focused/Other split turned off', () => {
+  beforeEach(() => {
+    useUIStore.setState({ focusedInboxEnabled: false });
+  });
+
+  it('sends an Other-category conversation to the combined inbox, not a hidden tab', async () => {
+    await testDb.conversations.put(conv('other-one', { category: 'SECONDARY_INBOX' }));
+
+    await navigateToConversation('other-one');
+
+    // There is no Other tab to land on — those rows live in the one inbox.
+    expect(state().inboxTab).toBe('focused');
+    expect(state().selectedConversationId).toBe('other-one');
+  });
+
+  it('still routes archive and spam to their own tabs', async () => {
+    await testDb.conversations.bulkPut([
+      conv('archived-one', { archived: 1 }),
+      conv('spam-one', { category: 'SPAM' }),
+    ]);
+
+    await navigateToConversation('archived-one');
+    expect(state().inboxTab).toBe('archived');
+
+    await navigateToConversation('spam-one');
+    expect(state().inboxTab).toBe('spam');
   });
 });

@@ -23,8 +23,13 @@ export async function navigateToConversation(conversationId: string): Promise<vo
   const conv = await db.conversations.get(conversationId);
   if (conv) {
     // Same rule the list itself uses, so the two can't disagree about where a
-    // conversation lives.
-    const tab = TABS.find((t) => belongsToTab(conv, t)) ?? 'focused';
+    // conversation lives. With LinkedIn's Focused/Other split off there is no
+    // Other tab to send anyone to — those rows live in the combined inbox — so
+    // it is dropped from the candidates rather than relying on setInboxTab to
+    // bounce us back out of it.
+    const combined = !useUIStore.getState().focusedInboxEnabled;
+    const candidates = combined ? TABS.filter((t) => t !== 'other') : TABS;
+    const tab = candidates.find((t) => belongsToTab(conv, t, combined)) ?? 'focused';
     useUIStore.getState().setInboxTab(tab);
   }
   // Don't let setInboxTab's remembered-selection restore hijack our target,

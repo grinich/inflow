@@ -212,7 +212,11 @@ export function App() {
           // search or filter active the list is a narrower thing than the tab,
           // so a row can be legitimately excluded and waiting would strand the
           // selection; recover as before.
-          if (row && !current.searchQuery && belongsToTab(row, current.inboxTab)) return;
+          // The combine flag matters here: with LinkedIn's Focused/Other split
+          // off, a SECONDARY_INBOX row DOES belong to the (combined) inbox, and
+          // judging it otherwise would throw away a perfectly good selection.
+          const combined = !current.focusedInboxEnabled;
+          if (row && !current.searchQuery && belongsToTab(row, current.inboxTab, combined)) return;
           if (current.selectedConversationId !== selectedConversationId) return;
           const fallbackIdx = Math.min(current.selectedIndex, conversations.length - 1);
           const fallback = conversations[fallbackIdx];
