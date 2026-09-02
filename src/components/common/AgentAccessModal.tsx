@@ -173,8 +173,6 @@ export function AgentAccessModal() {
 
   if (!open) return null;
 
-  const connected = bridgeState === 'connected';
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={close}>
       <div
@@ -183,37 +181,80 @@ export function AgentAccessModal() {
       >
         <h2 className="text-base font-semibold text-fg-strong">Agent access</h2>
         <p className="mt-1 text-sm text-fg-secondary">
-          Let Claude work with your LinkedIn inbox through inflow&apos;s tools — three steps.
+          Let an AI agent work with your LinkedIn inbox through inflow&apos;s tools instead of
+          screen-scraping LinkedIn.
         </p>
 
-        {/* Step 1 — install */}
+        {/* Step 1 — permissions. Every agent needs this, whichever one you use. */}
         <section className="mt-5">
+          <StepHeader n={1} title="Choose what agents may do" done={saved.reads} />
+          <div className="ml-[30px] mt-3 space-y-4">
+            <ToggleRow
+              label="Let agents read my inbox"
+              description="List conversations, read threads, search, see pending invitations."
+              checked={reads}
+              onChange={toggleReads}
+            />
+            <ToggleRow
+              label="Let agents act"
+              description="Send messages, archive, mark read/unread — on your real LinkedIn account."
+              checked={writes}
+              disabled={!reads}
+              hint="Enable read access first."
+              onChange={setWrites}
+            />
+          </div>
+        </section>
+
+        {/* Step 2 — pick an agent. The two paths are alternatives, not a sequence. */}
+        <section className="mt-5">
+          <StepHeader n={2} title="Connect an agent" />
+          <p className="ml-[30px] mt-1 text-xs text-fg-secondary">
+            Either one — you don&apos;t need both.
+          </p>
+        </section>
+
+        {/* ChatGPT / Codex: nothing to install, so it goes first. */}
+        <section className="ml-[30px] mt-3 rounded-lg bg-surface p-3 ring-1 ring-ring">
+          <p className="text-sm font-medium text-fg">ChatGPT or Codex</p>
+          <p className="mt-1 text-xs text-fg-secondary">
+            Nothing to install. Open{' '}
+            <a
+              href="https://inflow.im/app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 underline hover:text-blue-400"
+            >
+              inflow.im/app
+            </a>{' '}
+            with ChatGPT&apos;s browser or the Codex side panel, give it access to the site, and
+            ask it about your inbox — it finds inflow&apos;s tools on its own.
+          </p>
+        </section>
+
+        {/* Claude Desktop: needs the bundle and a pairing code. */}
+        <section className="ml-[30px] mt-3 rounded-lg bg-surface p-3 ring-1 ring-ring">
           <div className="flex items-center justify-between gap-4">
-            <StepHeader n={1} title="Install Inflow.mcpb" done={connected} />
+            <p className="text-sm font-medium text-fg">Claude Desktop</p>
             <a
               href="https://github.com/grinich/inflow/releases/latest/download/Inflow.mcpb"
               target="_blank"
               rel="noopener noreferrer"
-              className="shrink-0 rounded-md bg-surface px-3 py-1.5 text-sm font-medium text-fg ring-1 ring-ring transition-colors hover:bg-surface-hover"
+              className="shrink-0 rounded-md bg-surface-raised px-3 py-1.5 text-sm font-medium text-fg ring-1 ring-ring transition-colors hover:bg-surface-hover"
             >
               Download
             </a>
           </div>
-          <p className="ml-[30px] mt-1 text-xs text-fg-secondary">
-            Download, then double-click it — Claude Desktop installs it as an extension.
-          </p>
-        </section>
-
-        {/* Step 2 — connect */}
-        <section className="mt-5">
-          <StepHeader n={2} title="Connect Claude Desktop" done={connected} />
-          <div className="ml-[30px]">
+          <div>
+            <p className="mt-1 text-xs text-fg-secondary">
+              Download Inflow.mcpb, double-click to install, then paste this into Claude:
+            </p>
             <p className="mt-1 text-xs text-fg-secondary">Paste this into Claude Desktop:</p>
             <button
               type="button"
               onClick={copyPrompt}
               title="Click to copy"
-              className="mt-1.5 w-full rounded-md bg-surface px-3 py-2 text-left font-mono text-xs text-fg ring-1 ring-ring transition-colors hover:bg-surface-hover"
+              className="mt-1.5 w-full rounded-md bg-surface-raised px-3 py-2 text-left font-mono text-xs text-fg ring-1 ring-ring transition-colors hover:bg-surface-hover"
             >
               {CLAUDE_PROMPT}
               <span className="float-right text-fg-muted">copy</span>
@@ -230,7 +271,7 @@ export function AgentAccessModal() {
                 placeholder="INF-XXXXXX"
                 aria-label="Claude Desktop pairing code"
                 spellCheck={false}
-                className="w-40 rounded-md bg-surface px-3 py-1.5 font-mono text-sm text-fg placeholder-fg-faint ring-1 ring-ring focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-40 rounded-md bg-surface-raised px-3 py-1.5 font-mono text-sm text-fg placeholder-fg-faint ring-1 ring-ring focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               {pairCode && (
                 <button
@@ -254,24 +295,8 @@ export function AgentAccessModal() {
           </div>
         </section>
 
-        {/* Step 3 — permissions */}
         <section className="mt-5">
-          <StepHeader n={3} title="Choose what agents may do" done={saved.reads} />
-          <div className="ml-[30px] mt-3 space-y-4">
-            <ToggleRow
-              label="Let agents read my inbox"
-              description="List conversations, read threads, search, see pending invitations."
-              checked={reads}
-              onChange={toggleReads}
-            />
-            <ToggleRow
-              label="Let agents act"
-              description="Send messages, archive, mark read/unread — on your real LinkedIn account."
-              checked={writes}
-              disabled={!reads}
-              hint="Enable read access first."
-              onChange={setWrites}
-            />
+          <div className="space-y-4">
             <p className="text-xs text-fg-muted">
               Agent-sent messages are capped at {AGENT_SEND_CAP_PER_HOUR}/hour. Every agent action
               shows a notification here.{' '}

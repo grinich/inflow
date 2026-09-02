@@ -95,7 +95,19 @@ it('Cancel and Escape discard changes', async () => {
   expect(await getAgentToolsEnabled()).toBe(false);
 });
 
-it('step 1 offers the Inflow.mcpb download at the stable latest-release URL', async () => {
+it('tells ChatGPT/Codex users there is nothing to install', async () => {
+  render(<AgentAccessModal />);
+  // The whole point of this path: no bundle, no pairing code. Presenting the
+  // .mcpb install as a prerequisite for everyone is what this guards against.
+  expect(await screen.findByText('ChatGPT or Codex')).toBeInTheDocument();
+  const block = screen.getByText('ChatGPT or Codex').closest('section')!;
+  expect(block.textContent).toContain('Nothing to install');
+  expect(block.querySelector('a[href="https://inflow.im/app"]')).not.toBeNull();
+  // The pairing code belongs to the Claude Desktop path, not this one.
+  expect(block.querySelector('input')).toBeNull();
+});
+
+it('offers the Inflow.mcpb download at the stable latest-release URL', async () => {
   render(<AgentAccessModal />);
   const link = await screen.findByRole('link', { name: 'Download' });
   // The release workflow attaches dist/Inflow.mcpb, which is what makes this
