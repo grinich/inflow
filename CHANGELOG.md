@@ -4,7 +4,7 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.8.0] - Beta
+## [0.8.0] - 2026-09-01
 
 **Claude can work your LinkedIn inbox.** inflow now exposes its inbox to AI
 agents as structured tools, so an agent reads and acts through inflow's own
