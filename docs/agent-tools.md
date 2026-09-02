@@ -157,19 +157,34 @@ Same executor, same gates, same result shape. This is the surface for your own
 DevTools console, userscripts, and agents that can coexist with the embedded
 iframe — just not Claude in Chrome today, per above.
 
-## The WebMCP story
+## ChatGPT and Codex — WebMCP
 
-The same tools register on [WebMCP](https://developer.chrome.com/docs/ai/webmcp)
-(`document.modelContext.registerTool()`) wherever the browser provides it — on the
-extension page itself and, proxied, on inflow.im/app. That's the standards-track way
-for agents to discover page tools; as of mid-2026 Chrome ships it as an origin trial
-(Chrome 149–156) and mainstream agents don't call it yet, so the `window.inflowAgent`
-bridge above is the path that works today.
+inflow publishes the same tools through
+[WebMCP](https://developer.chrome.com/docs/ai/webmcp)
+(`document.modelContext.registerTool()`), the open standard for a page offering
+tools to an agent. There is nothing to install and no pairing code:
 
-To see the WebMCP surface now: enable `chrome://flags/#enable-webmcp-testing` and
-inspect a page with Google's Model Context Tool Inspector extension. When the origin
-trial token for inflow.im is enrolled it goes into `site/app.html`'s `<head>` (there's
-a placeholder comment).
+1. Enable agent access in inflow (`⌘K` → **Configure agent access**).
+2. Open **https://inflow.im/app** and give the agent access to the site.
+3. Ask it what tools the page offers — inflow's appear on their own.
+
+Verified working in Codex. OpenAI lists ChatGPT's built-in browser, ChatGPT
+Work and Codex as the surfaces that support site tools.
+
+Two implementation notes, both of which cost real debugging to find:
+
+- **Chrome's origin trial is not the gate.** Chrome ships WebMCP behind an
+  origin trial (149–156), but agents that want it inject their own
+  implementation into the page, so no trial token or `chrome://flags` is
+  needed on the user's side. (Google's own Model Context Tool Inspector plus
+  `chrome://flags/#enable-webmcp-testing` is still the way to *inspect* the
+  surface by hand.)
+- **The registration must be on the top-level page.** Tools registered inside
+  an iframe are ignored, and at inflow.im/app the extension runs in one — so
+  the shell proxies the frame's tools onto its own document. inflow also waits
+  for the API to appear rather than checking once at load: agents inject it
+  when the user grants site access, which is normally after the page has
+  loaded and already looked.
 
 ## Troubleshooting
 
