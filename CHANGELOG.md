@@ -6,31 +6,50 @@ All notable changes to inflow are documented here. This project follows
 
 ## [0.8.0] - Beta
 
-### Added
-- **Agent tools — let Claude work your LinkedIn inbox through inflow.** The app
-  can now expose its inbox to AI agents as 30 structured tools instead of
-  making them screen-scrape LinkedIn: reading and searching conversations,
-  threads, invitations and connections; sending, replying and starting new
-  conversations; archiving, starring, moving between Focused/Other/Spam,
-  marking read/unread; reacting to, editing and deleting your own messages;
-  and accepting, ignoring or withdrawing connection requests. Agents can also
-  save a draft reply for you to review instead of sending it themselves. Four transports, one gate: **Claude
-  Desktop connects with a double-click** — install the new `Inflow.mcpb`
-  bundle, ask Claude for your pairing code, paste it into inflow, done (no
-  terminal, no config files, works with no inflow tab open); Claude in
-  Chrome calls the tools from any inflow.im page over extension messaging;
-  scripts on inflow.im/app get them through `window.inflowAgent`; and they
-  register on [WebMCP](https://developer.chrome.com/docs/ai/webmcp)
-  (`document.modelContext`) wherever the browser ships it, ready for the
-  agents that will speak it natively.
+**Claude can work your LinkedIn inbox.** inflow now exposes its inbox to AI
+agents as structured tools, so an agent reads and acts through inflow's own
+data and actions instead of screen-scraping LinkedIn. Everything is off until
+you turn it on.
 
-  **Everything is off by default.** Two separate opt-ins live in the command
-  palette under **Configure agent access** — one for reading, one for acting —
-  and turning reads off turns writes off with it. Agent-sent messages are capped
-  at 15/hour, every agent action shows a toast, and every call from every
-  surface funnels through one gate that re-checks the toggles per call. Demo
-  mode covers agent tools too, so all of it can be tried against fake data.
+### Added
+- **Claude Desktop connects with a double-click.** Download `Inflow.mcpb` from
+  Configure agent access, double-click it to install, then ask Claude for your
+  pairing code — it answers with a link that opens inflow and asks you to
+  confirm. No terminal, no config files, and it works with no inflow tab open.
+- **Thirty tools, not a screenshot.** Agents can list and search conversations,
+  read threads, and see invitations and connections; send and reply, start a
+  conversation with someone new, archive, star, move between Focused, Other and
+  Spam, and mark read or unread; react to, edit and delete their own messages;
+  and accept, ignore or withdraw connection requests.
+- **An agent can draft instead of send.** `save_draft` puts a reply in the
+  composer for you to read and send yourself — the middle ground between
+  answering everything by hand and letting an agent speak for you.
+- **Everything is off by default, and stays that way until you choose.** Two
+  separate opt-ins live in the command palette under **Configure agent access**:
+  one for reading, one for acting. Turning reading off turns acting off with it.
+  Agent-sent messages are capped at 15 an hour, every agent action shows a
+  notification, and every call from every surface passes through one gate that
+  re-checks both toggles. Demo mode covers agent tools too, so the whole thing
+  can be tried against fake data before it ever touches your account.
+- **Other ways in.** Claude in Chrome can call the tools from any inflow.im page
+  over extension messaging; scripts on inflow.im/app get them through
+  `window.inflowAgent`; and they register on
+  [WebMCP](https://developer.chrome.com/docs/ai/webmcp)
+  (`document.modelContext`) wherever the browser provides it — including
+  ChatGPT's and Codex's browser, which brings its own.
   [How to connect Claude →](https://github.com/grinich/inflow/blob/main/docs/agent-tools.md)
+- **inflow is on Microsoft Edge Add-ons**, and the site now sends Edge visitors
+  there instead of to the Chrome Web Store.
+
+### Changed
+- **One inbox when you have LinkedIn's Focused/Other split turned off.** inflow
+  showed a Focused tab and an Other tab regardless, so an account that had
+  asked for neither had half its conversations filed behind a tab it did not
+  expect, uncounted by the unread badge. inflow now reads that setting and
+  mirrors it: one **Inbox** tab, everything in it, the badge counting all of
+  it — and it follows along if you change the setting on LinkedIn. Nothing was
+  ever lost; LinkedIn keeps categorising either way, so switching the setting
+  back restores the two tabs exactly as they were.
 
 ## [0.7.0] - 2026-08-30
 
