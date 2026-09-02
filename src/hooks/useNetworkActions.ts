@@ -1,24 +1,11 @@
 import { useCallback } from 'react';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
-import { useUIStore, type InboxTab } from '@/store/ui-store';
+import { useUIStore } from '@/store/ui-store';
 import { navigateToConversation } from '@/lib/navigate-to-conversation';
 import type { Invitation, SentInvitation, Connection } from '@/types/network';
 import type { Conversation } from '@/types/conversation';
 import { DRAFT_HANDOVER } from '@/lib/draft-handover';
-
-/**
- * Which inbox folder a conversation is visible in — mirrors the per-tab queries
- * in useConversations. Opening a thread while the wrong tab is active leaves it
- * out of `conversations`, and App's selection reconciliation then swaps it for
- * whatever the active folder holds.
- */
-function tabForConversation(c: Pick<Conversation, 'archived' | 'category'>): InboxTab {
-  if (c.archived === 1) return 'archived';
-  if (c.category === 'SPAM') return 'spam';
-  if (c.category === 'SECONDARY_INBOX') return 'other';
-  return 'focused';
-}
 
 /**
  * The most recent real 1:1 thread with this person, if we have one.
@@ -155,6 +142,64 @@ async function handOverDraft(
  */
 let jumpToken = 0;
 
+/** A person to open a 1:1 thread with, from an invitation or a connection. */
+interface Person {
+  urn: string;
+  name: string;
+  pictureUrl: string;
+}
+
+/**
+ * Show a 1:1 thread with this person and put the cursor in the reply box.
+ *
+ * The real thread if we have one; otherwise a stand-in row — same person, same
+ * header, a reply box to type into — so the switch is instant and the user can
+ * start typing straight away. Sending from the stand-in is what creates the
+ * real thread (ComposeBox turns a `draft-` id into CREATE_CONVERSATION), so
+ * this deliberately does NOT open the new-message composer: there is nobody
+ * left to choose, and a recipient picker between "Message" and typing is a
+ * step the user already took.
+ */
+async function openThreadWith(person: Person): Promise<{ id: string; placeholder: boolean }> {
+  // Both paths leave the network view. navigateToConversation picks the right
+  // inbox tab but knows nothing about the top-level view.
+  useUIStore.getState().setAppView('inbox');
+
+  const existing = await findThread(person.urn);
+  if (existing) {
+    await navigateToConversation(existing.id);
+    focusComposer(existing.id);
+    return { id: existing.id, placeholder: false };
+  }
+
+  const memberId = person.urn.split(':').pop()!;
+  const placeholderId = `draft-${memberId}`;
+  await db.conversations.put({
+    id: placeholderId,
+    participantUrns: [person.urn],
+    participantNames: [person.name],
+    participantPictures: [person.pictureUrl],
+    lastMessage: '',
+    lastActivityAt: Date.now(),
+    read: 1,
+    archived: 0,
+    category: 'PRIMARY_INBOX',
+    draft: 1,
+  } as Conversation);
+  const store = useUIStore.getState();
+  store.setInboxTab('focused');
+  // setInboxTab remembers the selection that tab had and App's auto-select
+  // effect restores it a tick later, which would take the selection straight
+  // back off the placeholder — and then nothing would ever select the new
+  // thread. navigateToConversation clears this for the same reason. A
+  // leftover search would hide the placeholder from the list just as surely,
+  // so it goes too.
+  useUIStore.setState({ _pendingRestore: null, searchQuery: '' });
+  store.openThread(placeholderId, 0);
+  focusComposer(placeholderId);
+  return { id: placeholderId, placeholder: true };
+}
+
 export function useNetworkActions() {
   const showToast = useUIStore((s) => s.showToast);
 
@@ -240,39 +285,20 @@ export function useNetworkActions() {
   const ignoreInvitation = useCallback((inv: Invitation) => respond(inv, 'ignore'), [respond]);
 
   /**
-   * Open a compose flow for a connection: jump to an existing 1:1 conversation
-   * if we have one locally, otherwise create a draft conversation (the same
-   * `draft-<memberId>` pattern NewMessageComposer uses) and open the composer.
+   * "Message" on a connection goes straight into the conversation.
+   *
+   * The recipient is already decided by the act of pressing it, so this opens
+   * the 1:1 thread — existing if there is one, a stand-in to type into if not
+   * — with the cursor in the reply box. It used to open the new-message
+   * composer, which asked again for a recipient the user had just chosen and
+   * let them add more, turning a reply into a group message.
    */
   const messageConnection = useCallback(async (conn: Connection) => {
-    const store = useUIStore.getState();
-    // Same rule as the accept flow, and the same indexed lookup: strictly 1:1,
-    // most recent of any duplicate threads LinkedIn kept for one person —
-    // which is the one useConversations shows once it merges them.
-    const existing = await findThread(conn.profileUrn);
-    store.setAppView('inbox');
-    if (existing) {
-      store.setInboxTab(tabForConversation(existing)); // before openThread — a tab switch restores that tab's own selection
-      store.openThread(existing.id, 0);
-      return;
-    }
-    store.setInboxTab('focused');
-    const memberId = conn.profileUrn.split(':').pop()!;
-    const draftConv: Conversation = {
-      id: `draft-${memberId}`,
-      participantUrns: [conn.profileUrn],
-      participantNames: [conn.name],
-      participantPictures: [conn.pictureUrl],
-      lastMessage: '',
-      lastActivityAt: Date.now(),
-      read: 1,
-      archived: 0,
-      category: 'PRIMARY_INBOX',
-      draft: 1,
-    };
-    await db.conversations.put(draftConv);
-    store.setSelectedConversationId(draftConv.id);
-    store.setComposeNewActive(true);
+    await openThreadWith({
+      urn: conn.profileUrn,
+      name: conn.name,
+      pictureUrl: conn.pictureUrl,
+    });
   }, []);
 
   /**
@@ -290,45 +316,11 @@ export function useNetworkActions() {
    * stands in — same person, same header, a reply box to type into — so the
    * switch is instant rather than a pause on the network list.
    */
-  const beginJump = useCallback(async (inv: Invitation): Promise<{ id: string; placeholder: boolean }> => {
-    // Both paths leave the network view. navigateToConversation picks the
-    // right inbox tab but knows nothing about the top-level view.
-    useUIStore.getState().setAppView('inbox');
-
-    const existing = await findThread(inv.fromUrn);
-    if (existing) {
-      await navigateToConversation(existing.id);
-      focusComposer(existing.id);
-      return { id: existing.id, placeholder: false };
-    }
-
-    const memberId = inv.fromUrn.split(':').pop()!;
-    const placeholderId = `draft-${memberId}`;
-    await db.conversations.put({
-      id: placeholderId,
-      participantUrns: [inv.fromUrn],
-      participantNames: [inv.name],
-      participantPictures: [inv.pictureUrl],
-      lastMessage: '',
-      lastActivityAt: Date.now(),
-      read: 1,
-      archived: 0,
-      category: 'PRIMARY_INBOX',
-      draft: 1,
-    } as Conversation);
-    const store = useUIStore.getState();
-    store.setInboxTab('focused');
-    // setInboxTab remembers the selection that tab had and App's auto-select
-    // effect restores it a tick later, which would take the selection straight
-    // back off the placeholder — and then nothing would ever select the
-    // accepted thread. navigateToConversation clears this for the same reason.
-    // A leftover search would hide the placeholder from the list just as
-    // surely, so it goes too.
-    useUIStore.setState({ _pendingRestore: null, searchQuery: '' });
-    store.openThread(placeholderId, 0);
-    focusComposer(placeholderId);
-    return { id: placeholderId, placeholder: true };
-  }, []);
+  const beginJump = useCallback(
+    (inv: Invitation) =>
+      openThreadWith({ urn: inv.fromUrn, name: inv.name, pictureUrl: inv.pictureUrl }),
+    []
+  );
 
   /** Wait for the thread the accept created, then put them in it. */
   const settleJump = useCallback(async (inv: Invitation, placeholderId: string, token: number) => {

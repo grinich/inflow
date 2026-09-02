@@ -86,8 +86,10 @@ describe('messageConnection thread matching', () => {
 
     const s = useUIStore.getState();
     expect(s.selectedConversationId).toBe(`draft-ACoAAAtarget`);
-    expect(s.composeNewActive).toBe(true);
-    expect(s.viewMode).not.toBe('thread');
+    // Since regression 176 this opens the stand-in thread rather than the
+    // new-message composer; what matters here is that it did NOT pick the
+    // group, which would have addressed the message to an extra person.
+    expect(s.composeNewActive).toBe(false);
     // The group was left alone.
     expect(await testDb.conversations.get('group-1')).toBeTruthy();
   });
@@ -131,12 +133,17 @@ describe('messageConnection thread matching', () => {
   });
 
   it('ignores draft conversations when matching', async () => {
+    // A leftover stand-in is not a real thread: treating it as a match would
+    // mean "Message" reopened an empty row instead of the conversation.
     await testDb.conversations.put(conv({ id: 'draft-ACoAAAtarget', draft: 1 }));
 
     await actions().messageConnection(conn);
 
     const s = useUIStore.getState();
-    expect(s.composeNewActive).toBe(true);
-    expect(s.viewMode).not.toBe('thread');
+    // Since regression 176 this lands in the stand-in thread ready to type,
+    // rather than the new-message composer.
+    expect(s.selectedConversationId).toBe('draft-ACoAAAtarget');
+    expect(s.composeNewActive).toBe(false);
+    expect(s.composerFocusFor).toBe('draft-ACoAAAtarget');
   });
 });
