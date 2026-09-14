@@ -31,6 +31,7 @@
     "nanoid": "^5.1.16",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "wheel-gestures": "^2.3.0",
     "wxt": "^0.21.4",
     "zustand": "^5.0.13"
   },
