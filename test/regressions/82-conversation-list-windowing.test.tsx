@@ -33,7 +33,7 @@ if (typeof (globalThis as any).IntersectionObserver === 'undefined') {
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
 import { computeWindow } from '@/lib/list-window';
-import { makeConversation, resetFactories } from '../fixtures/factories';
+import { makeConversation, makeMessage, resetFactories } from '../fixtures/factories';
 
 let testDb: any;
 vi.mock('@/db/database', async (importOriginal) => ({
@@ -117,6 +117,42 @@ describe('ConversationList windowed rendering', () => {
     const rendered = container.querySelectorAll('[data-conversation-id]').length;
     expect(rendered).toBeGreaterThan(0);
     expect(rendered).toBeLessThan(60); // viewport slice + overscan, not 300
+  });
+
+  it('coalesces prefetch across renders and remembers threads already cached locally', async () => {
+    const conversations = ['selected', 'cached', 'missing'].map((id) => makeConversation({ id }));
+    await testDb.messages.put(makeMessage({ conversationId: 'cached' }));
+    useUIStore.setState({ selectedConversationId: 'selected' });
+    const lookups = vi.spyOn(testDb.messages, 'where');
+
+    const { rerender } = render(<ConversationList conversations={conversations} category="PRIMARY_INBOX" />);
+    // A live query can replace the array while the first DB checks are pending.
+    rerender(<ConversationList conversations={[...conversations]} category="PRIMARY_INBOX" />);
+
+    await waitFor(() => expect(sendBridgeMessage).toHaveBeenCalledWith({
+      type: 'PREFETCH_MESSAGES', conversationIds: ['missing'],
+    }));
+    rerender(<ConversationList conversations={[...conversations]} category="PRIMARY_INBOX" />);
+
+    expect(sendBridgeMessage.mock.calls.filter(([m]) => m.type === 'PREFETCH_MESSAGES')).toHaveLength(1);
+    expect(lookups.mock.calls.filter(([index]) => index === 'conversationId')).toHaveLength(2);
+  });
+
+  it('retries a rejected prefetch response on the next list update', async () => {
+    const conversations = ['selected', 'missing'].map((id) => makeConversation({ id }));
+    useUIStore.setState({ selectedConversationId: 'selected' });
+    const prefetch = vi.fn().mockResolvedValueOnce({ success: false }).mockResolvedValue({ success: true });
+    sendBridgeMessage.mockImplementation((message) => message.type === 'PREFETCH_MESSAGES'
+      ? prefetch(message)
+      : Promise.resolve({ success: true }));
+
+    const { rerender } = render(<ConversationList conversations={conversations} category="PRIMARY_INBOX" />);
+    await waitFor(() => expect(prefetch).toHaveBeenCalledTimes(1));
+    rerender(<ConversationList conversations={[...conversations]} category="PRIMARY_INBOX" />);
+    await waitFor(() => expect(prefetch).toHaveBeenCalledTimes(2));
+    expect(prefetch).toHaveBeenLastCalledWith({
+      type: 'PREFETCH_MESSAGES', conversationIds: ['missing'],
+    });
   });
 });
 

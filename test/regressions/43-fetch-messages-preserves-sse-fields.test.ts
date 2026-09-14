@@ -126,6 +126,7 @@ function makeApiPage(): VoyagerResponse {
 }
 
 beforeEach(async () => {
+  vi.clearAllMocks();
   testDb = new Dexie(`FetchPreserve_${Date.now()}_${Math.random()}`);
   applySchema(testDb);
   await testDb.open();
@@ -160,16 +161,43 @@ describe('FETCH_MESSAGES fast path', () => {
     expect(stored.reactions).toEqual(reactions);
   });
 
-  it('runs the SSE/optimistic dedup inside a rw transaction on messages', async () => {
+  it.each(['FETCH_MESSAGES', 'PREFETCH_MESSAGES'] as const)('%s preserves an SSE write arriving during the first fetch', async (type) => {
     const { handleMessage } = await import('../../entrypoints/background/messages');
-    const { fetchMessages } = await import('../../entrypoints/background/api/messages');
+    const { fetchMessages, fetchAllMessages } = await import('../../entrypoints/background/api/messages');
+    const { prefetchSharedPosts } = await import('../../entrypoints/background/sync/prefetch-posts');
+    const reactions = [{ emoji: '👍', count: 1, firstReactedAt: 1_000_500, viewerReacted: false }];
+    const deliverWhileFetching = async () => {
+      await testDb.messages.put(makeStoredMessage({ seenAt: 1_000_900, editedAt: 1_000_800, reactions }));
+      return makeApiPage();
+    };
+    vi.mocked(fetchMessages).mockImplementationOnce(deliverWhileFetching)
+      .mockResolvedValue({ data: {}, included: [] } as VoyagerResponse);
+    vi.mocked(fetchAllMessages).mockImplementationOnce(async () => [await deliverWhileFetching()]);
 
-    await testDb.messages.put(makeStoredMessage());
-    vi.mocked(fetchMessages).mockResolvedValue(makeApiPage());
-
-    const txSpy = vi.spyOn(testDb, 'transaction');
-    const res = await handleMessage({ type: 'FETCH_MESSAGES', conversationId: CONV } as any);
+    const res = await handleMessage(type === 'FETCH_MESSAGES'
+      ? { type, conversationId: CONV }
+      : { type, conversationIds: [CONV] });
     expect(res.success).toBe(true);
-    expect(txSpy).toHaveBeenCalledWith('rw', testDb.messages, expect.any(Function));
+    // Prefetch responds before its background writes finish.
+    await vi.waitFor(() => expect(prefetchSharedPosts).toHaveBeenCalled());
+    expect(await testDb.messages.get(MSG_ID)).toMatchObject({
+      seenAt: 1_000_900, editedAt: 1_000_800, reactions,
+    });
+  });
+
+  it('applies a receipt received before prefetch created the message', async () => {
+    const { handleMessage } = await import('../../entrypoints/background/messages');
+    const { fetchAllMessages } = await import('../../entrypoints/background/api/messages');
+    const { prefetchSharedPosts } = await import('../../entrypoints/background/sync/prefetch-posts');
+    const { stashUnmatchedReceipt, __resetPendingReceipts } = await import('../../entrypoints/background/realtime/pending-receipts');
+    stashUnmatchedReceipt(MSG_ID, 1_000_900);
+    vi.mocked(fetchAllMessages).mockResolvedValueOnce([makeApiPage()]);
+    try {
+      await handleMessage({ type: 'PREFETCH_MESSAGES', conversationIds: [CONV] });
+      await vi.waitFor(() => expect(prefetchSharedPosts).toHaveBeenCalled());
+      expect((await testDb.messages.get(MSG_ID)).seenAt).toBe(1_000_900);
+    } finally {
+      __resetPendingReceipts();
+    }
   });
 });

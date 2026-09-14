@@ -13,20 +13,24 @@ import { makePendingAction, makeMessage, resetFactories } from '../fixtures/fact
 // Mocks — declared before any import of the module under test
 // ---------------------------------------------------------------------------
 
-const mockArchive = vi.fn().mockResolvedValue(undefined);
-const mockUnarchive = vi.fn().mockResolvedValue(undefined);
-const mockMoveToOther = vi.fn().mockResolvedValue(undefined);
-const mockMoveToFocused = vi.fn().mockResolvedValue(undefined);
-const mockMoveToSpam = vi.fn().mockResolvedValue(undefined);
-const mockMarkRead = vi.fn().mockResolvedValue(undefined);
-const mockMarkUnread = vi.fn().mockResolvedValue(undefined);
-const mockDelete = vi.fn().mockResolvedValue(undefined);
-const mockStar = vi.fn().mockResolvedValue(undefined);
-const mockUnstar = vi.fn().mockResolvedValue(undefined);
-const mockSendMessage = vi.fn().mockResolvedValue(undefined);
-const mockEditMessage = vi.fn().mockResolvedValue(undefined);
-const mockReactWithEmoji = vi.fn().mockResolvedValue(undefined);
-const mockRecallMessage = vi.fn().mockResolvedValue(undefined);
+const {
+  mockArchive, mockUnarchive, mockMoveToOther, mockMoveToFocused, mockMoveToSpam, mockMarkRead, mockMarkUnread, mockDelete, mockStar, mockUnstar, mockSendMessage, mockEditMessage, mockReactWithEmoji, mockRecallMessage,
+} = vi.hoisted(() => ({
+  mockArchive: vi.fn(),
+  mockUnarchive: vi.fn(),
+  mockMoveToOther: vi.fn(),
+  mockMoveToFocused: vi.fn(),
+  mockMoveToSpam: vi.fn(),
+  mockMarkRead: vi.fn(),
+  mockMarkUnread: vi.fn(),
+  mockDelete: vi.fn(),
+  mockStar: vi.fn(),
+  mockUnstar: vi.fn(),
+  mockSendMessage: vi.fn(),
+  mockEditMessage: vi.fn(),
+  mockReactWithEmoji: vi.fn(),
+  mockRecallMessage: vi.fn(),
+}));
 
 let testDb: any;
 
@@ -41,6 +45,30 @@ vi.mock('@/db/database', async (importOriginal) => {
   };
 });
 
+vi.mock('../../entrypoints/background/api/conversations', () => ({
+  archiveConversation: mockArchive,
+  unarchiveConversation: mockUnarchive,
+  moveToOther: mockMoveToOther,
+  moveToFocused: mockMoveToFocused,
+  moveToSpam: mockMoveToSpam,
+  markConversationRead: mockMarkRead,
+  markConversationUnread: mockMarkUnread,
+  deleteConversation: mockDelete,
+  starConversation: mockStar,
+  unstarConversation: mockUnstar,
+}));
+
+vi.mock('../../entrypoints/background/api/messages', () => ({
+  sendMessage: mockSendMessage,
+  editMessage: mockEditMessage,
+  reactWithEmoji: mockReactWithEmoji,
+  recallMessage: mockRecallMessage,
+}));
+
+import { drainActionQueue } from '../../entrypoints/background/action-queue';
+import { clearSuppression } from '../../entrypoints/background/realtime/mark-read-suppression';
+import { debugLog } from '@/lib/debug-log';
+
 vi.mock('@/lib/debug-log', () => ({
   debugLog: vi.fn(),
 }));
@@ -51,6 +79,8 @@ vi.mock('@/lib/debug-log', () => ({
 
 beforeEach(async () => {
   resetFactories();
+  clearSuppression();
+  vi.mocked(debugLog).mockClear();
 
   testDb = new Dexie(`TestDB_AQ_${Date.now()}_${Math.random()}`);
   applySchema(testDb);
@@ -80,198 +110,6 @@ afterEach(async () => {
     testDb.close();
     await Dexie.delete(testDb.name);
   }
-});
-
-// ---------------------------------------------------------------------------
-// Inline re-implementation of action queue logic for testing
-//
-// Since action-queue.ts uses module-scoped `db` that can't be easily
-// redirected after module init, and the API imports from relative paths,
-// we re-implement the core logic here using the same algorithm.
-// This tests the *behavior* (the queue draining algorithm) against real
-// IndexedDB, with the API layer mocked via direct function refs.
-// ---------------------------------------------------------------------------
-
-const apiDispatch: Record<string, (...args: any[]) => Promise<void>> = {
-  archive: (convId: string) => mockArchive(convId),
-  unarchive: (convId: string) => mockUnarchive(convId),
-  move_to_focused: (convId: string) => mockMoveToFocused(convId),
-  move_to_other: (convId: string) => mockMoveToOther(convId),
-  move_to_spam: (convId: string) => mockMoveToSpam(convId),
-  markRead: (convId: string) => mockMarkRead(convId),
-  markUnread: (convId: string) => mockMarkUnread(convId),
-  star: (convId: string) => mockStar(convId),
-  unstar: (convId: string) => mockUnstar(convId),
-  delete: async (convId: string) => {
-    try {
-      await mockDelete(convId);
-    } catch (err: any) {
-      if (err?.status === 404 || err?.message?.includes('404')) return;
-      throw err;
-    }
-  },
-  edit_message: async (_convId: string, action: any) => {
-    if (action.bridgeMessage) {
-      await mockEditMessage(
-        action.bridgeMessage.conversationId,
-        action.bridgeMessage.messageId,
-        action.bridgeMessage.body
-      );
-    }
-  },
-  react_emoji: async (_convId: string, action: any) => {
-    if (action.bridgeMessage) {
-      await mockReactWithEmoji(
-        action.bridgeMessage.messageId,
-        action.bridgeMessage.emoji
-      );
-    }
-  },
-  recall_message: async (_convId: string, action: any) => {
-    if (action.bridgeMessage) {
-      await mockRecallMessage(action.bridgeMessage.messageId);
-      await testDb.messages.delete(action.bridgeMessage.messageId).catch(() => {});
-    }
-  },
-  send: async (_convId: string, action: any) => {
-    if (!action.tempMessageId) return;
-    const msg = await testDb.messages.get(action.tempMessageId);
-    if (!msg || msg.status !== 'queued') return;
-    const body = action.bridgeMessage?.body ?? msg.body;
-
-    let attachments: any;
-    const draft = await testDb.draftAttachments.get(action.tempMessageId).catch(() => undefined);
-    if (draft && draft.files.length > 0) {
-      attachments = await Promise.all(
-        draft.files.map(async (blob: Blob, i: number) => {
-          const buffer = await blob.arrayBuffer();
-          const bytes = new Uint8Array(buffer);
-          let binary = '';
-          for (let j = 0; j < bytes.length; j++) {
-            binary += String.fromCharCode(bytes[j]);
-          }
-          const dataBase64 = btoa(binary);
-          return {
-            name: draft.names[i] || 'file',
-            type: draft.types[i] || 'application/octet-stream',
-            size: blob.size,
-            dataBase64,
-          };
-        })
-      );
-    }
-    await mockSendMessage(action.conversationId, body, attachments);
-  },
-};
-
-let draining = false;
-
-/**
- * Mirror of drainActionQueue from action-queue.ts.
- * Uses testDb directly and dispatches to mocked API functions.
- */
-async function drainActionQueue(): Promise<void> {
-  if (draining) return;
-  draining = true;
-
-  try {
-    const queued = await testDb.pendingActions
-      .where('status')
-      .equals('queued')
-      .sortBy('timestamp');
-
-    if (queued.length === 0) return;
-
-    for (const action of queued) {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        break;
-      }
-
-      try {
-        const handler = apiDispatch[action.type];
-        if (handler) {
-          if (action.type === 'edit_message' || action.type === 'send' || action.type === 'react_emoji' || action.type === 'recall_message') {
-            await handler(action.conversationId, action);
-          } else {
-            await handler(action.conversationId);
-          }
-        }
-
-        await testDb.pendingActions.update(action.id, { status: 'confirmed' });
-
-        if (action.type === 'send' && action.tempMessageId) {
-          await testDb.messages.update(action.tempMessageId, { status: 'sent' });
-          await testDb.draftAttachments.delete(action.tempMessageId).catch(() => {});
-        }
-      } catch (err) {
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
-          break;
-        }
-
-        await testDb.pendingActions.update(action.id, { status: 'failed' });
-        await rollbackAction(action);
-      }
-    }
-  } finally {
-    draining = false;
-  }
-}
-
-async function rollbackAction(action: any): Promise<void> {
-  const data = action.rollbackData;
-  if (!data) return;
-
-  switch (action.type) {
-    case 'archive':
-    case 'unarchive':
-    case 'move_to_focused':
-    case 'move_to_other':
-    case 'move_to_spam':
-    case 'markRead':
-    case 'markUnread':
-    case 'star':
-    case 'unstar':
-      await testDb.conversations.update(action.conversationId, data).catch(() => {});
-      break;
-    case 'delete':
-      if (data.conversation) {
-        await testDb.conversations.put(data.conversation).catch(() => {});
-      }
-      if (data.messages?.length) {
-        await testDb.messages.bulkPut(data.messages).catch(() => {});
-      }
-      break;
-    case 'send':
-      if (action.tempMessageId) {
-        await testDb.messages.update(action.tempMessageId, { status: 'failed' }).catch(() => {});
-      }
-      break;
-    case 'edit_message':
-      if (data.messageId) {
-        await testDb.messages.update(data.messageId, {
-          body: data.body,
-          editedAt: data.editedAt,
-        }).catch(() => {});
-      }
-      break;
-    case 'react_emoji':
-      if (data.messageId) {
-        await testDb.messages.update(data.messageId, {
-          reactions: data.reactions,
-        }).catch(() => {});
-      }
-      break;
-    case 'recall_message':
-      if (data.message) {
-        await testDb.messages.put(data.message).catch(() => {});
-      }
-      break;
-  }
-}
-
-// Reset draining flag before each test
-beforeEach(() => {
-  draining = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -328,8 +166,7 @@ describe('drainActionQueue', () => {
     // Start first drain (will block on firstActionPromise)
     const drain1 = drainActionQueue();
 
-    // Wait a tick for the drain to start
-    await new Promise(r => setTimeout(r, 10));
+    await vi.waitFor(() => expect(mockArchive).toHaveBeenCalledOnce());
 
     // Second drain should be a no-op because draining=true
     await testDb.pendingActions.put(
@@ -350,39 +187,20 @@ describe('drainActionQueue', () => {
 
   describe('action type dispatch', () => {
     it.each([
-      ['archive', 'mockArchive'],
-      ['unarchive', 'mockUnarchive'],
-      ['move_to_focused', 'mockMoveToFocused'],
-      ['move_to_other', 'mockMoveToOther'],
-      ['move_to_spam', 'mockMoveToSpam'],
-      ['markRead', 'mockMarkRead'],
-      ['markUnread', 'mockMarkUnread'],
-      ['star', 'mockStar'],
-      ['unstar', 'mockUnstar'],
-    ] as const)('calls the correct API for %s', async (actionType) => {
-      const mockMap: Record<string, ReturnType<typeof vi.fn>> = {
-        mockArchive, mockUnarchive, mockMoveToFocused, mockMoveToOther,
-        mockMoveToSpam, mockMarkRead, mockMarkUnread, mockStar, mockUnstar,
-      };
-      const expectedMockName = `mock${actionType.charAt(0).toUpperCase() + actionType.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase())}`;
-      // Map action types to mock names
-      const actionToMock: Record<string, string> = {
-        archive: 'mockArchive',
-        unarchive: 'mockUnarchive',
-        move_to_focused: 'mockMoveToFocused',
-        move_to_other: 'mockMoveToOther',
-        move_to_spam: 'mockMoveToSpam',
-        markRead: 'mockMarkRead',
-        markUnread: 'mockMarkUnread',
-        star: 'mockStar',
-        unstar: 'mockUnstar',
-      };
-      const mockFn = mockMap[actionToMock[actionType]];
-
+      ['archive', mockArchive],
+      ['unarchive', mockUnarchive],
+      ['move_to_focused', mockMoveToFocused],
+      ['move_to_other', mockMoveToOther],
+      ['move_to_spam', mockMoveToSpam],
+      ['markRead', mockMarkRead],
+      ['markUnread', mockMarkUnread],
+      ['star', mockStar],
+      ['unstar', mockUnstar],
+    ] as const)('calls the correct API for %s', async (actionType, mockFn) => {
       await testDb.pendingActions.put(
         makePendingAction({
           id: `action-${actionType}`,
-          type: actionType as any,
+          type: actionType,
           conversationId: 'conv-test',
           status: 'queued',
           timestamp: 1,
@@ -766,21 +584,6 @@ describe('drainActionQueue', () => {
       expect(mockUnarchive).toHaveBeenCalledTimes(1);
     });
 
-    it('draining flag is released even on error', async () => {
-      await testDb.pendingActions.put(
-        makePendingAction({ id: 'a1', type: 'archive', status: 'queued', timestamp: 1 })
-      );
-
-      // First drain succeeds
-      await drainActionQueue();
-
-      // Next drain with a new action should also work (flag released in finally)
-      await testDb.pendingActions.put(
-        makePendingAction({ id: 'a3', type: 'star', conversationId: 'c3', status: 'queued', timestamp: 3 })
-      );
-      await drainActionQueue();
-      expect(mockStar).toHaveBeenCalledWith('c3');
-    });
   });
 
   describe('rollback for edit_message', () => {
@@ -843,9 +646,10 @@ describe('drainActionQueue', () => {
         throw new Error('DB exploded');
       };
 
-      // The error propagates (the local mirror lacks the outer catch of the real impl),
-      // but the finally block must still reset the draining flag
-      await expect(drainActionQueue()).rejects.toThrow('DB exploded');
+      await expect(drainActionQueue()).resolves.toBeUndefined();
+      expect(debugLog).toHaveBeenCalledWith(
+        'error', expect.stringContaining('Drain failed: Error: DB exploded'),
+      );
 
       // Restore the DB method
       testDb.pendingActions.where = originalWhere;

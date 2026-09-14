@@ -3,11 +3,10 @@ import { getMemberUrn } from '../auth/session';
 import { normalizeConversations } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
 import { networkErrorLevel } from '@/lib/transient-error';
-import { db, mergeProfiles } from '@/db/database';
+import { db, getDbGeneration, mergeProfiles } from '@/db/database';
 import { pruneImageCache } from '@/lib/image-cache';
 import { mergeConversation } from './merge-conversation';
 import type { ServerConversation } from '@/types/conversation';
-import type { Profile } from '@/types/profile';
 
 const IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -83,13 +82,18 @@ export async function syncConversations(): Promise<void> {
   _syncingCategories.add('PRIMARY_INBOX');
 
   try {
+    const generation = getDbGeneration();
+    const database = db;
     broadcastSyncStatus('syncing', 'Syncing conversations...');
     const memberUrn = await getMemberUrn();
+    if (generation !== getDbGeneration()) return;
     debugLog('info', `Member URN: ${memberUrn}`);
 
     // Fetch first page using the paginated endpoint (fastest single request)
     const { response: pageRaw } = await fetchConversationsPage('PRIMARY_INBOX', null);
-    const totalStored = await storeConversationPage(pageRaw, memberUrn);
+    if (generation !== getDbGeneration()) return;
+    const totalStored = await storeConversationPage(pageRaw, memberUrn, database);
+    if (generation !== getDbGeneration()) return;
 
     debugLog('info', `Quick poll: synced ${totalStored} conversations`);
 
@@ -121,13 +125,18 @@ export async function syncCategory(category: InboxCategory): Promise<void> {
   _syncingCategories.add(category);
 
   try {
+    const generation = getDbGeneration();
+    const database = db;
     const label = category === 'SECONDARY_INBOX' ? 'Other' : category === 'ARCHIVE' ? 'Archived' : category === 'SPAM' ? 'Spam' : category;
     broadcastSyncStatus('syncing', `Syncing ${label}...`);
     const memberUrn = await getMemberUrn();
+    if (generation !== getDbGeneration()) return;
     debugLog('info', `Syncing category: ${category}`);
 
     const { response: raw } = await fetchConversationsPage(category, null);
-    const totalStored = await storeConversationPage(raw, memberUrn);
+    if (generation !== getDbGeneration()) return;
+    const totalStored = await storeConversationPage(raw, memberUrn, database);
+    if (generation !== getDbGeneration()) return;
 
     debugLog('info', `Synced ${totalStored} conversations for ${category}`);
 
@@ -153,7 +162,8 @@ export async function syncCategory(category: InboxCategory): Promise<void> {
  */
 async function storeConversationPage(
   raw: any,
-  memberUrn: string
+  memberUrn: string,
+  database: typeof db,
 ): Promise<number> {
   // Diagnostic: confirm the page entity actually carries a `read` boolean (vs
   // only unreadCount) so we know manual mark-unread is reflectable from a poll.
@@ -180,11 +190,7 @@ async function storeConversationPage(
   }
   const conversations = [...conversationMap.values()];
 
-  const profileMap = new Map<string, Profile>();
-  for (const p of rawProfiles) {
-    profileMap.set(p.urn, p);
-  }
-  const profiles = [...profileMap.values()];
+  const profiles = rawProfiles;
 
   if (conversations.length === 0 && profiles.length === 0) return 0;
 
@@ -192,10 +198,10 @@ async function storeConversationPage(
 
   // Store immediately so UI updates via useLiveQuery
   // mergeConversation preserves local-only fields and respects pending actions
-  await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions, db.tombstones], async () => {
-    await mergeProfiles(profiles);
+  await database.transaction('rw', [database.conversations, database.profiles, database.pendingActions, database.tombstones], async () => {
+    await mergeProfiles(profiles, database);
     for (const conv of conversations) {
-      await mergeConversation(conv);
+      await mergeConversation(conv, database);
     }
   });
 

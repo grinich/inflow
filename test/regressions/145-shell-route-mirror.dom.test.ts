@@ -9,6 +9,9 @@
 // The app now posts its route up, the shell mirrors it into its own URL, and
 // the next load hands it back through the frame's src.
 import '../dom-setup';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { JSDOM } from 'jsdom';
 import { publishRouteToShell, SHELL_ORIGINS } from '@/lib/shell-messages';
 
 describe('regression #145: the shell mirrors the app route', () => {
@@ -61,37 +64,96 @@ describe('regression #145: the shell mirrors the app route', () => {
   });
 });
 
-// The shell half is plain inline script in site/app.html rather than a module,
-// so exercise the two rules it enforces against the file itself.
+// Run the shipped shell in its own window: closing it releases the listeners,
+// observers, and retry timers that otherwise leak between boot scenarios.
 describe('regression #145: the shell half', () => {
-  const shell = require('node:fs').readFileSync('site/app.html', 'utf8');
+  const html = readFileSync(join(__dirname, '..', '..', 'site', 'app.html'), 'utf8');
+  const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1];
+  const extensionId = 'ndehgbgifkapdigmefglpgacpagoclge';
+  const extensionOrigin = `chrome-extension://${extensionId}`;
+  let shell: JSDOM;
 
-  it('forwards its fragment into the frame src', () => {
-    expect(shell).toMatch(/routeHash\(\)/);
-    expect(shell).toMatch(/'chrome-extension:\/\/' \+ id \+ '\/app\.html'/);
+  async function boot(hash = '') {
+    shell = new JSDOM(html, {
+      url: `https://inflow.im/app?ext=${extensionId}${hash}`,
+      runScripts: 'outside-only',
+    });
+    const win = shell.window;
+    win.matchMedia = () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    });
+    win.chrome = {
+      runtime: {
+        sendMessage: (_id: string, _message: unknown, callback: (reply: unknown) => void) => {
+          callback({ ok: true, id: extensionId });
+        },
+        connect: () => ({
+          postMessage() {},
+          onMessage: { addListener() {} },
+          onDisconnect: { addListener() {} },
+        }),
+      },
+    };
+    win.eval(script);
+    await vi.waitFor(() => expect(win.document.querySelector('iframe#app')).not.toBeNull());
+    return win;
+  }
+
+  function publish(hash: unknown, origin = extensionOrigin, type = 'ROUTE_CHANGED') {
+    const win = shell.window;
+    win.dispatchEvent(new win.MessageEvent('message', {
+      origin,
+      source: win.document.querySelector<HTMLIFrameElement>('iframe#app')!.contentWindow,
+      data: { type, hash },
+    }));
+  }
+
+  afterEach(() => shell?.window.close());
+
+  it.each(['#/inbox/archived', '#/inbox/other?unread', '#/network'])(
+    'forwards %s into the newly embedded frame', async (hash) => {
+      const win = await boot(hash);
+      expect(win.document.querySelector('iframe#app')!.getAttribute('src'))
+        .toBe(`${extensionOrigin}/app.html${hash}`);
+    },
+  );
+
+  it('does not forward a malformed launch fragment', async () => {
+    const win = await boot('#javascript:alert(1)');
+    expect(win.document.querySelector('iframe#app')!.getAttribute('src'))
+      .toBe(`${extensionOrigin}/app.html`);
   });
 
-  it('accepts a route only from the extension frame it embedded', () => {
-    // An origin check is the whole security boundary: any page can postMessage
-    // to this window, and the value lands in the frame's src.
-    expect(shell).toMatch(/event\.origin !== 'chrome-extension:\/\/' \+ extensionId/);
+  it('ignores routes from unrelated web pages and other extensions', async () => {
+    const win = await boot('#/inbox/focused');
+    for (const origin of ['https://example.com', 'https://inflow.im', 'chrome-extension://other']) {
+      publish('#/inbox/archived', origin);
+      expect(win.location.hash).toBe('#/inbox/focused');
+    }
+    publish('#/inbox/archived');
+    expect(win.location.hash).toBe('#/inbox/archived');
   });
 
-  it('validates the shape of the hash it is handed', () => {
-    const match = shell.match(/var ROUTE_HASH = (\/.*\/);/);
-    expect(match).toBeTruthy();
-    // eslint-disable-next-line no-eval
-    const re: RegExp = eval(match![1]);
-
-    expect(re.test('#/inbox/archived')).toBe(true);
-    expect(re.test('#/inbox/other?unread')).toBe(true);
-    expect(re.test('#/network')).toBe(true);
-    expect(re.test('#javascript:alert(1)')).toBe(false);
-    expect(re.test('')).toBe(false);
+  it('rejects malformed route messages from the extension', async () => {
+    const win = await boot('#/inbox/focused');
+    for (const hash of ['', '#javascript:alert(1)', '#/inbox/<script>', null, 42]) {
+      publish(hash);
+      expect(win.location.hash).toBe('#/inbox/focused');
+    }
+    publish('#/network', extensionOrigin, 'UNRELATED');
+    expect(win.location.hash).toBe('#/inbox/focused');
   });
 
-  it('replaces rather than pushes, so history is not doubled', () => {
-    // The frame's own hash changes already add joint-session-history entries.
-    expect(shell).toMatch(/history\.replaceState\(null, '', location\.pathname/);
+  it('mirrors routes without adding history entries or losing query parameters', async () => {
+    const win = await boot('#/inbox/focused');
+    const initialHistoryLength = win.history.length;
+    publish('#/inbox/other?unread');
+    expect(win.location.hash).toBe('#/inbox/other?unread');
+    expect(win.location.search).toBe(`?ext=${extensionId}`);
+    expect(win.history.length).toBe(initialHistoryLength);
   });
 });

@@ -6,10 +6,9 @@
 <title>inƒlow — LinkedIn Messages</title>
 <meta name="description" content="Your keyboard-driven LinkedIn inbox. Runs locally via the inƒlow Chrome extension.">
 <meta name="color-scheme" content="light dark">
-<!-- WebMCP origin trial: when enrolling inflow.im (Chrome 149–156), the token
-     goes here as <meta http-equiv="origin-trial" content="…">. Until then the
-     agent bridge works via window.inflowAgent, and WebMCP registration only
-     lights up behind chrome://flags/#enable-webmcp-testing. -->
+<!-- Chrome's native WebMCP implementation may require an origin-trial token or
+     testing flag. Agent-provided implementations can expose the same API later;
+     the script below detects either without making WebMCP a page requirement. -->
 <meta property="og:title" content="inƒlow — LinkedIn Messages">
 <meta property="og:description" content="Your keyboard-driven LinkedIn inbox. Runs locally via the inƒlow Chrome extension.">
 <meta property="og:type" content="website">
@@ -596,13 +595,10 @@ html,body{height:100%;overflow:hidden}
   // so WebMCP-capable agents see inflow's tools on inflow.im without knowing
   // about the iframe. document.modelContext is current Chrome; the navigator
   // spelling is the pre-150 alias.
-  // Agent extensions (ChatGPT for Chrome, and likely others) inject their own
-  // WebMCP implementation into the page instead of waiting for Chrome's
-  // origin trial, and they register that content script at RUNTIME — when the
-  // user grants the agent access to this site, which is normally after this
-  // page has loaded and already looked. So watch for it appearing rather than
-  // checking once. It is defined non-configurable, so a setter can't see it;
-  // a typeof check every few seconds costs nothing and stops on the first hit.
+  // A WebMCP host may inject its implementation after the page has loaded, so
+  // watch for the API appearing rather than checking only once. This keeps the
+  // shell ready for compatible browsers without claiming that ChatGPT's
+  // external Chrome-control extension is itself a WebMCP host.
   var agentMcTimer = null;
   function watchForModelContext() {
     if (agentMcTimer) return;

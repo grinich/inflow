@@ -104,3 +104,27 @@ it('does not mark read after the thread was closed within the focus dwell window
 
   expect(mockMarkRead).not.toHaveBeenCalled();
 });
+
+it('cancels the dwell when hidden and requires a full new dwell after returning', () => {
+  const conversation = makeConversation({ id: '2-hidden', read: 0, mergedIds: ['2-twin'] });
+  setVisibility('visible');
+  render(<ThreadView conversation={conversation} composeRef={createRef<HTMLTextAreaElement>()} />);
+
+  act(() => {
+    vi.advanceTimersByTime(1000);
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(2500);
+  });
+  expect(mockMarkRead).not.toHaveBeenCalled();
+
+  act(() => {
+    setVisibility('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(1999);
+  });
+  expect(mockMarkRead).not.toHaveBeenCalled();
+
+  act(() => { vi.advanceTimersByTime(1); });
+  expect(mockMarkRead).toHaveBeenCalledExactlyOnceWith('2-hidden', ['2-twin']);
+});

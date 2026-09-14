@@ -21,9 +21,9 @@ const CONFIRMED_GUARD_MS = 15_000;
  * Uses filter() instead of where() because conversationId is not indexed
  * on pendingActions. The table is small (typically <10 rows) so this is fine.
  */
-export async function hasPendingAction(conversationId: string): Promise<boolean> {
+export async function hasPendingAction(conversationId: string, database = db): Promise<boolean> {
   const now = Date.now();
-  const count = await db.pendingActions
+  const count = await database.pendingActions
     .filter((a) =>
       a.conversationId === conversationId &&
       (a.status === 'pending' ||

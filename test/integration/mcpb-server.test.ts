@@ -15,6 +15,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { STATIC_TOOL_CATALOG } from '../../mcpb/server/tool-catalog.mjs';
 
 const ROOT = join(__dirname, '..', '..');
 const SERVER = join(ROOT, 'mcpb', 'server', 'index.mjs');
@@ -96,13 +97,14 @@ afterAll(() => {
 });
 
 describe.skipIf(!depsPresent)('Inflow.mcpb server', () => {
-  it('offers its local tools before any extension connects', async () => {
+  it('offers the full static catalog before any extension connects', async () => {
     const list = await rpc('tools/list');
     const names = list.result.tools.map((t: any) => t.name);
     expect(names).toContain('inflow_status');
     expect(names).toContain('get_pairing_code');
-    // Nothing is forwarded yet — there is no extension to forward to.
-    expect(names).toHaveLength(2);
+    expect(names).toContain('list_conversations');
+    expect(names).toContain('send_message');
+    expect(names).toHaveLength(STATIC_TOOL_CATALOG.length + 2);
   });
 
   it('issues a pairing code and persists it where the next run will find it', async () => {
@@ -201,6 +203,10 @@ describe.skipIf(!depsPresent)('Inflow.mcpb server', () => {
       const names = list.result.tools.map((t: any) => t.name);
       expect(names).toContain('list_conversations');
       expect(names).toContain('inflow_status');
+      expect(names.filter((name: string) => name === 'list_conversations')).toHaveLength(1);
+      expect(
+        list.result.tools.find((tool: any) => tool.name === 'list_conversations').description
+      ).toBe('from the extension');
     });
 
     it('forwards a call and passes the result through untouched', async () => {

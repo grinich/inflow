@@ -30,6 +30,7 @@ import {
   TOKEN_RE,
   generatePairingToken,
 } from './bridge-core.mjs';
+import { STATIC_TOOL_CATALOG } from './tool-catalog.mjs';
 
 const VERSION = '0.8.0-beta.4';
 // A test run must not fight the user's real Claude Desktop for the port.
@@ -124,6 +125,22 @@ const text = (s, isError = false) => ({
   ...(isError ? { isError: true } : {}),
 });
 
+const STATIC_TOOL_NAMES = new Set(STATIC_TOOL_CATALOG.map((tool) => tool.name));
+
+/**
+ * Keep the bundled catalog available before Chrome connects, while preferring
+ * live descriptors and accepting newly-added tools from a newer extension.
+ * The extension may omit write tools when its write toggle is off; the static
+ * entries deliberately remain advertised because callTool enforces the gate.
+ */
+function mergeForwardedTools(forwarded) {
+  const liveByName = new Map(forwarded.map((tool) => [tool.name, tool]));
+  return [
+    ...STATIC_TOOL_CATALOG.map((tool) => liveByName.get(tool.name) ?? tool),
+    ...forwarded.filter((tool) => !STATIC_TOOL_NAMES.has(tool.name)),
+  ];
+}
+
 mcp.setRequestHandler(ListToolsRequestSchema, async () => {
   let forwarded = [];
   if (bridge.connected) {
@@ -138,7 +155,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => {
       log('LIST_TOOLS forward failed:', e.message);
     }
   }
-  return { tools: [...LOCAL_TOOLS, ...forwarded] };
+  return { tools: [...LOCAL_TOOLS, ...mergeForwardedTools(forwarded)] };
 });
 
 mcp.setRequestHandler(CallToolRequestSchema, async (req) => {

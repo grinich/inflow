@@ -19,6 +19,7 @@
     "test:coverage": "vitest run --coverage",
     "dev:shell": "INFLOW_LOCAL_SHELL=1 wxt build",
     "site:dev": "cd site && vercel dev --listen 8765",
+    "mcpb:catalog": "node scripts/build-mcpb-tool-catalog.mjs",
     "mcpb:build": "node scripts/build-mcpb.mjs"
   },
   "dependencies": {
@@ -36,7 +37,7 @@
     "zustand": "^5.0.13"
   },
   "overrides": {
-    "vite": ">=8.0.16",
+    "vite": "$vite",
     "undici": "^7.29.0",
     "postcss": {
       ".": "^8.5.23",
@@ -58,6 +59,7 @@
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
+    "vite": "^8.2.1",
     "vitest": "^4.1.7"
   }
 }

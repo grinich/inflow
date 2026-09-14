@@ -102,13 +102,12 @@ function fullPage(from: number, total = 25) {
   );
 }
 
-/** The whole list: 25 rows over three pages. */
+/** A complete server list, including the partial final page. */
 function serveWholeList(total = 25) {
   fetchSentInvitationsPage.mockResolvedValue(fullPage(0, total));
   fetchSentInvitationsAt.mockImplementation(async (start: number) =>
-    start >= 20
-      ? page(Array.from({ length: 5 }, (_, i) => [String(20 + i), 'P' + (20 + i), 'Last'] as [string, string, string]), total)
-      : fullPage(start, total)
+    page(Array.from({ length: Math.max(0, Math.min(10, total - start)) }, (_, i) =>
+      [String(start + i), 'P' + (start + i), 'Last'] as [string, string, string]), total)
   );
 }
 
@@ -171,7 +170,7 @@ describe('regression #170: a walk that recognises the list stops early', () => {
   it('keeps reading when the front of the list has changed', async () => {
     // A newly sent request lands on page one, so the first page is not
     // recognised and the walk carries on.
-    await primeFromScratch(26);
+    await primeFromScratch();
     fetchSentInvitationsPage.mockResolvedValue(
       page([['99', 'Brand', 'New'], ...Array.from({ length: 9 }, (_, i) => [String(i), 'P' + i, 'Last'] as [string, string, string])], 26)
     );
@@ -199,15 +198,18 @@ describe('regression #170: a walk that recognises the list stops early', () => {
     // The full walk that the disagreement triggered has to actually clean up.
     await primeFromScratch();
     fetchSentInvitationsPage.mockResolvedValue(
-      page(Array.from({ length: 9 }, (_, i) => [String(i + 1), 'P' + (i + 1), 'Last'] as [string, string, string]), 24)
+      page(Array.from({ length: 10 }, (_, i) => [String(i + 1), 'P' + (i + 1), 'Last'] as [string, string, string]), 24)
     );
     fetchSentInvitationsAt.mockImplementation(async (start: number) =>
-      page(Array.from({ length: start >= 20 ? 5 : 10 }, (_, i) => [String(start + i), 'P' + (start + i), 'Last'] as [string, string, string]), 24)
+      page(Array.from({ length: Math.min(10, 24 - start) }, (_, i) =>
+        [String(start + i + 1), 'P' + (start + i + 1), 'Last'] as [string, string, string]), 24)
     );
 
-    await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
+    const res = await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
 
+    expect(res.data.complete).toBe(true);
     expect(await testDb.sentInvitations.get('0')).toBeUndefined();
+    expect(await testDb.sentInvitations.count()).toBe(24);
   });
 
   it('reads everything again once the record goes stale', async () => {

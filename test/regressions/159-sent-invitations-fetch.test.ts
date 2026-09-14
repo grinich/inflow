@@ -213,6 +213,36 @@ describe('FETCH_SENT_INVITATIONS', () => {
     expect(await testDb.sentInvitations.count()).toBe(310);
   });
 
+  it.each(['repeated', 'short', 'unreadable'] as const)('preserves cached rows after a %s page leaves the walk incomplete', async (kind) => {
+    await testDb.sentInvitations.put(stored('cached'));
+    fetchSentInvitationsPage.mockResolvedValueOnce(fullPage(0, 30));
+    fetchSentInvitationsAt.mockResolvedValueOnce(kind === 'repeated'
+      ? fullPage(0, 30)
+      : kind === 'short'
+        ? page([['10', 'Last', 'One']], 30)
+        : page([['not-a-number', 'Unreadable', 'Row']], 30));
+
+    const res = await handleMessage({ type: 'FETCH_SENT_INVITATIONS' });
+
+    expect((res.data as any).complete).toBe(false);
+    expect(await testDb.sentInvitations.get('cached')).toBeDefined();
+    expect(await testDb.walkState.get('sentInvitations')).toBeUndefined();
+  });
+
+  it('does not prune after an earlier malformed page even when the final count matches', async () => {
+    await testDb.sentInvitations.put(stored('cached'));
+    fetchSentInvitationsPage.mockResolvedValueOnce(page(Array.from({ length: 10 }, (_, i) =>
+      [i === 5 ? 'unreadable' : String(i), 'Person', 'Last'] as [string, string, string]), 10));
+    fetchSentInvitationsAt.mockResolvedValueOnce(page([['10', 'Last', 'One']], 10));
+
+    const res = await handleMessage({ type: 'FETCH_SENT_INVITATIONS' });
+
+    expect((res.data as any).count).toBe(10);
+    expect((res.data as any).complete).toBe(false);
+    expect(await testDb.sentInvitations.get('cached')).toBeDefined();
+    expect(await testDb.walkState.get('sentInvitations')).toBeUndefined();
+  });
+
   it('keeps the pages it already read when a later one fails', async () => {
     fetchSentInvitationsPage.mockResolvedValueOnce(fullPage(0));
     fetchSentInvitationsAt
@@ -241,6 +271,27 @@ describe('FETCH_SENT_INVITATIONS', () => {
     await handleMessage({ type: 'FETCH_SENT_INVITATIONS' } as any);
 
     expect((await testDb.sentInvitations.get('1')).status).toBe('withdrawn');
+  });
+
+  it('does not overwrite a withdrawal queued between the page status read and write', async () => {
+    await testDb.sentInvitations.put(stored('1'));
+    fetchSentInvitationsPage.mockResolvedValueOnce(page([['1', 'Dillon', 'Mulroy']], 1));
+    const table = testDb.sentInvitations;
+    const bulkGet = table.bulkGet.bind(table);
+    let withdrawal: Promise<unknown> | undefined;
+    const read = vi.spyOn(table, 'bulkGet').mockImplementationOnce(async (...args: unknown[]) => {
+      const existing = await bulkGet(...args);
+      // A different event handler, outside the fetch's transaction.
+      withdrawal = Dexie.ignoreTransaction(() => table.update('1', { status: 'withdrawn' }));
+      return existing;
+    });
+    try {
+      await handleMessage({ type: 'FETCH_SENT_INVITATIONS' });
+      await withdrawal;
+      expect((await table.get('1')).status).toBe('withdrawn');
+    } finally {
+      read.mockRestore();
+    }
   });
 });
 

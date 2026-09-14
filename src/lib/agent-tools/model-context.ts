@@ -41,15 +41,9 @@ export function isModelContextAvailable(): boolean {
  * Call `onReady` once a WebMCP surface exists — now, or whenever one shows up.
  * Returns a stop function.
  *
- * A one-shot check at mount is not enough: agent extensions inject their own
- * implementation into the page rather than relying on Chrome's origin trial,
- * and they register that content script at RUNTIME — typically when the user
- * grants the agent access to the site, which is usually after our page has
- * loaded and already looked. (Verified against ChatGPT for Chrome's
- * content-scripts/webmcp.js, which defines modelContext on document and
- * navigator with configurable:false, so it cannot be watched with a setter —
- * hence polling.) The poll is a `typeof` check a few times a minute and stops
- * the moment it finds one.
+ * A one-shot check at mount is not enough: a compatible WebMCP host may inject
+ * its implementation after the page has loaded. The poll is a `typeof` check a
+ * few times a minute and stops the moment it finds one.
  */
 export function whenModelContextReady(onReady: () => void): () => void {
   if (isModelContextAvailable()) {

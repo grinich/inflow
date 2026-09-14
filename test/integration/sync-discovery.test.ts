@@ -6,13 +6,10 @@
  */
 
 import Dexie from 'dexie';
-import { applySchema } from '@/db/database';
-import { normalizeConversations } from '@/lib/voyager-normalizer';
+import { db, switchDatabase } from '@/db/database';
 import { makeConversation, makeSyncQueueItem, resetFactories } from '../fixtures/factories';
 import { buildConversationsPageResponse, buildEmptyResponse } from '../fixtures/voyager-responses';
 import type { Conversation } from '@/types/conversation';
-import type { Profile } from '@/types/profile';
-import type { SyncQueueItem } from '@/db/database';
 
 // ---------------------------------------------------------------------------
 // Test database lifecycle
@@ -23,9 +20,8 @@ let testDb: any;
 beforeEach(async () => {
   resetFactories();
 
-  testDb = new Dexie(`TestDB_SD_${Date.now()}_${Math.random()}`);
-  applySchema(testDb);
-  await testDb.open();
+  await switchDatabase(`test-discovery-${Date.now()}-${Math.random()}`);
+  testDb = db;
 });
 
 afterEach(async () => {
@@ -35,144 +31,23 @@ afterEach(async () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Re-implementations of discoverPage and enqueueConversations
-// using testDb directly, same algorithm as sync-discovery.ts
-// ---------------------------------------------------------------------------
-
-const MEMBER_URN = 'urn:li:fsd_profile:SELF';
-
-const mockFetchConversationsPage = vi.fn();
+const { mockFetchConversationsPage } = vi.hoisted(() => ({
+  mockFetchConversationsPage: vi.fn(),
+}));
 let mockBackfillCutoff = 0;
 
-async function mergeProfilesOnTestDb(profiles: Profile[]): Promise<void> {
-  if (profiles.length === 0) return;
-  const urns = profiles.map((p) => p.urn);
-  const existing = await testDb.profiles.bulkGet(urns);
-  for (let i = 0; i < profiles.length; i++) {
-    const prev = existing[i];
-    if (prev) {
-      if (prev.occupation && !profiles[i].occupation) profiles[i].occupation = prev.occupation;
-      if (prev.pictureUrl && !profiles[i].pictureUrl) profiles[i].pictureUrl = prev.pictureUrl;
-      if (prev.location && !profiles[i].location) profiles[i].location = prev.location;
-    }
-  }
-  await testDb.profiles.bulkPut(profiles);
-}
+vi.mock('../../entrypoints/background/api/conversations', () => ({
+  fetchConversationsPage: mockFetchConversationsPage,
+}));
+vi.mock('../../entrypoints/background/auth/session', () => ({
+  getMemberUrn: vi.fn().mockResolvedValue('urn:li:fsd_profile:SELF'),
+}));
+vi.mock('@/lib/sync-settings', () => ({
+  getBackfillCutoff: () => Promise.resolve(mockBackfillCutoff),
+}));
+vi.mock('@/lib/debug-log', () => ({ debugLog: vi.fn() }));
 
-interface DiscoveryResult {
-  conversations: Conversation[];
-  profiles: Profile[];
-  isLastPage: boolean;
-  nextCursor: string | null;
-}
-
-/**
- * Mirror of discoverPage from sync-discovery.ts.
- * Uses testDb directly and mocked fetch function.
- */
-async function discoverPage(
-  category: string,
-  cursor: string | null
-): Promise<DiscoveryResult> {
-  const memberUrn = MEMBER_URN;
-
-  const { response: raw, nextCursor } = await mockFetchConversationsPage(category, cursor);
-  const { conversations: allConversations, profiles: allProfiles } = normalizeConversations(raw, memberUrn);
-
-  const isLastPage = allConversations.length === 0 || !nextCursor;
-
-  if (allConversations.length > 0 || allProfiles.length > 0) {
-    const profileMap = new Map<string, Profile>();
-    for (const p of allProfiles) {
-      profileMap.set(p.urn, p);
-    }
-    const dedupedProfiles = [...profileMap.values()];
-
-    await testDb.transaction('rw', [testDb.conversations, testDb.profiles], async () => {
-      if (dedupedProfiles.length > 0) {
-        await mergeProfilesOnTestDb(dedupedProfiles);
-      }
-      for (const conv of allConversations) {
-        const existing = await testDb.conversations.get(conv.id);
-        if (existing) {
-          await testDb.conversations.update(conv.id, {
-            participantUrns: conv.participantUrns.length > 0 ? conv.participantUrns : existing.participantUrns,
-            participantNames: conv.participantNames.length > 0 ? conv.participantNames : existing.participantNames,
-            participantPictures: conv.participantPictures.length > 0 ? conv.participantPictures : existing.participantPictures,
-            lastMessage: conv.lastMessage || existing.lastMessage,
-            lastActivityAt: Math.max(conv.lastActivityAt, existing.lastActivityAt),
-            category: conv.category,
-            archived: conv.archived,
-            starred: existing.starred,
-            read: conv.read,
-          });
-        } else {
-          await testDb.conversations.put(conv);
-        }
-      }
-    });
-  }
-
-  return { conversations: allConversations, profiles: allProfiles, isLastPage, nextCursor };
-}
-
-/**
- * Mirror of enqueueConversations from sync-discovery.ts.
- */
-async function enqueueConversations(
-  conversations: Conversation[],
-  category: string
-): Promise<{ enqueued: number; skipped: number }> {
-  let enqueued = 0;
-  let skipped = 0;
-
-  const cutoff = mockBackfillCutoff;
-
-  for (const conv of conversations) {
-    const existing = await testDb.syncQueue.get(conv.id);
-    const tooOld = cutoff > 0 && conv.lastActivityAt < cutoff;
-
-    if (!existing) {
-      const item: SyncQueueItem = {
-        conversationId: conv.id,
-        category,
-        lastActivityAt: conv.lastActivityAt,
-        messagesSyncedAt: 0,
-        status: tooOld ? 'done' : 'pending',
-        failCount: 0,
-        lastFailedAt: 0,
-        priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
-      };
-      await testDb.syncQueue.put(item);
-      if (tooOld) skipped++;
-      else enqueued++;
-    } else if (
-      conv.lastActivityAt > existing.messagesSyncedAt &&
-      existing.status !== 'pending' &&
-      existing.status !== 'syncing' &&
-      !tooOld
-    ) {
-      await testDb.syncQueue.update(conv.id, {
-        status: 'pending',
-        lastActivityAt: conv.lastActivityAt,
-        priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
-        category,
-      });
-      enqueued++;
-    } else {
-      if (conv.lastActivityAt > existing.lastActivityAt) {
-        await testDb.syncQueue.update(conv.id, {
-          lastActivityAt: conv.lastActivityAt,
-          category,
-        });
-      }
-      skipped++;
-    }
-  }
-
-  return { enqueued, skipped };
-}
+import { discoverPage, enqueueConversations } from '../../entrypoints/background/sync/sync-discovery';
 
 beforeEach(() => {
   mockFetchConversationsPage.mockReset();

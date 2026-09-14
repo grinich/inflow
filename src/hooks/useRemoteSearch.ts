@@ -21,18 +21,20 @@ export function useRemoteSearch() {
   const [hasMore, setHasMore] = useState(false);
   const cursorRef = useRef<string | null>(null);
   const searchIdRef = useRef(0);
+  const loadingMoreSearchIdRef = useRef<number | null>(null);
 
   // Reset and fire search when query changes
   useEffect(() => {
+    const currentSearchId = ++searchIdRef.current;
     // Reset state
     setResultIds([]);
     setIsSearching(false);
     setHasMore(false);
     cursorRef.current = null;
+    loadingMoreSearchIdRef.current = null;
 
     if (!searchQuery) return;
 
-    const currentSearchId = ++searchIdRef.current;
     setIsSearching(true);
 
     const timer = setTimeout(async () => {
@@ -58,18 +60,22 @@ export function useRemoteSearch() {
       }
     }, 400);
 
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+    return () => {
+      clearTimeout(timer);
+      // Also invalidate requests that have already passed the debounce. Clearing
+      // search, switching accounts, or unmounting must discard their responses.
+      searchIdRef.current++;
+    };
+  }, [searchQuery, dbGen]);
 
   // Load next page of results — use a ref to guard against concurrent calls
   // so we don't need isSearching in the dependency array (which would make
   // the callback identity unstable on every search cycle).
-  const isLoadingMoreRef = useRef(false);
   const loadMore = useCallback(async () => {
-    if (!searchQuery || !cursorRef.current || isLoadingMoreRef.current) return;
-
     const currentSearchId = searchIdRef.current;
-    isLoadingMoreRef.current = true;
+    if (!searchQuery || !cursorRef.current || loadingMoreSearchIdRef.current === currentSearchId) return;
+
+    loadingMoreSearchIdRef.current = currentSearchId;
     setIsSearching(true);
 
     try {
@@ -82,9 +88,7 @@ export function useRemoteSearch() {
 
       if (res.success && res.data) {
         setResultIds((prev) => {
-          const existing = new Set(prev);
-          const newIds = res.data.conversationIds.filter((id: string) => !existing.has(id));
-          return [...prev, ...newIds];
+          return [...new Set([...prev, ...res.data.conversationIds])];
         });
         cursorRef.current = res.data.nextCursor;
         setHasMore(!!res.data.nextCursor);
@@ -92,7 +96,9 @@ export function useRemoteSearch() {
     } catch {
       // Pagination failed — silently ignore
     } finally {
-      isLoadingMoreRef.current = false;
+      if (loadingMoreSearchIdRef.current === currentSearchId) {
+        loadingMoreSearchIdRef.current = null;
+      }
       if (searchIdRef.current === currentSearchId) {
         setIsSearching(false);
       }

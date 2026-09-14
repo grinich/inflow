@@ -28,14 +28,13 @@ Tool calls answer structured errors rather than hanging: with agent access disab
 every call (from any transport) returns *"Agent access is disabled…"* with the
 instructions to enable it.
 
-## Claude Desktop — Inflow.mcpb (the consumer path)
+## Desktop MCP — Inflow.mcpb
 
-`Inflow.mcpb` is a [Claude Desktop Extension](https://www.anthropic.com/engineering/desktop-extensions):
-a bundled MCP server that installs with a double-click (no terminal, no config
-files — Claude Desktop ships its own Node). It bridges Claude Desktop to the
-inflow extension over `ws://127.0.0.1:48632`; the extension dials out to it and
-serves the same gated executor as every other transport. Works with **no inflow
-tab open** — Chrome just has to be running.
+`Inflow.mcpb` contains a standard MCP server. Claude Desktop installs the bundle
+with a double-click; Codex can run the same server after the bundle is unpacked.
+It bridges the MCP client to the inflow extension over `ws://127.0.0.1:48632`;
+the extension dials out to it and serves the same gated executor as every other
+transport. It works with **no inflow tab open** — Chrome just has to be running.
 
 Setup:
 
@@ -50,6 +49,22 @@ Setup:
    status line flips to *Connected* within ~30 seconds.
 4. Ask Claude Desktop to work your inbox. If tools are missing, the
    `inflow_status` tool explains exactly which step is incomplete.
+
+### Codex setup
+
+Download `Inflow.mcpb`, unpack it, and register its included server:
+
+```sh
+mkdir -p "$HOME/inflow-mcp"
+unzip "$HOME/Downloads/Inflow.mcpb" -d "$HOME/inflow-mcp"
+codex mcp add inflow -- node "$HOME/inflow-mcp/server/index.mjs"
+```
+
+Restart the local Codex task, call `get_pairing_code`, and approve the pairing
+link in inflow. The pairing screen may mention Claude because `.mcpb` is Claude's
+bundle format; the local server itself is standard MCP. Only one MCP client can
+own port 48632 at a time, so fully quit Claude Desktop before using Codex (or vice
+versa).
 
 The prefill is deliberately not auto-saved: a crafted `?pair=` link can put a
 code in the box, but only your Save applies it — and pairing alone grants
@@ -157,34 +172,26 @@ Same executor, same gates, same result shape. This is the surface for your own
 DevTools console, userscripts, and agents that can coexist with the embedded
 iframe — just not Claude in Chrome today, per above.
 
-## ChatGPT and Codex — WebMCP
+## ChatGPT and Codex — current WebMCP limitation
 
-inflow publishes the same tools through
-[WebMCP](https://developer.chrome.com/docs/ai/webmcp)
-(`document.modelContext.registerTool()`), the open standard for a page offering
-tools to an agent. There is nothing to install and no pairing code:
+inflow implements the JavaScript side of
+[WebMCP](https://learn.chatgpt.com/docs/webmcp) with
+`document.modelContext.registerTool()`, including the required top-level proxy:
+tools registered inside the embedded extension iframe are invisible to ChatGPT,
+so `inflow.im/app` mirrors them onto its own document.
 
-1. Enable agent access in inflow (`⌘K` → **Configure agent access**).
-2. Open **https://inflow.im/app** and give the agent access to the site.
-3. Ask it what tools the page offers — inflow's appear on their own.
+That proxy is not enough for direct ChatGPT/Codex support today. OpenAI's site
+tools currently run in the ChatGPT desktop app's **built-in browser**, while
+inflow's data and executor live in the extension installed in the user's regular
+Chrome profile. The built-in browser cannot discover that extension through
+`chrome.runtime`, so it shows inflow's install fallback and has no tool executor
+to register. OpenAI's external browser extension provides browser control, but
+the current documentation does not list it as a WebMCP site-tools surface.
 
-Verified working in Codex. OpenAI lists ChatGPT's built-in browser, ChatGPT
-Work and Codex as the surfaces that support site tools.
-
-Two implementation notes, both of which cost real debugging to find:
-
-- **Chrome's origin trial is not the gate.** Chrome ships WebMCP behind an
-  origin trial (149–156), but agents that want it inject their own
-  implementation into the page, so no trial token or `chrome://flags` is
-  needed on the user's side. (Google's own Model Context Tool Inspector plus
-  `chrome://flags/#enable-webmcp-testing` is still the way to *inspect* the
-  surface by hand.)
-- **The registration must be on the top-level page.** Tools registered inside
-  an iframe are ignored, and at inflow.im/app the extension runs in one — so
-  the shell proxies the frame's tools onto its own document. inflow also waits
-  for the API to appear rather than checking once at load: agents inject it
-  when the user grants site access, which is normally after the page has
-  loaded and already looked.
+Use the local MCP bridge above with Codex today. Direct WebMCP requires either a
+cross-browser relay between `inflow.im/app` and the Chrome extension, or future
+WebMCP support in the external Chrome surface. The existing top-level registration
+and late-API detection remain useful groundwork for either path.
 
 ## Troubleshooting
 

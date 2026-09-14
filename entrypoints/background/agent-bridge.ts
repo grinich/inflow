@@ -79,8 +79,10 @@ function connect(token: string): void {
     return;
   }
   socket = ws;
+  let authenticated = false;
 
   ws.onmessage = (event) => {
+    if (socket !== ws) return;
     let msg: any;
     try {
       msg = JSON.parse(String(event.data));
@@ -90,26 +92,27 @@ function connect(token: string): void {
     if (!msg || typeof msg !== 'object') return;
 
     if (msg.type === 'HELLO') {
-      if (msg.token === token) {
+      if (msg.token === token && msg.v === 1) {
         ws.send(JSON.stringify({ type: 'AUTH', v: 1, token }));
+        authenticated = true;
       } else {
         // The server's token isn't the code the user pasted — a stale or
         // wrong pairing. Don't hot-retry; the alarm re-checks after the user
         // fixes the code.
-        socket = null;
-        try {
-          ws.close();
-        } catch {}
-        publishStatus('unpaired');
+        disconnect('unpaired');
       }
       return;
     }
     if (msg.type === 'READY') {
+      if (!authenticated) return;
       ready = true;
       retryDelayMs = 1000;
       publishStatus('connected');
       return;
     }
+    // The local port alone does not prove server identity. Neither tool
+    // discovery nor execution is available before the token handshake.
+    if (!ready) return;
     if (msg.type === 'PING') {
       ws.send(JSON.stringify({ type: 'PONG' }));
       return;
@@ -120,12 +123,11 @@ function connect(token: string): void {
   };
 
   ws.onclose = () => {
+    if (socket !== ws) return;
     ready = false;
-    if (socket === ws) {
-      socket = null;
-      publishStatus('disconnected');
-      scheduleRetry(token);
-    }
+    socket = null;
+    publishStatus('disconnected');
+    scheduleRetry(token);
   };
   ws.onerror = () => {
     // onclose follows and handles retry.
@@ -149,6 +151,8 @@ async function answer(
       isError: true,
     };
   }
+  // A settings change can revoke this connection while its tool is running.
+  if (socket !== ws || !ready) return;
   try {
     ws.send(JSON.stringify({ id: msg.id, ok: true, result }));
   } catch {}

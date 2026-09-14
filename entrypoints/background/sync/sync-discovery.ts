@@ -2,7 +2,7 @@ import { fetchConversationsPage, type InboxCategory } from '../api/conversations
 import { getMemberUrn } from '../auth/session';
 import { normalizeConversations } from '@/lib/voyager-normalizer';
 import { debugLog } from '@/lib/debug-log';
-import { db, mergeProfiles, type SyncQueueItem } from '@/db/database';
+import { db, getDbGeneration, mergeProfiles, type SyncQueueItem } from '@/db/database';
 import { mergeConversation } from './merge-conversation';
 import { getBackfillCutoff } from '@/lib/sync-settings';
 import type { ServerConversation } from '@/types/conversation';
@@ -27,9 +27,17 @@ export async function discoverPage(
   category: InboxCategory,
   cursor: string | null
 ): Promise<DiscoveryResult> {
+  const database = db;
+  const generation = getDbGeneration();
   const memberUrn = await getMemberUrn();
+  if (generation !== getDbGeneration()) {
+    throw new Error('Account changed during conversation discovery');
+  }
 
   const { response: raw, nextCursor } = await fetchConversationsPage(category, cursor);
+  if (generation !== getDbGeneration()) {
+    throw new Error('Account changed during conversation discovery');
+  }
   const { conversations: allConversations, profiles: allProfiles } = normalizeConversations(raw, memberUrn);
 
   const isLastPage = !nextCursor;
@@ -42,18 +50,12 @@ export async function discoverPage(
   // Store conversations and profiles to main tables.
   // Use merge logic to avoid overwriting existing data with empty values.
   if (allConversations.length > 0 || allProfiles.length > 0) {
-    const profileMap = new Map<string, Profile>();
-    for (const p of allProfiles) {
-      profileMap.set(p.urn, p);
-    }
-    const dedupedProfiles = [...profileMap.values()];
-
-    await db.transaction('rw', [db.conversations, db.profiles, db.pendingActions, db.tombstones], async () => {
-      if (dedupedProfiles.length > 0) {
-        await mergeProfiles(dedupedProfiles);
+    await database.transaction('rw', [database.conversations, database.profiles, database.pendingActions, database.tombstones], async () => {
+      if (allProfiles.length > 0) {
+        await mergeProfiles(allProfiles, database);
       }
       for (const conv of allConversations) {
-        await mergeConversation(conv);
+        await mergeConversation(conv, database);
       }
     });
   }
@@ -72,15 +74,20 @@ export async function enqueueConversations(
   conversations: ServerConversation[],
   category: InboxCategory
 ): Promise<{ enqueued: number; skipped: number }> {
+  const database = db;
+  const generation = getDbGeneration();
   let enqueued = 0;
   let skipped = 0;
 
   // Get cutoff timestamp — conversations older than this skip message backfill
   const cutoff = await getBackfillCutoff();
+  if (generation !== getDbGeneration()) {
+    throw new Error('Account changed before enqueueing conversations');
+  }
 
-  await db.transaction('rw', db.syncQueue, async () => {
+  await database.transaction('rw', database.syncQueue, async () => {
     for (const conv of conversations) {
-      const existing = await db.syncQueue.get(conv.id);
+      const existing = await database.syncQueue.get(conv.id);
       const tooOld = cutoff > 0 && conv.lastActivityAt < cutoff;
       // Prefer the conversation's OWN category over the category being
       // discovered — a conversation can be seen by several discoveries, and
@@ -102,7 +109,7 @@ export async function enqueueConversations(
           lastFailedAt: 0,
           priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
         };
-        await db.syncQueue.put(item);
+        await database.syncQueue.put(item);
         if (tooOld) skipped++;
         else enqueued++;
       } else if (
@@ -113,7 +120,7 @@ export async function enqueueConversations(
       ) {
         // Conversation has new activity since last message sync — re-queue with
         // a fresh retry budget (a previously-failed item gets its full retries again).
-        await db.syncQueue.update(conv.id, {
+        await database.syncQueue.update(conv.id, {
           status: 'pending',
           lastActivityAt: conv.lastActivityAt,
           priority: Number.MAX_SAFE_INTEGER - conv.lastActivityAt,
@@ -125,7 +132,7 @@ export async function enqueueConversations(
       } else {
         // Update lastActivityAt if newer, but don't re-queue
         if (conv.lastActivityAt > existing.lastActivityAt) {
-          await db.syncQueue.update(conv.id, {
+          await database.syncQueue.update(conv.id, {
             lastActivityAt: conv.lastActivityAt,
             category: itemCategory,
           });

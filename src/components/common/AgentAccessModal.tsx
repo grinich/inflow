@@ -214,21 +214,21 @@ export function AgentAccessModal() {
           </p>
         </section>
 
-        {/* ChatGPT / Codex: nothing to install, so it goes first. */}
+        {/* Codex uses the standard MCP server inside the bundle. */}
         <section className="ml-[30px] mt-3 rounded-lg bg-surface p-3 ring-1 ring-ring">
-          <p className="text-sm font-medium text-fg">ChatGPT or Codex</p>
+          <p className="text-sm font-medium text-fg">Codex</p>
           <p className="mt-1 text-xs text-fg-secondary">
-            Nothing to install. Open{' '}
+            Connect through the local MCP bridge included in Inflow.mcpb.{' '}
             <a
-              href="https://inflow.im/app"
+              href="https://github.com/grinich/inflow/blob/main/docs/agent-tools.md#codex-setup"
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-500 underline hover:text-blue-400"
             >
-              inflow.im/app
-            </a>{' '}
-            with ChatGPT&apos;s browser or the Codex side panel, give it access to the site, and
-            ask it about your inbox — it finds inflow&apos;s tools on its own.
+              Codex setup guide
+            </a>
+            . Direct ChatGPT WebMCP cannot yet reach an extension installed in your separate
+            Chrome profile.
           </p>
         </section>
 

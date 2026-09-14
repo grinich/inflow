@@ -23,7 +23,7 @@ import { enqueueSend } from './send-queue';
 import { recordMarkRead, recordMutation } from './realtime/mark-read-suppression';
 import { debugLog } from '@/lib/debug-log';
 import { db, getDbGeneration, TOMBSTONE_TTL_MS } from '@/db/database';
-import type { PendingAction } from '@/db/database';
+import type { InflowDatabase, PendingAction } from '@/db/database';
 
 let draining = false;
 
@@ -92,38 +92,38 @@ function orderQueuedActions(queued: PendingAction[]): PendingAction[] {
  * Remove old confirmed/failed pending actions to prevent unbounded table growth.
  * Also prunes expired delete-tombstones. Called at the start of every drain cycle.
  */
-async function cleanupStaleActions(): Promise<void> {
+async function cleanupStaleActions(database: InflowDatabase): Promise<void> {
   try {
     // Reclaim stranded in-flight actions: mark hour-old 'pending' rows as
     // 'failed' so they stop guarding their conversation and age out with the
     // normal cleanup below.
     const abandonCutoff = Date.now() - PENDING_ABANDON_AGE_MS;
-    const abandoned = await db.pendingActions
+    const abandoned = await database.pendingActions
       .filter((a) => a.status === 'pending' && a.timestamp < abandonCutoff)
       .toArray();
     if (abandoned.length > 0) {
-      await db.pendingActions.bulkPut(abandoned.map((a) => ({ ...a, status: 'failed' as const })));
+      await database.pendingActions.bulkPut(abandoned.map((a) => ({ ...a, status: 'failed' as const })));
       debugLog('info', `[ACTION-QUEUE] Reclaimed ${abandoned.length} abandoned pending action(s)`);
     }
 
     const cutoff = Date.now() - ACTION_CLEANUP_AGE_MS;
-    const stale = await db.pendingActions
+    const stale = await database.pendingActions
       .filter((a) =>
         (a.status === 'confirmed' || a.status === 'failed') &&
         a.timestamp < cutoff
       )
       .toArray();
     if (stale.length > 0) {
-      await db.pendingActions.bulkDelete(stale.map((a) => a.id));
+      await database.pendingActions.bulkDelete(stale.map((a) => a.id));
       debugLog('info', `[ACTION-QUEUE] Cleaned up ${stale.length} stale action(s)`);
     }
 
     const tombstoneCutoff = Date.now() - TOMBSTONE_TTL_MS;
-    const expired = await db.tombstones
+    const expired = await database.tombstones
       .filter((t) => t.deletedAt < tombstoneCutoff)
       .toArray();
     if (expired.length > 0) {
-      await db.tombstones.bulkDelete(expired.map((t) => t.conversationId));
+      await database.tombstones.bulkDelete(expired.map((t) => t.conversationId));
     }
   } catch (err) {
     debugLog('warn', `[ACTION-QUEUE] Cleanup failed: ${err}`);
@@ -137,20 +137,21 @@ async function cleanupStaleActions(): Promise<void> {
 export async function drainActionQueue(): Promise<void> {
   if (draining) return;
   draining = true;
+  const database = db;
+  const gen = getDbGeneration();
 
   try {
     // Prune old confirmed/failed actions before draining
-    await cleanupStaleActions();
+    await cleanupStaleActions(database);
 
     const queued = orderQueuedActions(
-      await db.pendingActions.where('status').equals('queued').sortBy('timestamp'),
+      await database.pendingActions.where('status').equals('queued').sortBy('timestamp'),
     );
 
     if (queued.length === 0) return;
 
     debugLog('info', `[ACTION-QUEUE] Draining ${queued.length} queued action(s)`);
 
-    const gen = getDbGeneration();
     for (const action of queued) {
       if (getDbGeneration() !== gen) break; // account switched mid-drain — don't replay into the new DB
       // Stop if we've gone offline mid-drain
@@ -161,26 +162,32 @@ export async function drainActionQueue(): Promise<void> {
 
       let replayed = false;
       try {
-        await replayAction(action);
+        const applied = await enqueueSend(action.conversationId, async () => {
+          // The live queue may hold this replay while an account switch occurs.
+          if (getDbGeneration() !== gen) throw new Error('Account changed before action replay');
+          return replayAction(action, database, gen);
+        });
         replayed = true;
+        if (getDbGeneration() !== gen) break;
 
         // Complete send-specific bookkeeping BEFORE marking the action confirmed,
         // so a failure here can't leave a delivered message stuck as 'queued'.
-        if (action.type === 'send' && action.tempMessageId) {
-          await db.messages.update(action.tempMessageId, { status: 'sent' });
-          await db.draftAttachments.delete(action.tempMessageId).catch(() => {});
+        if (applied && action.type === 'send' && action.tempMessageId) {
+          await database.messages.update(action.tempMessageId, { status: 'sent' });
+          await database.draftAttachments.delete(action.tempMessageId).catch(() => {});
         }
-        await db.pendingActions.update(action.id, { status: 'confirmed' });
+        await database.pendingActions.update(action.id, { status: 'confirmed' });
 
         debugLog('info', `[ACTION-QUEUE] Replayed ${action.type} for ${action.conversationId}`);
       } catch (err) {
+        if (getDbGeneration() !== gen) break;
         if (replayed) {
           // The server-side action already succeeded — only the local bookkeeping
           // failed. Rolling back or re-queuing would resend on the next drain
           // (duplicate), so mark confirmed and move on. This MUST precede the
           // offline check below, or going offline here would re-queue it.
           debugLog('warn', `[ACTION-QUEUE] Post-replay bookkeeping failed for ${action.type} (${action.conversationId}): ${err}`);
-          await db.pendingActions.update(action.id, { status: 'confirmed' }).catch(() => {});
+          await database.pendingActions.update(action.id, { status: 'confirmed' }).catch(() => {});
           continue;
         }
 
@@ -192,8 +199,8 @@ export async function drainActionQueue(): Promise<void> {
 
         // Genuine server error — rollback
         debugLog('error', `[ACTION-QUEUE] Failed to replay ${action.type} for ${action.conversationId}: ${err}`);
-        await db.pendingActions.update(action.id, { status: 'failed' });
-        await rollbackAction(action);
+        await database.pendingActions.update(action.id, { status: 'failed' });
+        await rollbackAction(action, database);
       }
     }
   } catch (err) {
@@ -206,62 +213,60 @@ export async function drainActionQueue(): Promise<void> {
 /**
  * Replay a single queued action by calling the API directly.
  *
- * Category/read/star mutations go through enqueueSend so a drain replay can't
- * race a live mutation for the same conversation (same ordering guarantee as
- * the live handlers in messages.ts).
+ * The drainer runs this inside enqueueSend so replays share the ordering of
+ * live mutations for the same conversation.
  */
-async function replayAction(action: PendingAction): Promise<void> {
+async function replayAction(action: PendingAction, database: InflowDatabase, generation: number): Promise<boolean> {
   const convId = action.conversationId;
 
   switch (action.type) {
     case 'archive':
       recordMutation(convId);
-      await enqueueSend(convId, () => archiveConversation(convId));
+      await archiveConversation(convId);
       break;
     case 'unarchive':
       recordMutation(convId);
-      await enqueueSend(convId, () => unarchiveConversation(convId));
+      await unarchiveConversation(convId);
       break;
     case 'move_to_focused':
       recordMutation(convId);
-      await enqueueSend(convId, () => moveToFocused(convId));
+      await moveToFocused(convId);
       break;
     case 'move_to_other':
       recordMutation(convId);
-      await enqueueSend(convId, () => moveToOther(convId));
+      await moveToOther(convId);
       break;
     case 'move_to_spam':
       recordMutation(convId);
-      await enqueueSend(convId, () => moveToSpam(convId));
+      await moveToSpam(convId);
       break;
     case 'markRead':
       recordMarkRead(convId);
-      await enqueueSend(convId, () => markConversationRead(convId));
+      await markConversationRead(convId);
       break;
     case 'markUnread':
       recordMutation(convId);
-      await enqueueSend(convId, () => markConversationUnread(convId));
+      await markConversationUnread(convId);
       break;
     case 'star':
       recordMutation(convId);
-      await enqueueSend(convId, () => starConversation(convId));
+      await starConversation(convId);
       break;
     case 'unstar':
       recordMutation(convId);
-      await enqueueSend(convId, () => unstarConversation(convId));
+      await unstarConversation(convId);
       break;
     case 'delete':
       try {
-        await enqueueSend(convId, () => deleteConversation(convId));
+        await deleteConversation(convId);
       } catch (err: any) {
         // 404 = already deleted server-side — treat as success
-        if (err?.status === 404 || err?.message?.includes('404')) return;
+        if (err?.status === 404 || err?.message?.includes('404')) return true;
         throw err;
       }
       break;
     case 'send':
-      await replaySend(action);
-      break;
+      return replaySend(action, database, generation);
     case 'edit_message':
       if (action.bridgeMessage) {
         await editMessage(
@@ -282,30 +287,31 @@ async function replayAction(action: PendingAction): Promise<void> {
     case 'recall_message':
       if (action.bridgeMessage) {
         await recallMessage(action.bridgeMessage.messageId);
-        await db.messages.delete(action.bridgeMessage.messageId).catch(() => {});
+        await database.messages.delete(action.bridgeMessage.messageId).catch(() => {});
       }
       break;
     default:
       debugLog('warn', `[ACTION-QUEUE] Unknown action type: ${action.type}`);
   }
+  return true;
 }
 
 /**
  * Replay a send action. Reads file blobs from draftAttachments if present.
  */
-async function replaySend(action: PendingAction): Promise<void> {
-  if (!action.tempMessageId) return;
+async function replaySend(action: PendingAction, database: InflowDatabase, generation: number): Promise<boolean> {
+  if (!action.tempMessageId) return false;
 
   // Check the message still has 'queued' status (not retried/deleted by user)
-  const msg = await db.messages.get(action.tempMessageId);
-  if (!msg || msg.status !== 'queued') return;
+  const msg = await database.messages.get(action.tempMessageId);
+  if (!msg || msg.status !== 'queued') return false;
 
   const body = action.bridgeMessage?.body ?? msg.body;
   const convId = action.conversationId;
 
   // Recover file attachments from draftAttachments table
   let attachments: { name: string; type: string; size: number; dataBase64: string }[] | undefined;
-  const draft = await db.draftAttachments.get(action.tempMessageId).catch(() => undefined);
+  const draft = await database.draftAttachments.get(action.tempMessageId).catch(() => undefined);
   if (draft && draft.files.length > 0) {
     attachments = await Promise.all(
       draft.files.map(async (blob, i) => {
@@ -326,14 +332,15 @@ async function replaySend(action: PendingAction): Promise<void> {
     );
   }
 
-  // Serialize with live sends to the same conversation (shared send queue).
-  await enqueueSend(convId, () => sendMessage(convId, body, attachments));
+  if (getDbGeneration() !== generation) throw new Error('Account changed before queued send');
+  await sendMessage(convId, body, attachments);
+  return true;
 }
 
 /**
  * Rollback a failed action using its stored rollbackData.
  */
-async function rollbackAction(action: PendingAction): Promise<void> {
+async function rollbackAction(action: PendingAction, database: InflowDatabase): Promise<void> {
   const data = action.rollbackData;
   if (!data) return;
 
@@ -348,30 +355,30 @@ async function rollbackAction(action: PendingAction): Promise<void> {
     case 'star':
     case 'unstar':
       // rollbackData is a partial conversation update
-      await db.conversations.update(action.conversationId, data).catch(() => {});
+      await database.conversations.update(action.conversationId, data).catch(() => {});
       break;
     case 'delete':
       // rollbackData is { conversation, messages }. The delete is being undone,
       // so the tombstone must go too — otherwise sync would refuse to merge the
       // restored conversation.
-      await db.tombstones.delete(action.conversationId).catch(() => {});
+      await database.tombstones.delete(action.conversationId).catch(() => {});
       if (data.conversation) {
-        await db.conversations.put(data.conversation).catch(() => {});
+        await database.conversations.put(data.conversation).catch(() => {});
       }
       if (data.messages?.length) {
-        await db.messages.bulkPut(data.messages).catch(() => {});
+        await database.messages.bulkPut(data.messages).catch(() => {});
       }
       break;
     case 'send':
       // Mark the temp message as failed
       if (action.tempMessageId) {
-        await db.messages.update(action.tempMessageId, { status: 'failed' }).catch(() => {});
+        await database.messages.update(action.tempMessageId, { status: 'failed' }).catch(() => {});
       }
       break;
     case 'edit_message':
       // rollbackData is { messageId, body, editedAt, mentions }
       if (data.messageId) {
-        await db.messages.update(data.messageId, {
+        await database.messages.update(data.messageId, {
           body: data.body,
           editedAt: data.editedAt,
           mentions: data.mentions,
@@ -381,7 +388,7 @@ async function rollbackAction(action: PendingAction): Promise<void> {
     case 'react_emoji':
       // rollbackData is { messageId, reactions }
       if (data.messageId) {
-        await db.messages.update(data.messageId, {
+        await database.messages.update(data.messageId, {
           reactions: data.reactions,
         }).catch(() => {});
       }
@@ -389,7 +396,7 @@ async function rollbackAction(action: PendingAction): Promise<void> {
     case 'recall_message':
       // rollbackData is { message } — restore the deleted message
       if (data.message) {
-        await db.messages.put(data.message).catch(() => {});
+        await database.messages.put(data.message).catch(() => {});
       }
       break;
   }

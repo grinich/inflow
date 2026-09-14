@@ -45,6 +45,7 @@ import { checkForUpdate } from './update-check';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 import type { Invitation, SentInvitation } from '@/types/network';
 import type { Profile } from '@/types/profile';
+import type { Message } from '@/types/message';
 
 /**
  * Serialize a mutation (archive/move/read/star/delete/edit) on the same
@@ -94,14 +95,25 @@ async function storeArrivedPage<T extends { id: string; status: string }>(
   rows: T[]
 ): Promise<number> {
   if (!rows.length) return 0;
-  const ids = rows.map((r) => r.id) as Parameters<typeof table.bulkGet>[0];
-  const existing = await table.bulkGet(ids);
-  // Never resurrect one the user accepted, ignored or withdrew since.
-  const fresh = rows.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
-  if (fresh.length) await table.bulkPut(fresh);
-  // How many we had never seen. A page of nothing new is the signal that the
-  // walk has caught up with what is already stored.
-  return existing.filter((row) => !row).length;
+  return table.db.transaction('rw', table, async () => {
+    const ids = rows.map((r) => r.id) as Parameters<typeof table.bulkGet>[0];
+    const existing = await table.bulkGet(ids);
+    // Keep the status check and write atomic with accept/ignore/withdraw.
+    const fresh = rows.filter((_, i) => !existing[i] || existing[i]!.status === 'pending');
+    if (fresh.length) await table.bulkPut(fresh);
+    return existing.filter((row) => !row).length;
+  });
+}
+
+/** Every fetch path must preserve metadata delivered while its request was in flight. */
+async function storeFetchedMessages(messages: Message[]): Promise<void> {
+  let appliedReceipts: string[] = [];
+  await db.transaction('rw', db.messages, async () => {
+    preserveSseFields(messages, await db.messages.bulkGet(messages.map((m) => m.id)));
+    appliedReceipts = applyPendingReceipts(messages);
+    await db.messages.bulkPut(messages);
+  });
+  consumePendingReceipts(appliedReceipts);
 }
 
 /**
@@ -109,7 +121,7 @@ async function storeArrivedPage<T extends { id: string; status: string }>(
  *
  * Removals are the only change an incremental walk cannot see — a withdrawn or
  * expired request just vanishes from the middle of the list — so the full read
- * still happens, just hourly rather than on every open of the view.
+ * still happens, just every six hours rather than on every open of the view.
  */
 const WALK_TTL_MS = 6 * 60 * 60 * 1000;
 
@@ -169,20 +181,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         // Recalled tombstones are never stored (orphaned-separator bug) but
         // stay in `messages` so the reconcile below removes stored copies.
         const live = withoutRecalled(messages);
-        // Re-fetched rows lack SSE-only fields (seenAt/reactions/editedAt) —
-        // carry them over from the existing rows inside one transaction so a
-        // concurrent SSE write can't land between the read and the put.
-        // Receipts that arrived before these rows existed: apply AFTER the
-        // preserve step (so a newer stored seenAt wins) and consume only once
-        // the write commits.
-        let appliedReceipts: string[] = [];
-        await db.transaction('rw', db.messages, async () => {
-          const existingRows = await db.messages.bulkGet(live.map((m) => m.id));
-          preserveSseFields(live, existingRows);
-          appliedReceipts = applyPendingReceipts(live);
-          await db.messages.bulkPut(live);
-        });
-        consumePendingReceipts(appliedReceipts);
+        await storeFetchedMessages(live);
         if (live.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
         prefetchSharedPosts(live).catch(() => {});
         // Drop stored copies of messages this page no longer returned live
@@ -201,9 +200,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
             if (m.senderUrn === memberUrn) m.isFromMe = true;
           }
           // Write immediately — UI updates via useLiveQuery after each page
-          const appliedReceipts = applyPendingReceipts(messages);
-          await db.messages.bulkPut(messages);
-          consumePendingReceipts(appliedReceipts);
+          await storeFetchedMessages(messages);
           if (messages.some(m => m.attachments && m.attachments.length > 0)) hasAttachments = true;
           prefetchSharedPosts(messages).catch(() => {});
           if (page === 0) {
@@ -257,7 +254,10 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
           'info',
           `[SEND] Stored canonical from response: ${sent.id.substring(0, 50)}... deliveredAt=${sent.createdAt}`
         );
+        let appliedReceipts: string[] = [];
         await db.transaction('rw', db.messages, async () => {
+          preserveSseFields([sent], [await db.messages.get(sent.id)]);
+          appliedReceipts = applyPendingReceipts([sent]);
           // Retire at most ONE matching temp — the OLDEST, since rapid
           // same-body sends resolve in order (same rules as the SSE echo
           // cleanup: failed/queued temps have no server copy and must stay).
@@ -274,6 +274,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
           if (temps.length > 0) await db.messages.delete(temps[0].id);
           await db.messages.put(sent);
         });
+        consumePendingReceipts(appliedReceipts);
         await db.transaction('rw', db.conversations, async () => {
           const conv = await db.conversations.get(msg.conversationId);
           if (!conv) return;
@@ -379,12 +380,14 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       // Walk every page: the view has no load-more, so anything left unfetched
       // is permanently invisible to the user.
       let complete = false;
+      let fullyParsed = true;
       let total: number | null = null;
       for (let page = 0; page < MAX_PAGES; page++) {
         let raw: any;
         try {
           raw = await fetchInvitationsRaw(page * PAGE, PAGE);
         } catch (err) {
+          if (page === 0) throw err;
           // Keep what we already have. Ten-plus sequential Voyager calls will
           // occasionally trip a rate limit, and discarding several hundred
           // successfully fetched invitations over the last page is far worse
@@ -393,6 +396,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
           break;
         }
         const { invitations: batch, profiles: batchProfiles, rawCount } = normalizeInvitations(raw);
+        if (batch.length < rawCount) fullyParsed = false;
         total ??= invitationPaging(raw)?.total ?? null;
         // Guard against a server that ignores `start` and replays page 1 forever.
         const unseen = batch.filter((i) => !seenIds.has(i.id));
@@ -424,13 +428,13 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         // ignoring `start`; we have to stop either way, but it is not proof
         // that we saw everything.
         if (unseen.length === 0) {
-          complete = !serverSaysMore;
+          complete = rawCount === 0 && !serverSaysMore && fullyParsed;
           break;
         }
         // Stop on the SERVER's page size, not the normalized count: a full page
         // where some entities failed to parse is not the end of the list.
         if (rawCount < PAGE && !serverSaysMore) {
-          complete = true;
+          complete = fullyParsed;
           break;
         }
       }
@@ -448,6 +452,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         // outcome here, so decline the inference and say so.
         const looksTruncated = doomed.length > 50 && invitations.length < heldBefore / 2;
         if (looksTruncated) {
+          complete = false;
           debugLog(
             'error',
             `FETCH_INVITATIONS declined to prune ${doomed.length} rows: fetched only ${invitations.length} but hold ${localPending.length}`
@@ -482,6 +487,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       const seenIds = new Set<string>();
       let total: number | null = null;
       let complete = false;
+      let fullyParsed = true;
       // Reading all 32 pages to rediscover an unchanged list is the bulk of
       // what made this slow. Stop early when we recognise a whole page AND
       // hold exactly as many rows as the server says exist — see caughtUp.
@@ -503,6 +509,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
           break;
         }
         const { invitations: batch, rawCount, total: pageTotal } = scrapeSentInvitations(source);
+        if (batch.length < rawCount) fullyParsed = false;
         total ??= pageTotal; // only the first page carries the heading
         const unseen = batch.filter((i) => !seenIds.has(i.id));
         for (const i of unseen) seenIds.add(i.id);
@@ -525,11 +532,14 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
         // read: a full page with one unreadable row is not the end of the list,
         // and treating it as one would also let the prune below run.
         if (rawCount < SENT_PAGE_SIZE || unseen.length === 0) {
-          complete = true;
+          // A repeated/unreadable page is not evidence that absent rows were
+          // withdrawn. Nor is a short page while the heading says more exist.
+          complete = rawCount < SENT_PAGE_SIZE && fullyParsed &&
+            (total !== null ? sent.length >= total : sent.length > 0);
           break;
         }
         if (total !== null && sent.length >= total) {
-          complete = true;
+          complete = fullyParsed;
           break;
         }
       }
@@ -743,7 +753,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
                 if (m.senderUrn === memberUrn) m.isFromMe = true;
                 if (m.createdAt > maxCreatedAt) maxCreatedAt = m.createdAt;
               }
-              await db.messages.bulkPut(messages);
+              await storeFetchedMessages(messages);
               if (messages.some(m => m.attachments && m.attachments.length > 0)) {
                 hasAttachments = true;
               }

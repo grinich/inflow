@@ -149,8 +149,39 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
 
   // Clear prefetch cache on tab change or DB reset
   useEffect(() => {
-    prefetchedRef.current.clear();
-  }, [inboxTab]);
+    prefetchedRef.current = new Set();
+    return () => { prefetchedRef.current = new Set(); };
+  }, [inboxTab, dbGen]);
+
+  // Share in-flight reservations between keyboard and scroll prefetch. Reserve
+  // before awaiting IndexedDB so a render or scroll cannot request the same
+  // threads twice. Remember cached threads too, rather than recounting all of
+  // their messages on every live-query update.
+  const prefetchConversations = useCallback(async (ids: string[]) => {
+    const database = db;
+    if (!database) return;
+    const checked = prefetchedRef.current;
+    const toCheck = ids.filter((id) => {
+      if (checked.has(id)) return false;
+      checked.add(id);
+      return true;
+    });
+    if (toCheck.length === 0) return;
+
+    try {
+      const cached = await Promise.all(toCheck.map((id) =>
+        database.messages.where('conversationId').equals(id).limit(1).primaryKeys()
+      ));
+      if (checked !== prefetchedRef.current || database !== db) return;
+
+      const uncached = toCheck.filter((_, i) => cached[i].length === 0);
+      if (uncached.length === 0) return;
+      const result = await sendBridgeMessage({ type: 'PREFETCH_MESSAGES', conversationIds: uncached });
+      if (!result.success) for (const id of uncached) checked.delete(id);
+    } catch {
+      for (const id of toCheck) checked.delete(id);
+    }
+  }, []);
 
   // Scroll-triggered infinite loading: dual-mode sentinel
   // - Active search with more results → load more search results
@@ -188,24 +219,11 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
     const ahead = conversations.slice(idx + 1, idx + 3).map((c) => c.id);
     if (ahead.length === 0) return;
 
-    const toCheck = ahead.filter((id) => !prefetchedRef.current.has(id));
-    if (toCheck.length === 0) return;
-
-    (async () => {
-      const uncached: string[] = [];
-      for (const id of toCheck) {
-        const count = await db.messages.where('conversationId').equals(id).count();
-        if (count === 0) uncached.push(id);
-      }
-      if (uncached.length === 0) return;
-      for (const id of uncached) prefetchedRef.current.add(id);
-      sendBridgeMessage({ type: 'PREFETCH_MESSAGES', conversationIds: uncached })
-      .catch(() => { for (const id of uncached) prefetchedRef.current.delete(id); });
-    })();
-  }, [selectedConversationId, conversations]);
+    void prefetchConversations(ahead);
+  }, [selectedConversationId, conversations, inboxTab, dbGen, prefetchConversations]);
 
   // Scroll-idle prefetch: when scrolling stops, find visible unsynced conversations and prefetch messages
-  const handleScrollIdle = useCallback(async () => {
+  const handleScrollIdle = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
@@ -222,22 +240,8 @@ export function ConversationList({ conversations, isLoading, isDiscovering, cate
         }
       }
     }
-    if (visibleIds.length === 0) return;
-
-    // Batch-check which visible conversations have zero cached messages
-    const uncached: string[] = [];
-    for (const id of visibleIds) {
-      const count = await db.messages.where('conversationId').equals(id).count();
-      if (count === 0) uncached.push(id);
-    }
-    if (uncached.length === 0) return;
-
-    // Mark as requested so we don't re-request
-    for (const id of uncached) prefetchedRef.current.add(id);
-
-    sendBridgeMessage({ type: 'PREFETCH_MESSAGES', conversationIds: uncached })
-      .catch(() => { for (const id of uncached) prefetchedRef.current.delete(id); });
-  }, []);
+    void prefetchConversations(visibleIds);
+  }, [prefetchConversations]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;

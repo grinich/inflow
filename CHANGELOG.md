@@ -8,8 +8,8 @@ All notable changes to inflow are documented here. This project follows
 
 **AI agents can work your LinkedIn inbox.** inflow now exposes its inbox as
 structured tools, so an agent reads and acts through inflow's own data and
-actions instead of screen-scraping LinkedIn. Claude and ChatGPT/Codex both
-work today, by different routes. Everything is off until you turn it on.
+actions instead of screen-scraping LinkedIn. Claude Desktop and Codex work
+today through the local MCP bridge. Everything is off until you turn it on.
 
 ### Added
 - **Claude Desktop connects with a double-click.** Download `Inflow.mcpb` from
@@ -31,17 +31,16 @@ work today, by different routes. Everything is off until you turn it on.
   notification, and every call from every surface passes through one gate that
   re-checks both toggles. Demo mode covers agent tools too, so the whole thing
   can be tried against fake data before it ever touches your account.
-- **ChatGPT and Codex work too, with nothing to install.** inflow publishes the
-  same tools through [WebMCP](https://developer.chrome.com/docs/ai/webmcp)
-  (`document.modelContext`), the open standard for a page offering tools to an
-  agent. Open inflow.im/app, give the agent access to the site, and it
-  discovers what inflow can do on its own — no bundle, no pairing code, no
-  configuration. Verified working in Codex.
-
-  Chrome only ships WebMCP behind an origin trial, but agents that want it
-  bring their own implementation, so this needs no flags on your side. inflow
-  registers its tools on the top-level page rather than inside the embedded
-  app frame, because tools inside an iframe are invisible to the agent.
+- **Codex uses the same local MCP bridge.** `Inflow.mcpb` contains a standard
+  MCP server that Codex can run after the bundle is unpacked. The server now
+  advertises the complete tool catalog before Chrome connects, so clients that
+  snapshot tools during startup do not get stuck with only setup commands.
+- **WebMCP groundwork is included, but direct ChatGPT/Codex WebMCP is not yet
+  available.** inflow registers tools on the top-level `inflow.im/app` page,
+  because tools inside an iframe are invisible to the agent. OpenAI currently
+  exposes site tools in ChatGPT's built-in browser, which cannot access the
+  inflow extension installed in a separate Chrome profile. Direct WebMCP needs
+  a cross-browser relay or future support in the external Chrome surface.
 - **Other ways in.** Claude in Chrome can call the tools from any inflow.im page
   over extension messaging, and scripts on inflow.im/app get them through
   `window.inflowAgent`.

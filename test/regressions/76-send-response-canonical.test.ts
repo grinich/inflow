@@ -250,4 +250,19 @@ describe('SEND_MESSAGE stores the canonical message from the response', () => {
     expect(res.success).toBe(true);
     expect(await testDb.messages.count()).toBe(0); // nothing fabricated
   });
+
+  it('preserves receipt and reaction metadata delivered before the send response', async () => {
+    const reactions = [{ emoji: '👍', count: 1, firstReactedAt: SERVER_T + 1, viewerReacted: false }];
+    vi.mocked(sendMessage).mockImplementationOnce(async () => {
+      await testDb.messages.put({
+        ...extractSentMessage({ value: sentEntity(SERVER_T) }, CONV_ID, MEMBER_URN)!,
+        seenAt: SERVER_T + 2, reactions,
+      });
+      return { value: sentEntity(SERVER_T) } as any;
+    });
+
+    await handleMessage({ type: 'SEND_MESSAGE', conversationId: CONV_ID, body: 'hello world' });
+
+    expect(await testDb.messages.get(MSG_URN)).toMatchObject({ seenAt: SERVER_T + 2, reactions });
+  });
 });

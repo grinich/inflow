@@ -210,4 +210,21 @@ describe('invitation walk resilience', () => {
 
     expect(mergeProfiles).toHaveBeenCalledWith(profiles);
   });
+
+  it('does not treat a repeated page without a trustworthy total as complete', async () => {
+    await testDb.invitations.put(inv('cached'));
+    fetchInvitationsRaw.mockResolvedValue(page(0, PAGE));
+
+    const res = await handleMessage({ type: 'FETCH_INVITATIONS' });
+
+    expect(fetchInvitationsRaw).toHaveBeenCalledTimes(2);
+    expect((res.data as any).complete).toBe(false);
+    expect(await testDb.invitations.get('cached')).toBeDefined();
+    expect(await testDb.walkState.get('invitations')).toBeUndefined();
+  });
+
+  it('surfaces failure on the first page instead of reporting an empty successful fetch', async () => {
+    fetchInvitationsRaw.mockRejectedValueOnce(new Error('429 Too Many Requests'));
+    await expect(handleMessage({ type: 'FETCH_INVITATIONS' })).rejects.toThrow('429');
+  });
 });

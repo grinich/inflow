@@ -14,22 +14,22 @@ import type { ServerConversation } from '@/types/conversation';
  * Every merge stamps seenInSyncAt / resets missedSyncCycles — the deletion
  * sweep uses these to detect conversations the server stopped returning.
  */
-export async function mergeConversation(conv: ServerConversation): Promise<void> {
-  const existing = await db.conversations.get(conv.id);
+export async function mergeConversation(conv: ServerConversation, database = db): Promise<void> {
+  const existing = await database.conversations.get(conv.id);
   if (!existing) {
     // A recent local delete leaves a tombstone: a page fetched before the
     // delete must not resurrect the conversation. Expired tombstones are
     // cleared and no longer block (the server stops returning deleted
     // conversations long before the TTL).
-    const tombstone = await db.tombstones.get(conv.id);
+    const tombstone = await database.tombstones.get(conv.id);
     if (tombstone) {
       if (Date.now() - tombstone.deletedAt < TOMBSTONE_TTL_MS) return;
-      await db.tombstones.delete(conv.id);
+      await database.tombstones.delete(conv.id);
     }
     // Fields a sparse payload omitted get safe defaults on first insert.
     // (Also normalizes starred so a new row is never stored with
     // starred=undefined, which drops it from the starred index.)
-    await db.conversations.put({
+    await database.conversations.put({
       ...conv,
       read: conv.read ?? 1,
       archived: conv.archived ?? 0,
@@ -46,7 +46,7 @@ export async function mergeConversation(conv: ServerConversation): Promise<void>
   // it read. Otherwise a stale server page clobbers already-confirmed optimistic
   // state (e.g. an archive that pops back into Focused after the action settles).
   const guarded =
-    (await hasPendingAction(conv.id)) ||
+    (await hasPendingAction(conv.id, database)) ||
     isMutationSuppressed(conv.id) ||
     shouldSuppressConversationUpdate(conv.id);
 
@@ -56,7 +56,7 @@ export async function mergeConversation(conv: ServerConversation): Promise<void>
   // must still apply: cross-device read changes don't bump lastActivityAt.
   const fresh = conv.lastActivityAt >= existing.lastActivityAt;
 
-  await db.conversations.update(conv.id, {
+  await database.conversations.update(conv.id, {
     participantUrns: conv.participantUrns?.length > 0 ? conv.participantUrns : existing.participantUrns,
     participantNames: conv.participantNames?.length > 0 ? conv.participantNames : existing.participantNames,
     participantPictures: conv.participantPictures?.length > 0 ? conv.participantPictures : existing.participantPictures,

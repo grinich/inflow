@@ -522,21 +522,22 @@ export async function migrateDraftsFromLocalStorage(): Promise<void> {
  * Upsert profiles without letting a sparse payload wipe previously-known
  * fields — the Messenger API often omits publicId/occupation/picture.
  */
-export async function mergeProfiles(profiles: Profile[]): Promise<void> {
+export async function mergeProfiles(profiles: Profile[], database = db): Promise<void> {
   if (profiles.length === 0) return;
-  // Work on copies so we never mutate the caller's Profile objects in place.
-  profiles = profiles.map((p) => ({ ...p }));
-  const urns = profiles.map((p) => p.urn);
+  const urns = [...new Set(profiles.map((p) => p.urn))];
   // Read + merge + write in one transaction: this runs concurrently from
   // independent background paths (SSE, discovery, sync, repair), and a stale
   // bulkGet snapshot would let a sparse copy overwrite fields another writer
   // just filled in.
-  await db.transaction('rw', db.profiles, async () => {
-    const existing = await db.profiles.bulkGet(urns);
-    for (let i = 0; i < profiles.length; i++) {
-      const prev = existing[i];
+  await database.transaction('rw', database.profiles, async () => {
+    const existing = await database.profiles.bulkGet(urns);
+    const merged = new Map(existing.filter((p): p is Profile => !!p).map((p) => [p.urn, p]));
+    for (const incoming of profiles) {
+      // A page can contain several representations of the same profile. Merge
+      // against the preceding representation too, not just the stored snapshot.
+      const p = { ...incoming };
+      const prev = merged.get(p.urn);
       if (prev) {
-        const p = profiles[i];
         // Never overwrite a previously-known value with an empty one. The
         // Messenger API returns sparse profiles (often missing
         // publicId/occupation/picture), so a routine poll must not wipe
@@ -549,7 +550,8 @@ export async function mergeProfiles(profiles: Profile[]): Promise<void> {
         if (prev.pictureUrl && !p.pictureUrl) p.pictureUrl = prev.pictureUrl;
         if (prev.location && !p.location) p.location = prev.location;
       }
+      merged.set(p.urn, p);
     }
-    await db.profiles.bulkPut(profiles);
+    await database.profiles.bulkPut([...merged.values()]);
   });
 }

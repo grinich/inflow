@@ -95,15 +95,17 @@ it('Cancel and Escape discard changes', async () => {
   expect(await getAgentToolsEnabled()).toBe(false);
 });
 
-it('tells ChatGPT/Codex users there is nothing to install', async () => {
+it('points Codex users to the local MCP bridge without promising direct WebMCP', async () => {
   render(<AgentAccessModal />);
-  // The whole point of this path: no bundle, no pairing code. Presenting the
-  // .mcpb install as a prerequisite for everyone is what this guards against.
-  expect(await screen.findByText('ChatGPT or Codex')).toBeInTheDocument();
-  const block = screen.getByText('ChatGPT or Codex').closest('section')!;
-  expect(block.textContent).toContain('Nothing to install');
-  expect(block.querySelector('a[href="https://inflow.im/app"]')).not.toBeNull();
-  // The pairing code belongs to the Claude Desktop path, not this one.
+  expect(await screen.findByText('Codex')).toBeInTheDocument();
+  const block = screen.getByText('Codex').closest('section')!;
+  expect(block.textContent).toContain('local MCP bridge');
+  expect(block.textContent).toContain('Direct ChatGPT WebMCP cannot yet reach');
+  expect(
+    block.querySelector(
+      'a[href="https://github.com/grinich/inflow/blob/main/docs/agent-tools.md#codex-setup"]'
+    )
+  ).not.toBeNull();
   expect(block.querySelector('input')).toBeNull();
 });
 

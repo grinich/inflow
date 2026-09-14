@@ -191,3 +191,74 @@ it('disabling agent access closes the socket and clears the alarm', async () => 
   expect(await status()).toBe('disabled');
   expect(getAlarms()['agent-bridge-reconnect']).toBeUndefined();
 });
+
+it.each([
+  ['before HELLO', []],
+  ['after READY without HELLO', [{ type: 'READY' }]],
+  ['before READY', [{ type: 'HELLO', v: 1, token: TOKEN }]],
+  ['after a rejected HELLO', [{ type: 'HELLO', v: 1, token: 'INF-EVIL22' }, { type: 'READY' }]],
+  ['with an unsupported protocol', [{ type: 'HELLO', v: 2, token: TOKEN }, { type: 'READY' }]],
+])('does not expose tools %s', async (_phase, handshake) => {
+  await boot();
+  const ws = latestSocket()!;
+  for (const frame of handshake) ws.emitMessage(frame);
+  ws.emitMessage({ id: 'unauth-list', type: 'LIST_TOOLS' });
+  ws.emitMessage({
+    id: 'unauth-call', type: 'CALL_TOOL', tool: 'search_recipients', input: { query: 'Ada' },
+  });
+  await flush();
+
+  expect(mockHandleMessage).not.toHaveBeenCalled();
+  expect(ws.sent.filter((frame) => frame.id)).toEqual([]);
+  expect(await status()).not.toBe('connected');
+});
+
+it('ignores messages and late close events from a replaced connection', async () => {
+  const stale = await bootConnected();
+  const replacementToken = 'INF-NEW234';
+  setLocalStore(AGENT_BRIDGE_TOKEN_KEY, replacementToken);
+  fireStorageChanged({ [AGENT_BRIDGE_TOKEN_KEY]: { newValue: replacementToken } });
+  await flush();
+  const fresh = latestSocket()!;
+
+  stale.emitMessage({ type: 'READY' });
+  expect(await status()).toBe('disconnected');
+  fresh.emitMessage({ type: 'HELLO', v: 1, token: replacementToken });
+  fresh.emitMessage({ type: 'READY' });
+  expect(await status()).toBe('connected');
+
+  stale.emitMessage({ type: 'HELLO', v: 1, token: 'INF-EVIL22' });
+  stale.emitMessage({
+    id: 'stale-call', type: 'CALL_TOOL', tool: 'search_recipients', input: { query: 'Ada' },
+  });
+  stale.emitClose();
+  setLocalStore(AGENT_WRITES_ENABLED_KEY, true);
+  fireStorageChanged({ [AGENT_WRITES_ENABLED_KEY]: { newValue: true } });
+  await flush();
+
+  expect(mockHandleMessage).not.toHaveBeenCalled();
+  expect(fresh.sentOfType('TOOLS_CHANGED')).toHaveLength(1);
+  expect(await status()).toBe('connected');
+
+  fresh.emitMessage({ id: 'fresh-list', type: 'LIST_TOOLS' });
+  expect((await replyFor(fresh, 'fresh-list')).ok).toBe(true);
+});
+
+it('does not send an in-flight tool result after its connection is revoked', async () => {
+  const ws = await bootConnected();
+  let resolveCall!: (value: unknown) => void;
+  mockHandleMessage.mockReturnValue(new Promise((resolve) => { resolveCall = resolve; }));
+  ws.emitMessage({
+    id: 'in-flight', type: 'CALL_TOOL', tool: 'search_recipients', input: { query: 'Ada' },
+  });
+  await vi.waitFor(() => expect(mockHandleMessage).toHaveBeenCalledOnce());
+
+  setLocalStore(AGENT_TOOLS_ENABLED_KEY, false);
+  fireStorageChanged({ [AGENT_TOOLS_ENABLED_KEY]: { newValue: false } });
+  await flush();
+  resolveCall({ success: true, data: [] });
+  await flush();
+
+  expect(ws.sent.some((frame) => frame.id === 'in-flight')).toBe(false);
+  expect(await status()).toBe('disabled');
+});

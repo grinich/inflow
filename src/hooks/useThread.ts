@@ -5,19 +5,23 @@ import { db } from '@/db/database';
 import { useDbGeneration } from '@/hooks/useDbGeneration';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { dedupeMessagesForDisplay } from '@/lib/message-dedup';
+import type { Message } from '@/types/message';
 
 const DEBOUNCE_MS = 150; // debounce rapid thread switches
+const EMPTY_MESSAGES: Message[] = [];
 
 export function useThread(conversationId: string | null, mergedIds?: string[]) {
   // Re-subscribe when the DB opens/switches (see useDbGeneration).
   const dbGen = useDbGeneration();
-  const messages = useLiveQuery(
+  const mergedIdsKey = mergedIds?.join(',');
+  const thread = useLiveQuery(
     async () => {
-      if (!conversationId || !db) return [];
+      if (!conversationId || !db) return undefined;
+      const database = db;
       const allIds = [conversationId, ...(mergedIds || [])];
       const chunks = await Promise.all(
         allIds.map((id) =>
-          db.messages
+          database.messages
             .where('[conversationId+createdAt]')
             .between([id, Dexie.minKey], [id, Dexie.maxKey])
             .toArray()
@@ -26,10 +30,9 @@ export function useThread(conversationId: string | null, mergedIds?: string[]) {
       // Deduplicate: SSE events store messages with non-canonical IDs
       // (urn:li:fsd_message: / urn:li:fs_event:) while the Messenger API
       // uses urn:li:msg_message:. When both exist, drop the non-canonical one.
-      return dedupeMessagesForDisplay(chunks.flat());
+      return { conversationId, mergedIdsKey, dbGen, messages: dedupeMessagesForDisplay(chunks.flat()) };
     },
-    [conversationId, mergedIds?.join(','), dbGen],
-    []
+    [conversationId, mergedIdsKey, dbGen]
   );
 
   // Track the last fetched conversation to debounce only rapid re-switches,
@@ -76,5 +79,9 @@ export function useThread(conversationId: string | null, mergedIds?: string[]) {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [conversationId, mergedIds?.join(',')]);
 
-  return messages;
+  // useLiveQuery retains its previous value while new dependencies load. Never
+  // put another thread/account's messages beneath the newly selected recipient.
+  return thread?.conversationId === conversationId && thread.mergedIdsKey === mergedIdsKey && thread.dbGen === dbGen
+    ? thread.messages
+    : EMPTY_MESSAGES;
 }

@@ -308,8 +308,8 @@ export async function runDiscoveryRound(
 
     debugLog('info', `[COORDINATOR] Discovery round started for ${cat}`);
 
+    const gen = getDbGeneration();
     try {
-      const gen = getDbGeneration();
       while (!paused && pagesThisRound < maxPages) {
         if (getDbGeneration() !== gen) return; // account switched mid-discovery — don't write into the new DB
         const { conversations, isLastPage, nextCursor } = await discoverPage(cat, cursor);
@@ -357,6 +357,7 @@ export async function runDiscoveryRound(
         await delay();
       }
     } catch (err) {
+      if (getDbGeneration() !== gen) return;
       // Offline/timeout mid-round is routine — the cursor is saved per page,
       // so the next tick resumes where this one stopped.
       debugLog(networkErrorLevel(err), `[COORDINATOR] Discovery failed for ${cat}: ${err}`);
@@ -457,6 +458,7 @@ export async function burstDiscover(
       debugLog('info', `[COORDINATOR] Burst discovery paused for ${category} at ${totalDiscovered} conversations (hit page limit)`);
     }
   } catch (err) {
+    if (getDbGeneration() !== gen) return;
     debugLog(networkErrorLevel(err), `[COORDINATOR] Burst discovery failed for ${category}: ${err}`);
   } finally {
     _discoveringCategories.delete(category);

@@ -66,56 +66,30 @@ export function ThreadView({ conversation, composeRef }: ThreadViewProps) {
     return () => document.removeEventListener('inflow:manual-unread', onManualUnread);
   }, [conversation.id]);
 
-  // Auto mark-read when viewing an unread thread, but only after dwelling for 2s.
-  // The SSE handler sets read=0 on incoming messages; this re-marks as read if the
-  // user stays on the thread. Cancelled if they navigate away quickly (j/k browsing).
-  const autoReadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Unmount safety net: the dwell timer can be armed by the visibilitychange
-  // handler below, whose effect cleanup only removes the LISTENER — and the
-  // main effect registers no cleanup at all when it early-returns (e.g. it
-  // mounted while the tab was hidden). Without this, closing the thread within
-  // the 2s window still marked the abandoned conversation read.
-  useEffect(() => () => {
-    if (autoReadTimer.current) {
-      clearTimeout(autoReadTimer.current);
-      autoReadTimer.current = null;
-    }
-  }, []);
-
+  // Mark read only after two uninterrupted seconds with this thread visible.
+  // One effect owns both the timer and visibility listener, including cleanup
+  // when mounted hidden, switching threads, or leaving the app mid-dwell.
   useEffect(() => {
-    if (autoReadTimer.current) clearTimeout(autoReadTimer.current);
-    if (suppressAutoRead.current) return;
-    if (conversation.read !== 0) return;
-    if (document.visibilityState !== 'visible') return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    autoReadTimer.current = setTimeout(() => {
-      autoReadTimer.current = null;
-      if (!suppressAutoRead.current) markRead(conversation.id, conversation.mergedIds);
-    }, 2000);
-
-    return () => {
-      if (autoReadTimer.current) {
-        clearTimeout(autoReadTimer.current);
-        autoReadTimer.current = null;
-      }
-    };
-  }, [conversation.read, conversation.id]);
-
-  // Mark read when the window regains focus while viewing an unread thread (with same delay)
-  useEffect(() => {
     function onVisible() {
+      clearTimeout(timer);
       if (suppressAutoRead.current) return;
       if (document.visibilityState !== 'visible' || conversation.read !== 0) return;
-      if (autoReadTimer.current) clearTimeout(autoReadTimer.current);
-      autoReadTimer.current = setTimeout(() => {
-        autoReadTimer.current = null;
-        if (!suppressAutoRead.current) markRead(conversation.id, conversation.mergedIds);
+      timer = setTimeout(() => {
+        if (!suppressAutoRead.current && document.visibilityState === 'visible') {
+          markRead(conversation.id, conversation.mergedIds);
+        }
       }, 2000);
     }
+
+    onVisible();
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [conversation.id, conversation.read]);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [conversation.id, conversation.read, conversation.mergedIds?.join(',')]);
 
   // Right-click menu on a message: mark the conversation read/unread. One
   // menu for the whole thread — the action is conversation-level, so the

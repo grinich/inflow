@@ -55,7 +55,7 @@ it('loadMore appends the next page and de-dupes overlapping ids', async () => {
   ]);
   sendBridgeMessage
     .mockResolvedValueOnce({ success: true, data: { conversationIds: ['p1', 'p2'], nextCursor: 'CUR2' } })
-    .mockResolvedValueOnce({ success: true, data: { conversationIds: ['p2', 'p3'], nextCursor: null } });
+    .mockResolvedValueOnce({ success: true, data: { conversationIds: ['p2', 'p3', 'p3'], nextCursor: null } });
 
   const { result } = renderHook(() => useRemoteSearch());
   act(() => useUIStore.setState({ searchQuery: 'x' }));
@@ -108,4 +108,63 @@ it('clearing the query resets results and hasMore', async () => {
   act(() => useUIStore.setState({ searchQuery: '' }));
   await waitFor(() => expect(ids(result)).toEqual([]));
   expect(result.current.hasMore).toBe(false);
+});
+
+it('discards an in-flight response after search is cleared', async () => {
+  await testDb.conversations.put(makeConversation({ id: 'late' }));
+  let resolveSearch!: (response: unknown) => void;
+  sendBridgeMessage.mockReturnValue(new Promise((resolve) => { resolveSearch = resolve; }));
+
+  const { result } = renderHook(() => useRemoteSearch());
+  act(() => useUIStore.setState({ searchQuery: 'old' }));
+  await waitFor(() => expect(sendBridgeMessage).toHaveBeenCalledTimes(1));
+
+  act(() => useUIStore.setState({ searchQuery: '' }));
+  await act(async () => {
+    resolveSearch({ success: true, data: { conversationIds: ['late'], nextCursor: 'STALE' } });
+  });
+
+  expect(ids(result)).toEqual([]);
+  expect(result.current.hasMore).toBe(false);
+  expect(result.current.isSearching).toBe(false);
+});
+
+it('lets a new search paginate while the previous search page is still pending', async () => {
+  await testDb.conversations.bulkPut(['old', 'new', 'new-page'].map((id) => makeConversation({ id })));
+  let resolveOldPage!: (response: unknown) => void;
+  let resolveNewPage!: (response: unknown) => void;
+  sendBridgeMessage
+    .mockResolvedValueOnce({ success: true, data: { conversationIds: ['old'], nextCursor: 'OLD' } })
+    .mockReturnValueOnce(new Promise((resolve) => { resolveOldPage = resolve; }))
+    .mockResolvedValueOnce({ success: true, data: { conversationIds: ['new'], nextCursor: 'NEW' } })
+    .mockReturnValueOnce(new Promise((resolve) => { resolveNewPage = resolve; }));
+
+  const { result } = renderHook(() => useRemoteSearch());
+  act(() => useUIStore.setState({ searchQuery: 'old query' }));
+  await waitFor(() => expect(ids(result)).toEqual(['old']));
+  let oldPage!: Promise<void>;
+  act(() => { oldPage = result.current.loadMore(); });
+
+  act(() => useUIStore.setState({ searchQuery: 'new query' }));
+  await waitFor(() => expect(ids(result)).toEqual(['new']));
+  let newPage!: Promise<void>;
+  act(() => { newPage = result.current.loadMore(); });
+  expect(sendBridgeMessage).toHaveBeenLastCalledWith({ type: 'SEARCH_CONVERSATIONS', query: 'new query', cursor: 'NEW' });
+
+  await act(async () => {
+    resolveOldPage({ success: true, data: { conversationIds: ['old'], nextCursor: null } });
+    await oldPage;
+    // The old request must not unlock the new search's pending pagination.
+    await result.current.loadMore();
+  });
+  expect(sendBridgeMessage).toHaveBeenCalledTimes(4);
+  expect(result.current.isSearching).toBe(true);
+  expect(ids(result)).toEqual(['new']);
+
+  await act(async () => {
+    resolveNewPage({ success: true, data: { conversationIds: ['new-page'], nextCursor: null } });
+    await newPage;
+  });
+  await waitFor(() => expect(ids(result)).toEqual(['new', 'new-page']));
+  expect(result.current.isSearching).toBe(false);
 });

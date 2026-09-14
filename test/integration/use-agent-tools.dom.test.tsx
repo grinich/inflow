@@ -92,10 +92,8 @@ describe('modelContext registration', () => {
   });
 
   it('registers when a WebMCP surface is injected AFTER we loaded', async () => {
-    // The real case this guards: agent extensions (ChatGPT for Chrome ships
-    // content-scripts/webmcp.js) inject their own modelContext at runtime,
-    // when the user grants the agent access to the site — long after our page
-    // checked. A one-shot check at mount silently never registers.
+    // A compatible WebMCP host may inject modelContext after the page has
+    // loaded. A one-shot check at mount would silently never register.
     renderHook(() => useAgentTools());
     enable(true);
     await waitFor(() => expect(getRegisteredTools()).toEqual([])); // nothing to register into
