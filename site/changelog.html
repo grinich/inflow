@@ -87,7 +87,10 @@
 /* No border-radius: the artwork carries its own rounded corners as
    transparency, so a CSS radius on top only clips into the tile. */
 .rel-icon{display:block;width:96px;height:auto}
-.rel-shot{display:block;width:100%;height:auto;border-radius:10px;margin:4px 0}
+/* A light-UI screenshot on a near-white page needs its own edge, or it
+   reads as content floating loose rather than as a framed shot. */
+.rel-shot{display:block;width:100%;height:auto;border-radius:10px;margin:4px 0;
+  border:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.05)}
 /* Raw-HTML figures (the side-by-side pairs) size themselves via width
    attributes so GitHub lays them out the same way. No border. */
 .rel-body p > img:not(.rel-icon){height:auto;vertical-align:top;border-radius:8px}

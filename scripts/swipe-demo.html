@@ -79,6 +79,9 @@
 // ---------------------------------------------------------------- parameters
 const params = new URLSearchParams(location.search);
 const FRAMES = Number(params.get('frames') || 72);
+// Sheets are rendered in chunks: one screenshot of every frame at display
+// resolution would be tens of megapixels, which headless Chrome clips.
+const FROM   = Number(params.get('from') || 0);
 const COLS   = Number(params.get('cols') || 6);
 const TILE_W = Number(params.get('w') || 520);
 const TILE_H = Number(params.get('h') || 260);
@@ -256,7 +259,7 @@ function tileHtml(f) {
 
 const sheet = document.getElementById('sheet');
 sheet.style.gridTemplateColumns = `repeat(${COLS}, ${TILE_W}px)`;
-sheet.innerHTML = Array.from({ length: FRAMES }, (_, f) => tileHtml(f)).join('');
+sheet.innerHTML = Array.from({ length: FRAMES }, (_, i) => tileHtml(FROM + i)).join('');
 
 // Tell the screenshot driver the exact sheet geometry it should expect.
 document.title = `sheet ${COLS}x${Math.ceil(FRAMES / COLS)} ${TILE_W}x${TILE_H}`;
