@@ -234,9 +234,47 @@
     <!-- CHANGELOG:START -->
     <article class="rel">
       <div class="rel-meta">
+        <h2 class="rel-ver">0.9.0</h2>
+        <time class="rel-date" datetime="2026-09-14">14 September 2026</time>
+        <span class="rel-latest">Latest</span>
+      </div>
+      <div class="rel-body">
+        <p class="rel-intro"><img class="rel-shot" src="https://inflow.im/img/0.9.0-swipe-actions.gif" alt="A conversation row dragged left until a green Archive panel fills it, then collapsing away as the list closes up; a second row dragged right to reveal an amber Star panel, springing back with a star beside the name" loading="lazy"></p>
+        <p class="rel-intro"><strong>Swipe a row to archive or star it.</strong> Two fingers left on the trackpad archives a conversation, right stars it. The gesture was rebuilt from scratch this release around one rule: nothing is archived while your fingers are still on the trackpad.</p>
+        <section class="rel-group">
+          <h3 class="rel-tag t-added">Added</h3>
+          <ul>
+            <li><strong>Swipe left to archive, right to star.</strong> Flick a row and it goes — the action fires the instant your fingers leave the trackpad, and a short fast flick counts as much as dragging the row the whole way. An archived row fills with green and then collapses out of the list, rather than blinking back to normal on its way out.</li>
+            <li><strong>A drag that stops just waits.</strong> Pause part-way and the row stays exactly where you left it; carry on and it picks up from there instead of starting over. Drag far enough and let go and the row rests open with <strong>Archive</strong> or <strong>Star</strong> showing as a button you can click. Clicking the row, scrolling, or clicking anywhere else puts it away.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-changed">Changed</h3>
+          <ul>
+            <li><strong>Trackpad gestures are read through <a href="https://github.com/xiel/wheel-gestures">wheel-gestures</a></strong>, which reports when your fingers actually leave the pad — from Chrome 151's native <code>WheelEvent.momentum</code>, and from its own analysis of the inertia below that. That replaced about 150 lines of guesswork that tried to infer the same thing from the shape of the scroll, and got it wrong often enough that a row could archive itself under a resting hand.</li>
+          </ul>
+        </section>
+        <section class="rel-group">
+          <h3 class="rel-tag t-fixed">Fixed</h3>
+          <ul>
+            <li><strong>An old account's data can no longer land in the new one.</strong> Switching accounts mid-sync could write conversations, polls, or queued-action results into whichever database happened to be active when the network came back. Discovery, quick polls, and queue replay now carry their database with them and re-check it after every await.</li>
+            <li><strong>A queued send whose message had already failed no longer reports success.</strong> It skipped the send, as it should, but still marked the message sent and deleted its attachments.</li>
+            <li><strong>Read receipts, reactions, and edits stop being overwritten</strong> when they arrive while a thread fetch, prefetch, or send is still in flight.</li>
+            <li><strong>Cached invitations survive a bad page.</strong> A repeated, unreadable, or truncated response could look like a complete server list and delete invitations that were still pending. Pruning now needs evidence of a full, fully parsed walk.</li>
+            <li><strong>Opening a thread no longer shows the previous one's messages</strong> for a beat while the new one loads.</li>
+            <li><strong>Switching to another tab mid-dwell no longer marks unread messages read.</strong> Marking read now needs two uninterrupted seconds with the window visible.</li>
+            <li><strong>Search results can no longer repopulate a search you cleared</strong>, and pagination from an abandoned query can't block the next one.</li>
+            <li><strong>Profiles keep fields that only appeared in an earlier copy</strong> when the same person shows up twice in one batch.</li>
+            <li><strong>The agent bridge checks the pairing handshake before accepting tool calls</strong>, ignores superseded sockets, and withholds results once access is revoked.</li>
+          </ul>
+        </section>
+      </div>
+    </article>
+
+    <article class="rel">
+      <div class="rel-meta">
         <h2 class="rel-ver">0.8.0</h2>
         <time class="rel-date" datetime="2026-09-01">1 September 2026</time>
-        <span class="rel-latest">Latest</span>
       </div>
       <div class="rel-body">
         <p class="rel-intro"><strong>AI agents can work your LinkedIn inbox.</strong> inƒlow now exposes its inbox as structured tools, so an agent reads and acts through inƒlow's own data and actions instead of screen-scraping LinkedIn. Claude Desktop and Codex work today through the local MCP bridge. Everything is off until you turn it on.</p>

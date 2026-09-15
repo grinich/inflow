@@ -13,6 +13,7 @@
     "changelog:site": "node scripts/build-changelog.mjs",
     "og": "node scripts/build-og.mjs",
     "og:changelog": "node scripts/build-og.mjs changelog",
+    "gif:swipe": "node scripts/build-swipe-gif.mjs",
     "postinstall": "wxt prepare",
     "test": "vitest run",
     "test:watch": "vitest",

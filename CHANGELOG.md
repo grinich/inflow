@@ -4,6 +4,63 @@ All notable changes to inflow are documented here. This project follows
 [semantic versioning](https://semver.org/) and the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.0] - 2026-09-14
+
+![A conversation row dragged left until a green Archive panel fills it, then collapsing away as the list closes up; a second row dragged right to reveal an amber Star panel, springing back with a star beside the name](https://inflow.im/img/0.9.0-swipe-actions.gif)
+
+**Swipe a row to archive or star it.** Two fingers left on the trackpad
+archives a conversation, right stars it. The gesture was rebuilt from scratch
+this release around one rule: nothing is archived while your fingers are still
+on the trackpad.
+
+### Added
+- **Swipe left to archive, right to star.** Flick a row and it goes — the
+  action fires the instant your fingers leave the trackpad, and a short fast
+  flick counts as much as dragging the row the whole way. An archived row
+  fills with green and then collapses out of the list, rather than blinking
+  back to normal on its way out.
+- **A drag that stops just waits.** Pause part-way and the row stays exactly
+  where you left it; carry on and it picks up from there instead of starting
+  over. Drag far enough and let go and the row rests open with **Archive** or
+  **Star** showing as a button you can click. Clicking the row, scrolling, or
+  clicking anywhere else puts it away.
+
+### Changed
+- **Trackpad gestures are read through
+  [wheel-gestures](https://github.com/xiel/wheel-gestures)**, which reports
+  when your fingers actually leave the pad — from Chrome 151's native
+  `WheelEvent.momentum`, and from its own analysis of the inertia below that.
+  That replaced about 150 lines of guesswork that tried to infer the same thing
+  from the shape of the scroll, and got it wrong often enough that a row could
+  archive itself under a resting hand.
+
+### Fixed
+- **An old account's data can no longer land in the new one.** Switching
+  accounts mid-sync could write conversations, polls, or queued-action results
+  into whichever database happened to be active when the network came back.
+  Discovery, quick polls, and queue replay now carry their database with them
+  and re-check it after every await.
+- **A queued send whose message had already failed no longer reports success.**
+  It skipped the send, as it should, but still marked the message sent and
+  deleted its attachments.
+- **Read receipts, reactions, and edits stop being overwritten** when they
+  arrive while a thread fetch, prefetch, or send is still in flight.
+- **Cached invitations survive a bad page.** A repeated, unreadable, or
+  truncated response could look like a complete server list and delete
+  invitations that were still pending. Pruning now needs evidence of a full,
+  fully parsed walk.
+- **Opening a thread no longer shows the previous one's messages** for a beat
+  while the new one loads.
+- **Switching to another tab mid-dwell no longer marks unread messages read.**
+  Marking read now needs two uninterrupted seconds with the window visible.
+- **Search results can no longer repopulate a search you cleared**, and
+  pagination from an abandoned query can't block the next one.
+- **Profiles keep fields that only appeared in an earlier copy** when the same
+  person shows up twice in one batch.
+- **The agent bridge checks the pairing handshake before accepting tool
+  calls**, ignores superseded sockets, and withholds results once access is
+  revoked.
+
 ## [0.8.0] - 2026-09-01
 
 **AI agents can work your LinkedIn inbox.** inflow now exposes its inbox as

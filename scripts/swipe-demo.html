@@ -1,0 +1,263 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>inflow swipe actions — frame sheet</title>
+<!--
+  Renders every frame of the swipe-actions GIF as one tiled sheet, so the whole
+  animation costs a single headless-Chrome screenshot instead of one per frame.
+  scripts/build-swipe-gif.mjs shoots this page and lets ffmpeg's `untile` filter
+  cut the sheet back into frames.
+
+  The motion constants below are copied from SwipeableRow.tsx on purpose: this
+  is a reconstruction of the component for a marketing asset, not a recording of
+  the running extension, so the two have to be kept in step by hand.
+-->
+<style>
+  :root {
+    --surface: #ffffff;
+    --surface-hover: #f4f4f5;
+    --surface-active: #dbeafe;
+    --edge: #e4e4e7;
+    --fg-strong: #09090b;
+    --fg-secondary: #52525b;
+    --fg-muted: #71717a;
+    --green: #16a34a;  /* bg-green-600 */
+    --amber: #f59e0b;  /* bg-amber-500 */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #fff;
+    font: 14px -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet { display: grid; width: max-content; }
+  .tile {
+    position: relative;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  /* The "zoom" the GIF is framed at — the list is rendered at its real
+     dimensions and scaled up, rather than restyled larger, so proportions stay
+     true to the product. */
+  .zoom { position: absolute; top: 0; left: 0; transform-origin: top left; }
+  .list { width: 400px; }
+
+  .row { position: relative; overflow: hidden; background: var(--surface); }
+  .pane {
+    position: absolute; inset: 0;
+    display: flex; align-items: center;
+    opacity: 0;
+    color: #fff;
+  }
+  .pane.left  { justify-content: flex-start; padding-left: 24px; background: var(--amber); }
+  .pane.right { justify-content: flex-end;   padding-right: 24px; background: var(--green); }
+  .pane .mark { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .pane .mark svg { width: 20px; height: 20px; display: block; }
+  .pane .mark span { font-size: 10px; font-weight: 600; line-height: 1; }
+
+  .content {
+    position: relative;
+    display: flex; align-items: center; gap: 6px;
+    padding: 12px 12px 12px 6px;
+    border-bottom: 1px solid var(--edge);
+    background: var(--surface);
+  }
+  .content.sel { background: var(--surface-active); }
+  .flag { width: 16px; flex: 0 0 16px; display: flex; align-items: center; justify-content: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; }
+  .star { width: 18px; height: 18px; color: #facc15; display: block; }
+  .av { width: 40px; height: 40px; border-radius: 50%; flex: 0 0 40px; object-fit: cover; background: #e4e4e7; }
+  .body { min-width: 0; flex: 1; }
+  .line1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .name { font-size: 14px; color: var(--fg-strong); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .name.read { font-weight: 400; color: var(--fg-secondary); }
+  .when { font-size: 12px; color: var(--fg-muted); white-space: nowrap; flex: 0 0 auto; }
+  .prev { font-size: 14px; color: var(--fg-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .prev.read { color: var(--fg-muted); }
+</style>
+<div class="sheet" id="sheet"></div>
+<script>
+// ---------------------------------------------------------------- parameters
+const params = new URLSearchParams(location.search);
+const FRAMES = Number(params.get('frames') || 72);
+const COLS   = Number(params.get('cols') || 6);
+const TILE_W = Number(params.get('w') || 520);
+const TILE_H = Number(params.get('h') || 260);
+const ZOOM   = Number(params.get('zoom') || 1.3);
+
+// ------------------------------------------- constants mirrored from the app
+const SWIPE_THRESHOLD = 88;
+const MAX_OVERDRAG = 56;
+
+/** 1:1 up to the threshold, exponential rubber band beyond it. */
+const displayed = (raw) => {
+  const abs = Math.abs(raw);
+  if (abs <= SWIPE_THRESHOLD) return raw;
+  const over = MAX_OVERDRAG * (1 - Math.exp(-(abs - SWIPE_THRESHOLD) / 120));
+  return Math.sign(raw) * (SWIPE_THRESHOLD + over);
+};
+
+/** cubic-bezier(x1,y1,x2,y2) evaluated at t, by bisection on x. */
+function bezier(x1, y1, x2, y2) {
+  const cx = (t, a, b) => 3 * a * (1 - t) ** 2 * t + 3 * b * (1 - t) * t ** 2 + t ** 3;
+  return (x) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let lo = 0, hi = 1, t = x;
+    for (let i = 0; i < 40; i++) {
+      t = (lo + hi) / 2;
+      cx(t, x1, x2) < x ? (lo = t) : (hi = t);
+    }
+    return cx(t, y1, y2);
+  };
+}
+const EXIT_EASE    = bezier(0.4, 0, 1, 1);        // slide-out
+const COLLAPSE_EASE = bezier(0.4, 0, 0.2, 1);     // vertical collapse
+const SETTLE_EASE  = bezier(0.22, 1.2, 0.36, 1);  // spring back, overshoots
+const POP_EASE     = bezier(0.34, 1.56, 0.64, 1); // icon back-out pop
+const DRAG_EASE    = bezier(0.42, 0, 0.58, 1);    // a hand accelerating, then easing
+
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+/** Progress through [a, b), clamped. */
+const span = (f, a, b) => clamp01((f - a) / (b - a));
+
+// ----------------------------------------------------------------- the cast
+// Demo-mode people, so the GIF shows what a reader sees with demo data on.
+const PEOPLE = [
+  { name: 'Priya Sharma',  pic: 'w68.jpg', when: '2m',  read: false,
+    prev: 'Congrats on the launch! Would love to hear how the rollout went.' },
+  { name: 'Marcus Rivera', pic: 'm32.jpg', when: '18m', read: false,
+    prev: 'Following up on the roles we discussed — are you still hiring?' },
+  { name: 'Emma Larsson',  pic: 'w17.jpg', when: '1h',  read: true,
+    prev: 'Thanks, that context helps. I will circle back next week.' },
+  { name: 'David Park',    pic: 'm36.jpg', when: '3h',  read: true,
+    prev: 'Sent over the deck — let me know if anything looks off.' },
+];
+
+const STAR_SVG = `<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+const ARCHIVE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>`;
+
+// -------------------------------------------------------------- the timeline
+// Act one archives Marcus with a left swipe; act two stars Priya with a right
+// swipe that springs back in place.
+const T = {
+  archiveDrag:  [8, 26],   // tracking the fingers out to 150px raw
+  archiveHold:  [26, 30],  // armed, waiting on the release
+  archiveExit:  [30, 34],  // content accelerates off-screen (EXIT_MS)
+  archiveFold:  [34, 37],  // the filled band collapses (COLLAPSE_MS)
+  starDrag:     [45, 61],
+  starHold:     [61, 63],
+  starSettle:   [63, 69],  // springs home, overshooting (SETTLE_MS)
+};
+
+function frameState(f) {
+  // --- row 1: archive ---
+  let archiveRaw = 0, archiveOff = 0, archiveScale = 1, archiveGone = false;
+  if (f >= T.archiveDrag[0]) {
+    archiveRaw = -150 * DRAG_EASE(span(f, ...T.archiveDrag));
+    archiveOff = displayed(archiveRaw);
+  }
+  if (f >= T.archiveExit[0]) {
+    const p = EXIT_EASE(span(f, ...T.archiveExit));
+    archiveOff = displayed(-150) + p * (-400 - displayed(-150));
+  }
+  if (f >= T.archiveFold[0]) {
+    archiveScale = 1 - COLLAPSE_EASE(span(f, ...T.archiveFold));
+  }
+  if (f >= T.archiveFold[1]) archiveGone = true;
+
+  // --- row 0: star ---
+  let starOff = 0, starred = false;
+  if (f >= T.starDrag[0]) starOff = displayed(140 * DRAG_EASE(span(f, ...T.starDrag)));
+  if (f >= T.starSettle[0]) {
+    const p = SETTLE_EASE(span(f, ...T.starSettle));
+    starOff = displayed(140) * (1 - p);
+  }
+  if (f >= T.starSettle[1]) { starOff = 0; starred = true; }
+
+  return { archiveOff, archiveScale, archiveGone, starOff, starred };
+}
+
+/** Pane + icon appearance for a given displayed offset, and how long it has
+ *  been armed (in frames) so the pop can play out. */
+function paneState(off, armedFor) {
+  const progress = Math.min(1, Math.abs(off) / SWIPE_THRESHOLD);
+  const armed = Math.abs(off) >= SWIPE_THRESHOLD;
+  let scale;
+  if (armed) {
+    // Back-out pop from the tracking scale up to 1.12, over ~200ms.
+    const p = POP_EASE(clamp01(armedFor / 3.2));
+    scale = 1 + 0.12 * p;
+  } else {
+    const eased = 1 - (1 - progress) ** 3;
+    scale = 0.5 + 0.5 * eased;
+  }
+  return {
+    paneOpacity: off === 0 ? 0 : (armed ? 1 : 0.85),
+    iconOpacity: Math.min(1, progress * 1.4),
+    scale,
+  };
+}
+
+// ------------------------------------------------------------------ renderer
+function rowHtml(person, { off = 0, side = null, armedFor = 0, starred = false, selected = false }) {
+  const p = paneState(off, armedFor);
+  const mark = side === 'right'
+    ? `<div class="mark" style="opacity:${p.iconOpacity};transform:scale(${p.scale})">${ARCHIVE_SVG}<span>Archive</span></div>`
+    : `<div class="mark" style="opacity:${p.iconOpacity};transform:scale(${p.scale})">${STAR_SVG}<span>Star</span></div>`;
+  const flag = starred
+    ? `<svg class="star" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
+    : (person.read ? '' : '<div class="dot"></div>');
+  const paneCls = side === 'right' ? 'pane right' : 'pane left';
+  return `
+    <div class="row">
+      ${side ? `<div class="${paneCls}" style="opacity:${p.paneOpacity}">${mark}</div>` : ''}
+      <div class="content${selected ? ' sel' : ''}" style="transform:translateX(${off.toFixed(2)}px)">
+        <div class="flag">${flag}</div>
+        <img class="av" src="../public/demo/${person.pic}" alt="">
+        <div class="body">
+          <div class="line1">
+            <span class="name${person.read ? ' read' : ''}">${person.name}</span>
+            <span class="when">${person.when}</span>
+          </div>
+          <div class="prev${person.read ? ' read' : ''}">${person.prev}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function tileHtml(f) {
+  const st = frameState(f);
+  // How many frames each swipe has been armed, for the icon pop.
+  const archiveArmed = Math.abs(st.archiveOff) >= SWIPE_THRESHOLD
+    ? f - (T.archiveDrag[0] + (T.archiveDrag[1] - T.archiveDrag[0]) * 0.72) : 0;
+  const starArmed = Math.abs(st.starOff) >= SWIPE_THRESHOLD
+    ? f - (T.starDrag[0] + (T.starDrag[1] - T.starDrag[0]) * 0.72) : 0;
+
+  const rows = [];
+  rows.push(rowHtml(PEOPLE[0], {
+    off: st.starOff, side: st.starOff > 0 ? 'left' : null,
+    armedFor: Math.max(0, starArmed), starred: st.starred,
+  }));
+  if (!st.archiveGone) {
+    rows.push(`<div style="height:${(72 * st.archiveScale).toFixed(2)}px;overflow:hidden">${
+      rowHtml(PEOPLE[1], {
+        off: st.archiveOff, side: st.archiveOff < 0 ? 'right' : null,
+        armedFor: Math.max(0, archiveArmed),
+      })
+    }</div>`);
+  }
+  rows.push(rowHtml(PEOPLE[2], {}));
+  rows.push(rowHtml(PEOPLE[3], {}));
+
+  return `<div class="tile" style="width:${TILE_W}px;height:${TILE_H}px">
+    <div class="zoom" style="transform:scale(${ZOOM})"><div class="list">${rows.join('')}</div></div>
+  </div>`;
+}
+
+const sheet = document.getElementById('sheet');
+sheet.style.gridTemplateColumns = `repeat(${COLS}, ${TILE_W}px)`;
+sheet.innerHTML = Array.from({ length: FRAMES }, (_, f) => tileHtml(f)).join('');
+
+// Tell the screenshot driver the exact sheet geometry it should expect.
+document.title = `sheet ${COLS}x${Math.ceil(FRAMES / COLS)} ${TILE_W}x${TILE_H}`;
+</script>
