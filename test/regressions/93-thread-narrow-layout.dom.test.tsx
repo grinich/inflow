@@ -77,6 +77,10 @@ describe('regression #93: thread pane layout at narrow widths', () => {
     expect(reportBug.className).toContain('@[30rem]:flex');
   });
 
+  // The actions later moved again — out of the gutter entirely, onto the
+  // bubble's top inner corner (see #177) — because the gutter couldn't always
+  // spare the ~230px the strip needed. What #93 fixed still has to hold: out
+  // of flow, no row width reserved, no clicks until hovered.
   it('bubble hover actions are overlaid, not reserving flex-row width', () => {
     const { container } = render(
       <MessageBubble
@@ -85,24 +89,28 @@ describe('regression #93: thread pane layout at narrow widths', () => {
     );
     const actions = container.querySelector('[data-hover-actions]')!;
     expect(actions).toBeTruthy();
-    // Out of flow: absolute, anchored beside the bubble
+    // Out of flow: absolute, straddling the bubble's top edge
     expect(actions.className).toContain('absolute');
-    expect(actions.className).toContain('left-full');
-    // Invisible strip must not intercept clicks until hovered
+    expect(actions.className).toContain('-top-5');
+    // Invisible card must not intercept clicks until hovered
     expect(actions.className).toContain('pointer-events-none');
     expect(actions.className).toContain('group-hover/msg:pointer-events-auto');
-    // The strip must not be a direct flex child of the message row
+    // The card must not be a direct flex child of the message row
     const row = container.querySelector('[data-message-id]')!;
     expect(actions.parentElement).not.toBe(row);
+    // The hover timestamp still sits in the gutter beside the bubble, where it
+    // is narrow enough to fit
+    const time = container.querySelector('[data-hover-time]')!;
+    expect(time.className).toContain('absolute');
+    expect(time.className).toContain('left-full');
   });
 
-  it('own-message hover actions anchor to the left of the bubble', () => {
+  it('own-message hover timestamp anchors to the left of the bubble', () => {
     const { container } = render(
       <MessageBubble
         message={makeMessage({ body: 'My reply', isFromMe: true })}
       />
     );
-    const actions = container.querySelector('[data-hover-actions]')!;
-    expect(actions.className).toContain('right-full');
+    expect(container.querySelector('[data-hover-time]')!.className).toContain('right-full');
   });
 });

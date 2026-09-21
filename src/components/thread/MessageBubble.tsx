@@ -4,11 +4,54 @@ import { useCachedImage } from '@/hooks/useCachedImage';
 import { useUIStore } from '@/store/ui-store';
 import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { searchEmoji, EMOJI_SHORTCODE_RE, type EmojiResult } from '@/lib/emoji-search';
+import { edgeShift } from '@/lib/edge-clamp';
 import { EmojiAutocomplete } from './EmojiAutocomplete';
 
 import { sanitizeUrl } from '@/lib/sanitize-url';
 import { SharedPostCard } from './SharedPostCard';
 import type { Message, MessageAttachment, MessageMention } from '@/types/message';
+
+/** Icon button inside the floating hover-action card. */
+const ACTION_BUTTON =
+  'flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg-strong';
+
+/**
+ * Keeps an overlay inside the thread's scroll container, which clips
+ * horizontally. Measure on the interaction that reveals the overlay (hover,
+ * open) rather than on mount — every bubble carries one, and a layout read per
+ * bubble on every render would be wasted work.
+ */
+function useEdgeClamp<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [shift, setShift] = useState(0);
+  // The shift currently baked into the element's transform, so a re-measure
+  // describes the overlay's natural position rather than the corrected one.
+  const applied = useRef(0);
+
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const container = el.closest('[data-scroll-container]');
+    const bounds = container
+      ? container.getBoundingClientRect()
+      : { left: 0, right: window.innerWidth };
+    const next = edgeShift(
+      { left: rect.left - applied.current, right: rect.right - applied.current },
+      bounds,
+    );
+    if (next !== applied.current) {
+      applied.current = next;
+      setShift(next);
+    }
+  }, []);
+
+  return {
+    ref,
+    measure,
+    style: shift ? { transform: `translateX(${shift}px)` } : undefined,
+  };
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -49,6 +92,7 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
   const editRef = useRef<HTMLTextAreaElement>(null);
   const unsendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const actionsClamp = useEdgeClamp<HTMLDivElement>();
   const { editMessage, reactToMessage, recallMessage } = useOptimisticAction();
 
   useEffect(() => {
@@ -140,7 +184,11 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
   }
 
   return (
-    <div data-message-id={message.id} className={`group/msg flex items-center gap-2 ${isMe ? 'flex-row-reverse' : ''} ${isNew ? 'animate-message-in' : ''}`}>
+    <div
+      data-message-id={message.id}
+      onMouseEnter={actionsClamp.measure}
+      className={`group/msg flex items-center gap-2 ${isMe ? 'flex-row-reverse' : ''} ${isNew ? 'animate-message-in' : ''}`}
+    >
       {/* Avatar (or spacer for grouped messages) */}
       {!isMe && (
         <div className="h-8 w-8 shrink-0">
@@ -172,79 +220,115 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
 
       {/* Bubble */}
       <div className={`relative max-w-[min(75%,42rem)] ${isMe ? 'items-end' : 'items-start'}`}>
-        {/* Hover timestamp + actions — overlaid beside the bubble instead of
-            in the flex flow, so the (invisible) strip doesn't reserve row
-            width and squeeze bubbles when the thread pane is narrow. */}
+        {/* Hover timestamp — overlaid beside the bubble instead of in the flex
+            flow, so the (invisible) label doesn't reserve row width and squeeze
+            bubbles when the thread pane is narrow. */}
         <span
-          data-hover-actions
-          className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap text-[10px] leading-normal text-fg-faint opacity-0 transition-opacity group-hover/msg:pointer-events-auto group-hover/msg:opacity-100 ${isMe ? 'right-full mr-2' : 'left-full ml-2'}`}
+          data-hover-time
+          className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center whitespace-nowrap text-[10px] leading-normal text-fg-faint opacity-0 transition-opacity group-hover/msg:opacity-100 ${isMe ? 'right-full mr-2' : 'left-full ml-2'}`}
         >
-        {canReact && !editing && (
-          <>
-            {['👍', '😊', '😎', '👋'].map(emoji => (
-              <button
-                key={emoji}
-                onClick={() => handleQuickReact(emoji)}
-                className="cursor-pointer text-lg opacity-60 hover:opacity-100 transition-opacity"
-                title={`React ${emoji}`}
-              >
-                {emoji}
-              </button>
-            ))}
-            <div className="relative" ref={emojiPickerRef}>
-              <button
-                onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}
-                className="cursor-pointer text-fg-faint hover:text-fg-secondary"
-                title="More reactions"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-                  <line x1="9" y1="9" x2="9.01" y2="9" />
-                  <line x1="15" y1="9" x2="15.01" y2="9" />
-                </svg>
-              </button>
-              {emojiPickerOpen && (
-                <EmojiPickerPopover
-                  onSelect={(emoji) => { handleQuickReact(emoji); setEmojiPickerOpen(false); }}
-                  isMe={isMe}
-                />
-              )}
-            </div>
-          </>
-        )}
-        {canReply && !editing && (
-          <button
-            onClick={() => useUIStore.getState().setReplyingTo(message)}
-            className="cursor-pointer text-fg-faint hover:text-fg-secondary"
-            title="Reply"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 17 4 12 9 7" />
-              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-            </svg>
-          </button>
-        )}
-        {canEdit && !editing && (
-          <button
-            onClick={() => { setEditBody(message.body); setEditing(true); }}
-            className="cursor-pointer text-fg-faint hover:text-fg-secondary"
-          >
-            edit
-          </button>
-        )}
-        {canUnsend && !editing && (
-          <button
-            onClick={handleUnsend}
-            className={`cursor-pointer ${unsendConfirm ? 'text-red-400 font-medium' : 'text-fg-faint hover:text-fg-secondary'}`}
-          >
-            {unsendConfirm ? 'sure?' : 'unsend'}
-          </button>
-        )}
-        {formatHoverTime(message.createdAt)}
+          {formatHoverTime(message.createdAt)}
         </span>
         {showAvatar && (
           <p className="mb-0.5 text-xs font-medium text-fg-secondary">{message.senderName}</p>
+        )}
+        <div className="relative">
+        {/* Hover actions — a floating card straddling the bubble's top right
+            corner, on sent and received messages alike. Anchoring it to the
+            bubble instead of the gutter beside it means the pane never has to
+            find ~230px of free space next to a wide bubble, which it often
+            can't: the strip used to clip at the pane edge, taking the picker
+            button with it. */}
+        {!editing && (canReact || canReply || canEdit || canUnsend) && (
+          <div
+            ref={actionsClamp.ref}
+            data-hover-actions
+            style={actionsClamp.style}
+            className={`absolute -top-5 z-20 flex items-center gap-0.5 rounded-full border border-edge bg-surface px-1 py-0.5 shadow-md transition-opacity ${
+              emojiPickerOpen
+                ? 'opacity-100'
+                : 'pointer-events-none opacity-0 group-hover/msg:pointer-events-auto group-hover/msg:opacity-100'
+            } right-2`}
+          >
+            {canReact && (
+              <>
+                {['👍', '😊', '😎', '👋'].map(emoji => (
+                  <button
+                    key={emoji}
+                    onClick={() => handleQuickReact(emoji)}
+                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-base transition-colors hover:bg-surface-hover"
+                    title={`React ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <div className="relative flex" data-emoji-anchor ref={emojiPickerRef}>
+                  <button
+                    onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}
+                    className={ACTION_BUTTON}
+                    title="More reactions"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                      <line x1="9" y1="9" x2="9.01" y2="9" />
+                      <line x1="15" y1="9" x2="15.01" y2="9" />
+                    </svg>
+                  </button>
+                  {emojiPickerOpen && (
+                    <EmojiPickerPopover
+                      onSelect={(emoji) => { handleQuickReact(emoji); setEmojiPickerOpen(false); }}
+                      onClose={() => setEmojiPickerOpen(false)}
+                      isMe={isMe}
+                    />
+                  )}
+                </div>
+              </>
+            )}
+            {canReact && (canReply || canEdit || canUnsend) && (
+              <span aria-hidden className="mx-0.5 h-4 w-px bg-edge" />
+            )}
+            {canReply && (
+              <button
+                onClick={() => useUIStore.getState().setReplyingTo(message)}
+                className={ACTION_BUTTON}
+                title="Reply"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 17 4 12 9 7" />
+                  <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                </svg>
+              </button>
+            )}
+            {canEdit && (
+              <button
+                onClick={() => { setEditBody(message.body); setEditing(true); }}
+                className={ACTION_BUTTON}
+                title="Edit"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+            )}
+            {canUnsend && (
+              <button
+                onClick={handleUnsend}
+                className={unsendConfirm
+                  ? 'flex h-7 cursor-pointer items-center rounded-full px-2 text-[11px] font-medium text-red-500 transition-colors hover:bg-surface-hover'
+                  : ACTION_BUTTON}
+                title={unsendConfirm ? 'Click again to unsend' : 'Unsend'}
+              >
+                {unsendConfirm ? 'sure?' : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
         )}
         <div
           className={`rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
@@ -382,6 +466,7 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
               {!hasBody && !hasAttachments && !message.repliedMessage && '\u00A0'}
             </>
           )}
+        </div>
         </div>
         {/* Reaction pills */}
         {message.reactions && message.reactions.length > 0 && (
@@ -841,42 +926,153 @@ function Linkify({ text, mentions, isMe }: { text: string; mentions?: MessageMen
   return <>{parts}</>;
 }
 
-const EMOJI_GRID = [
-  '👍', '👎', '❤️', '😊', '😂',
-  '😎', '🙏', '🔥', '👏', '💯',
-  '😍', '🎉', '👋', '🤔', '😮',
-  '😢', '✅', '⭐', '🚀', '💪',
+/** Shown before anything is typed — a curated starting point, not a limit. */
+const QUICK_PICKS: EmojiResult[] = [
+  { emoji: '👍', name: 'thumbsup' }, { emoji: '👎', name: 'thumbsdown' },
+  { emoji: '❤️', name: 'heart' }, { emoji: '😊', name: 'blush' },
+  { emoji: '😂', name: 'joy' }, { emoji: '😎', name: 'sunglasses' },
+  { emoji: '🙏', name: 'pray' }, { emoji: '🔥', name: 'fire' },
+  { emoji: '👏', name: 'clap' }, { emoji: '💯', name: '100' },
+  { emoji: '😍', name: 'heart_eyes' }, { emoji: '🎉', name: 'tada' },
+  { emoji: '👋', name: 'wave' }, { emoji: '🤔', name: 'thinking_face' },
+  { emoji: '😮', name: 'open_mouth' }, { emoji: '😢', name: 'cry' },
+  { emoji: '✅', name: 'white_check_mark' }, { emoji: '⭐', name: 'star' },
+  { emoji: '🚀', name: 'rocket' }, { emoji: '💪', name: 'muscle' },
 ];
 
-function EmojiPickerPopover({ onSelect, isMe }: { onSelect: (emoji: string) => void; isMe: boolean }) {
+/** Columns in the picker grid — also the stride for up/down arrow keys. */
+const PICKER_COLUMNS = 6;
+/** Enough matches to scroll through without rendering the whole dataset. */
+const PICKER_RESULT_LIMIT = 60;
+/** Breathing room between the picker and the edge of the scroll container. */
+const PICKER_GAP = 8;
+/** Search field plus about two rows of emoji. */
+const PICKER_MIN_HEIGHT = 140;
+
+/**
+ * Reaction picker. LinkedIn's `reactWithEmoji` takes any emoji, so this
+ * searches the whole gemoji set (the same data behind `:shortcode`
+ * autocomplete) rather than offering a fixed tray; the quick picks are just
+ * what shows before you type.
+ */
+function EmojiPickerPopover({
+  onSelect,
+  onClose,
+  isMe,
+}: {
+  onSelect: (emoji: string) => void;
+  onClose: () => void;
+  isMe: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState(0);
   const [placement, setPlacement] = useState<'above' | 'below' | null>(null);
+  const [shift, setShift] = useState(0);
+  const [maxHeight, setMaxHeight] = useState<number>();
+
+  const results = useMemo(() => {
+    const q = query.trim();
+    return q ? searchEmoji(q, PICKER_RESULT_LIMIT) : QUICK_PICKS;
+  }, [query]);
 
   useLayoutEffect(() => {
-    if (!ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    // Find the scroll container to get the usable top boundary (below the header)
-    const scrollContainer = ref.current.closest('[data-scroll-container]');
-    const topBound = scrollContainer ? scrollContainer.getBoundingClientRect().top : 0;
-    setPlacement(rect.top < topBound ? 'below' : 'above');
+    const el = ref.current;
+    if (!el) return;
+    // The scroll container is the usable area: its top sits below the thread
+    // header, and it clips on every side, so a grid that runs past one is cut
+    // off rather than merely overhanging.
+    const scrollContainer = el.closest('[data-scroll-container]');
+    const bounds = scrollContainer
+      ? scrollContainer.getBoundingClientRect()
+      : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth };
+    // Measure the button the picker hangs off, not the picker itself: the
+    // space left over on each side of it is what decides the placement.
+    const anchor = (el.parentElement ?? el).getBoundingClientRect();
+    const above = anchor.top - bounds.top - PICKER_GAP;
+    const below = bounds.bottom - anchor.bottom - PICKER_GAP;
+    setPlacement(below > above ? 'below' : 'above');
+    // Cap to the room on that side, but never squeeze below a couple of usable
+    // rows — a sliver of a picker is worse than one that overhangs slightly.
+    setMaxHeight(Math.max(PICKER_MIN_HEIGHT, Math.max(above, below)));
+    setShift(edgeShift(el.getBoundingClientRect(), bounds));
   }, []);
+
+  // Typing drives the picker, so the field takes focus on open. Global
+  // single-key shortcuts skip events aimed at an input (see useKeyboard).
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Follow keyboard selection through a scrolled grid.
+  useEffect(() => {
+    ref.current?.querySelector('[data-emoji-selected]')?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    const move = (delta: number) => {
+      e.preventDefault();
+      setSelected((i) => Math.max(0, Math.min(results.length - 1, i + delta)));
+    };
+    if (e.key === 'ArrowRight') return move(1);
+    if (e.key === 'ArrowLeft') return move(-1);
+    if (e.key === 'ArrowDown') return move(PICKER_COLUMNS);
+    if (e.key === 'ArrowUp') return move(-PICKER_COLUMNS);
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (results[selected]) onSelect(results[selected].emoji);
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    }
+  }
 
   return (
     <div
       ref={ref}
-      className={`absolute z-50 w-[200px] grid grid-cols-5 gap-0.5 rounded-lg border border-border bg-surface-raised p-1.5 shadow-lg ${
+      data-emoji-picker
+      style={{
+        ...(shift ? { transform: `translateX(${shift}px)` } : null),
+        ...(maxHeight ? { maxHeight } : null),
+      }}
+      className={`absolute z-50 flex w-60 flex-col gap-1 rounded-lg border border-edge bg-surface p-1.5 shadow-lg ${
         placement === null ? 'bottom-full mb-1 invisible' : placement === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'
       } ${isMe ? 'right-0' : 'left-0'}`}
     >
-      {EMOJI_GRID.map(emoji => (
-        <button
-          key={emoji}
-          onClick={() => onSelect(emoji)}
-          className="flex h-9 w-9 cursor-pointer items-center justify-center rounded text-lg hover:bg-surface-hover transition-colors"
-        >
-          {emoji}
-        </button>
-      ))}
+      <input
+        ref={inputRef}
+        data-emoji-search
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setSelected(0); }}
+        onKeyDown={handleKeyDown}
+        placeholder="Search emoji"
+        aria-label="Search emoji"
+        className="w-full shrink-0 rounded bg-surface-input px-2 py-1 text-xs text-fg outline-none placeholder:text-fg-faint"
+      />
+      {results.length === 0 ? (
+        <p className="px-1 py-3 text-center text-xs text-fg-faint">No emoji for “{query.trim()}”</p>
+      ) : (
+        <div className="grid min-h-0 grid-cols-6 gap-0.5 overflow-y-auto">
+          {results.map((r, i) => (
+            <button
+              key={`${r.emoji}-${r.name}`}
+              onClick={() => onSelect(r.emoji)}
+              onMouseEnter={() => setSelected(i)}
+              data-emoji-selected={i === selected ? '' : undefined}
+              title={`:${r.name}:`}
+              className={`flex h-9 w-9 cursor-pointer items-center justify-center rounded text-lg transition-colors hover:bg-surface-hover ${
+                i === selected ? 'bg-surface-hover' : ''
+              }`}
+            >
+              {r.emoji}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
