@@ -83,8 +83,18 @@ export function mergeDuplicateConversations(results: Conversation[]): Conversati
   const toRemove = new Set<number>();
   for (const indices of byParticipant.values()) {
     if (indices.length < 2) continue;
-    // Sort by lastActivityAt descending — first one wins
-    indices.sort((a, b) => results[b].lastActivityAt - results[a].lastActivityAt);
+    // Newest first — except that an accept-flow placeholder never wins. It is
+    // stamped with the moment the invitation was accepted, so it is always the
+    // newer row, and while it survives it hides the very thread the accept
+    // created (the message that came with the invitation). A draft the user is
+    // composing is not a placeholder and keeps the old behaviour: it has to
+    // stay visible while they pick recipients.
+    indices.sort((a, b) => {
+      const placeholderA = results[a].placeholder === 1 ? 1 : 0;
+      const placeholderB = results[b].placeholder === 1 ? 1 : 0;
+      if (placeholderA !== placeholderB) return placeholderA - placeholderB;
+      return results[b].lastActivityAt - results[a].lastActivityAt;
+    });
     const primary = results[indices[0]];
     const mergedIds: string[] = [];
     for (let j = 1; j < indices.length; j++) {

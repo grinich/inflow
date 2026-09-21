@@ -11,6 +11,14 @@ export interface Conversation {
   hasAttachments?: number; // 0 = no, 1 = yes (number for IndexedDB indexing)
   starred?: number; // 0 = not starred, 1 = starred (number for IndexedDB indexing)
   draft?: number; // 0 or 1 — temporary conversation created from composer before send
+  /**
+   * 1 when this draft is a stand-in the accept flow wrote for a thread that
+   * does not exist yet, rather than a new message the user is composing.
+   * Such a row is disposable: once the real thread arrives it is reconciled
+   * away (see reconcilePlaceholders), and it must never outrank the real
+   * thread in the list.
+   */
+  placeholder?: 1;
   /** Local wall-clock timestamp of the last time SERVER data merged into this
    *  row. Used by the deletion sweep to detect rows the server stopped returning. */
   seenInSyncAt?: number;

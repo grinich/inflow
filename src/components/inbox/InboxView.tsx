@@ -4,6 +4,7 @@ import { NewMessageComposer } from '@/components/composer/NewMessageComposer';
 import { useResizableSidebar } from '@/hooks/useResizableSidebar';
 import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useUIStore } from '@/store/ui-store';
+import { usePlaceholderReconcile } from '@/hooks/usePlaceholderReconcile';
 import type { Conversation } from '@/types/conversation';
 
 interface InboxViewProps {
@@ -42,6 +43,10 @@ export function InboxView({
   const selectedConversation = selectedConversationId
     ? conversations.find((c) => c.id === selectedConversationId) || null
     : null;
+
+  // An accepted invitation leaves behind a stand-in row when its hand-off
+  // doesn't complete; retire it once the real thread is here.
+  usePlaceholderReconcile(conversations);
 
   return (
     <>

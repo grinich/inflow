@@ -185,6 +185,10 @@ async function openThreadWith(person: Person): Promise<{ id: string; placeholder
     archived: 0,
     category: 'PRIMARY_INBOX',
     draft: 1,
+    // Marks this as a stand-in, not a message being composed: the reconcile
+    // sweep may delete it once the real thread lands, and the list must never
+    // let it hide that thread.
+    placeholder: 1,
   } as Conversation);
   const store = useUIStore.getState();
   store.setInboxTab('focused');
