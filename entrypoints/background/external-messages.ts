@@ -134,10 +134,17 @@ export interface ShellNotification {
 
 /**
  * Route a message notification through connected shells that hold
- * Notification permission. Notifications posted from the inflow.im origin
- * are attributed to the installed inƒlow app (its name and icon) instead of
- * to Chrome, the way extension notifications are. Returns false when no
- * shell can show it — the caller falls back to chrome.notifications.
+ * Notification permission. The shell route is what lets a click raise a
+ * backgrounded app window and lets the notification outlive the page that
+ * showed it; returns false when no shell can show it, and the caller falls
+ * back to chrome.notifications.
+ *
+ * It does NOT decide whose name and icon macOS puts on the notification.
+ * That is Chrome's call: it posts under its own identity unless the macOS
+ * app-shim attribution feature is on (Chrome 152+, currently behind
+ * chrome://flags/#enable-mac-pwas-notification-attribution), in which case an
+ * installed PWA's notifications carry the app's identity instead. The only
+ * brand mark we control from here is the image in `icon`.
  */
 export function notifyViaShell(notification: ShellNotification): boolean {
   let shown = false;

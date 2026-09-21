@@ -293,9 +293,10 @@ function showNativeNotification(msg: {
       return;
     }
 
-    // Remote avatar URLs don't render in MV3 notifications — composite the
-    // avatar with the inflow badge into a data URL, falling back to the app
-    // icon when the avatar is missing or can't be fetched.
+    // Remote avatar URLs don't render in MV3 notifications — re-encode the
+    // avatar as a circle-cropped data URL, falling back to the app icon when
+    // it's missing or can't be fetched. No inflow mark is composited in: that
+    // badge was tried and dropped twice (9ed151d).
     const iconUrl =
       (msg.senderPicture ? await buildNotificationIcon(msg.senderPicture) : null) ||
       chrome.runtime.getURL('icon-128.png');
