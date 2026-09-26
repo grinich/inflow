@@ -13,7 +13,8 @@
 
 import { getMemberUrn } from '../auth/session';
 import { fetchMessages } from '../api/messages';
-import { normalizeMessages, extractProfileId, getParticipantPicture, extractReactions, extractAttachments, extractBodyMentions, messagePreviewText, needsParticipantRepair, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
+import { fetchConversationSummary } from '../api/conversations';
+import { normalizeMessages, pickInboxCategory, extractProfileId, getParticipantPicture, extractReactions, extractAttachments, extractBodyMentions, messagePreviewText, needsParticipantRepair, extractParticipantsFromIncluded, isValidProfileUrn, type ExtractedParticipants } from '@/lib/voyager-normalizer';
 import { withoutRecalled, preserveSseFields } from '@/lib/message-dedup';
 import { stashUnmatchedReceipt, applyPendingReceipts, consumePendingReceipts } from './pending-receipts';
 import { repairConversationParticipants } from '../sync/repair-participants';
@@ -149,6 +150,8 @@ async function applyInboundMessageToConversation(
   eventParticipants: ExtractedParticipants | undefined,
   newInbound: Message[],
   newOutbound: Message[],
+  /** LinkedIn's own category for this thread, when the event carried it. */
+  eventCategory?: string,
 ): Promise<void> {
   if (isStaleContext(ctx)) return;
   const database = ctx.database;
@@ -185,8 +188,14 @@ async function applyInboundMessageToConversation(
         // Mark unread unless our own newer reply in the same batch (a catch-up
         // burst after reconnect) already implies we read past the inbound.
         if (latestNewInbound >= latestNewOutbound) updates.read = 0;
-        // Move to Focused and un-archive when someone replies
-        if (conv.category !== 'PRIMARY_INBOX') updates.category = 'PRIMARY_INBOX';
+        // Move to Focused and un-archive when someone replies — but never drag
+        // a thread out of Other. LinkedIn keeps it there, so the next sync of
+        // that category writes SECONDARY_INBOX straight back (mergeConversation):
+        // all the promotion achieved was a visible flap, and a row that claimed
+        // to be Focused at the moment we decided whether to notify.
+        if (conv.category !== 'PRIMARY_INBOX' && conv.category !== 'SECONDARY_INBOX') {
+          updates.category = 'PRIMARY_INBOX';
+        }
         if (conv.archived === 1) updates.archived = 0;
       }
       if (!isMutationSuppressed(convId) && !pending && latestNewOutbound > latestNewInbound && conv.read === 0) {
@@ -225,6 +234,20 @@ async function applyInboundMessageToConversation(
     // A live SSE message means the thread is active again on LinkedIn's side —
     // clear any local delete tombstone so the resurrected conversation can sync.
     await database.tombstones.delete(convId).catch(() => {});
+    // A thread we have never stored has no local label, and guessing Focused is
+    // what let an Other-tab message ping the OS. If the event didn't carry the
+    // category, ask LinkedIn once — first contact only, and the answer also
+    // files the row in the right tab straight away instead of after a sync.
+    const recipients = haveEventParts
+      ? eventParticipants!.participantUrns
+      : sender
+        ? [sender.senderUrn]
+        : [];
+    if (!eventCategory && recipients.length > 0) {
+      eventCategory = (await fetchConversationSummary(recipients).catch(() => ({ category: null })))
+        .category ?? undefined;
+    }
+    if (isStaleContext(ctx)) return;
     await database.conversations.put({
       id: convId,
       participantUrns: haveEventParts ? eventParticipants!.participantUrns : sender ? [sender.senderUrn] : [],
@@ -234,11 +257,19 @@ async function applyInboundMessageToConversation(
       lastActivityAt: latest.createdAt,
       read: senders.length > 0 ? 0 : 1,
       archived: 0,
-      category: 'PRIMARY_INBOX',
+      // A thread we have never seen has no local label to fall back on. If the
+      // event carried the conversation's own categories, that is LinkedIn's
+      // answer and it decides the tab (and whether this pings the OS);
+      // otherwise assume Focused, as before, and say so in the log — that line
+      // is how we learn whether the payload ever carries it.
+      category: eventCategory ?? 'PRIMARY_INBOX',
       hasAttachments: convMessages.some((m) => m.attachments?.length) ? 1 : 0,
       starred: 0,
     });
-    debugLog('info', `[RT] Created minimal conversation ${convId} from SSE message`);
+    debugLog(
+      'info',
+      `[RT] Created minimal conversation ${convId} from SSE message — category=${eventCategory ?? 'PRIMARY_INBOX (assumed; event carried no Conversation entity)'}`,
+    );
     // Store participant profiles (best-effort) so the open-profile shortcut works.
     if (haveEventParts && eventParticipants!.profiles.length) await mergeProfiles(eventParticipants!.profiles).catch(() => {});
     // Still no usable participant data (outbound-only, none in the event) → fetch it.
@@ -273,15 +304,18 @@ function showNativeNotification(msg: {
       if (win?.focused) return; // user is looking at the app — in-app toast shows
     }
 
-    // Spam stays quiet: a new message in a SPAM thread doesn't mark it unread
-    // or move it to Focused (see applyInboundMessageToConversation), so it
-    // shouldn't ping the OS either.
+    // Spam and Other stay quiet: a new message in a SPAM thread doesn't mark it
+    // unread or move it to Focused, and one in SECONDARY_INBOX stays in Other
+    // (see applyInboundMessageToConversation) — a second inbox you didn't ask
+    // to be interrupted by shouldn't ping the OS. The in-app toast still fires
+    // for both; this is only the OS notification.
     const conv = await db.conversations.get(msg.conversationId);
-    if (conv?.category === 'SPAM') return;
+    if (conv?.category === 'SPAM' || conv?.category === 'SECONDARY_INBOX') return;
 
-    // Prefer a connected web shell with Notification permission: its
-    // notifications come from the inflow.im origin, so macOS attributes them
-    // to the installed inƒlow app (name + icon) instead of to Chrome.
+    // Prefer a connected web shell with Notification permission: a click there
+    // can raise a backgrounded app window, and the notification outlives the
+    // page that showed it. Whose name and icon macOS puts on it is Chrome's
+    // call either way — see notifyViaShell.
     if (
       notifyViaShell({
         conversationId: msg.conversationId,
@@ -1302,9 +1336,18 @@ async function handleIncludedMessage(
 ): Promise<void> {
   // Build participant lookup
   const participantMap = new Map<string, any>();
+  // …and the conversation's own category, when the event ships one. We only
+  // ever mined this payload for messages and participants, so if LinkedIn has
+  // been including the label all along we were discarding it and falling back
+  // to the local row — which is fine for a thread we know and wrong for a new
+  // one, where we assumed Focused.
+  const eventCategories = new Map<string, string>();
   for (const entity of included) {
     if (entity.$type === 'com.linkedin.messenger.MessagingParticipant') {
       participantMap.set(entity.entityUrn, entity);
+    } else if (entity.$type === 'com.linkedin.messenger.Conversation' && entity.categories?.length) {
+      const id = extractConversationId(entity.entityUrn || '');
+      if (id) eventCategories.set(id, pickInboxCategory(entity.categories));
     }
   }
 
@@ -1430,6 +1473,7 @@ async function handleIncludedMessage(
       eventParticipants,
       newInboundByConv.get(convId) ?? [],
       newOutboundByConv.get(convId) ?? [],
+      eventCategories.get(convId),
     );
   }
 

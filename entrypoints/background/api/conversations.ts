@@ -3,6 +3,7 @@ import { getMemberUrn } from '../auth/session';
 import { linkedInVariables, raw, encodeConversationUrn, encodeUrnChars, type RawValue } from './encode';
 import { debugLog } from '@/lib/debug-log';
 import { extractConversationId } from '@/lib/conversation-urn';
+import { pickInboxCategory } from '@/lib/voyager-normalizer';
 import type { VoyagerResponse } from './types';
 
 /** LinkedIn inbox categories mapped to their API values. */
@@ -20,6 +21,21 @@ export type InboxCategory = 'PRIMARY_INBOX' | 'SECONDARY_INBOX' | 'ARCHIVE' | 'S
 export async function findConversationByRecipients(
   recipientUrns: string[]
 ): Promise<string | null> {
+  return (await fetchConversationSummary(recipientUrns)).id;
+}
+
+/**
+ * The existing thread with these recipients: its id, and the inbox category
+ * LinkedIn files it under.
+ *
+ * The category matters on the notification path. A realtime message for a
+ * conversation we have never stored gives us no local label to consult, and
+ * assuming Focused is how an Other-tab message ends up pinging the OS — so
+ * first contact resolves it here instead of waiting for the next sync.
+ */
+export async function fetchConversationSummary(
+  recipientUrns: string[]
+): Promise<{ id: string | null; category: string | null }> {
   const memberUrn = await getMemberUrn();
 
   // Build recipients List with encoded URNs (colons → %3A)
@@ -34,10 +50,12 @@ export async function findConversationByRecipients(
 
   const path = `/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.9c3ab648b616451570c715e4a184465e&variables=${variables}`;
 
-  const res = await voyagerFetch(path);
+  // No jitter: the only caller that waits on this is deciding whether a message
+  // that just arrived should raise a notification.
+  const res = await voyagerFetch(path, { skipJitter: true });
   if (!res.ok) {
-    debugLog('error', `findConversationByRecipients failed: ${res.status}`);
-    return null;
+    debugLog('error', `fetchConversationSummary failed: ${res.status}`);
+    return { id: null, category: null };
   }
 
   const data = await res.json();
@@ -46,10 +64,13 @@ export async function findConversationByRecipients(
   const conv = (data.included || []).find(
     (e: any) => e.$type === 'com.linkedin.messenger.Conversation'
   );
-  if (!conv?.entityUrn) return null;
+  if (!conv?.entityUrn) return { id: null, category: null };
 
-  // Extract conversation ID from URN: urn:li:msg_conversation:(memberUrn,convId)
-  return extractConversationId(conv.entityUrn) || null;
+  return {
+    // Extract conversation ID from URN: urn:li:msg_conversation:(memberUrn,convId)
+    id: extractConversationId(conv.entityUrn) || null,
+    category: conv.categories?.length ? pickInboxCategory(conv.categories) : null,
+  };
 }
 
 // ---------------------------------------------------------------------------

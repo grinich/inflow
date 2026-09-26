@@ -122,7 +122,7 @@ export function extractParticipantsFromIncluded(
  * ARCHIVE is also surfaced via the `archived` flag; INMAIL/OTHER aren't tab
  * categories, so they fold into the Other tab to avoid vanishing from the UI.
  */
-function pickInboxCategory(categories?: string[]): string {
+export function pickInboxCategory(categories?: string[]): string {
   if (!categories) return 'PRIMARY_INBOX';
   if (categories.includes('ARCHIVE')) return 'ARCHIVE';
   if (categories.includes('SPAM')) return 'SPAM';
