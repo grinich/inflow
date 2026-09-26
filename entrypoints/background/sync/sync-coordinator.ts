@@ -13,6 +13,21 @@ import type { Conversation } from '@/types/conversation';
 const ALARM_NAME = 'inflow-sync';
 const POLL_INTERVAL_MINUTES = 0.5; // 30 seconds
 const STALENESS_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+/**
+ * How long a category may go without a walk that reaches its last page.
+ *
+ * Re-discovery every 15 minutes used to re-paginate the WHOLE category each
+ * time: for an archive of a few thousand threads that is hundreds of requests
+ * an hour that enqueue nothing at all (`Enqueued 0, skipped 20`, page after
+ * page), because everything below the first page or two is already known —
+ * anything that gains activity sorts back to the top, where a shallow round
+ * sees it. A deep walk still happens on this slower clock, so cross-device
+ * moves deep in the list are still picked up and the deletion sweep, which
+ * needs a complete pagination to prove absence, still runs.
+ */
+const FULL_DISCOVERY_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+/** Pages a shallow round may read before it stops looking. */
+const SHALLOW_DISCOVERY_PAGES = 3;
 const BACKFILL_BATCH_SIZE = 10;
 const BURST_MAX_PAGES = 5;
 /**
@@ -260,20 +275,34 @@ async function _onSyncTickInner(): Promise<void> {
         'info',
         `[COORDINATOR] Re-discovering ${cat} (stale: ${Math.round((now - state.discoveryCompletedAt) / 1000 / 60)}m old)`
       );
+      // Read back by runDiscoveryRound, which owns the stopping rule.
+      const depth = discoveryDepthFor(state, now);
       await db.syncState.update(cat, {
         phase: 'discovering',
         cursor: '',
         totalDiscovered: 0,
         lastSyncStartedAt: now,
+        discoveryDepth: depth,
       });
       // Keep the in-memory snapshot in sync so the broadcast below reflects the
       // just-triggered re-discovery (and totalDiscovered doesn't inflate over cycles).
-      freshStateMap.set(cat, { ...state, phase: 'discovering', cursor: '', totalDiscovered: 0, lastSyncStartedAt: now });
+      freshStateMap.set(cat, { ...state, phase: 'discovering', cursor: '', totalDiscovered: 0, lastSyncStartedAt: now, discoveryDepth: depth });
       break; // Only re-discover one category per tick
     }
   }
 
   broadcastProgress(freshStateMap);
+}
+
+/**
+ * How far the next re-discovery of this category should walk.
+ *
+ * Deep until one has actually reached the end (a category we have never
+ * covered has no head to trust), then deep again only once the last complete
+ * walk has aged out. Everything in between is shallow.
+ */
+export function discoveryDepthFor(state: SyncState, now: number): 'shallow' | 'deep' {
+  return now - (state.fullDiscoveryCompletedAt ?? 0) > FULL_DISCOVERY_INTERVAL_MS ? 'deep' : 'shallow';
 }
 
 /**
@@ -305,8 +334,12 @@ export async function runDiscoveryRound(
     _discoveringCategories.add(cat);
     let cursor: string | null = state.cursor || null;
     let totalDiscovered = state.totalDiscovered;
+    // A first discovery has no depth recorded and must walk the whole thing;
+    // only a re-discovery of an already-known category may go shallow.
+    const depth = state.discoveryDepth ?? 'deep';
+    let pagesThisCategory = 0;
 
-    debugLog('info', `[COORDINATOR] Discovery round started for ${cat}`);
+    debugLog('info', `[COORDINATOR] Discovery round started for ${cat} (${depth})`);
 
     const gen = getDbGeneration();
     try {
@@ -319,6 +352,7 @@ export async function runDiscoveryRound(
         await enqueueConversations(conversations, cat);
         totalDiscovered += conversations.length;
         pagesThisRound++;
+        pagesThisCategory++;
 
         // Stop when the server says it's done, OR when the cursor stops
         // advancing. `isLastPage` is just `!nextCursor`, so a stuck-cursor tail
@@ -332,6 +366,9 @@ export async function runDiscoveryRound(
             cursor: '',
             totalDiscovered,
             discoveryCompletedAt: Date.now(),
+            // Only a walk that actually reached the end has covered the
+            // category; a stuck cursor proves nothing about the tail.
+            ...(isLastPage ? { fullDiscoveryCompletedAt: Date.now() } : {}),
           });
           debugLog('info', `[COORDINATOR] Discovery complete for ${cat}: ${totalDiscovered} conversations`);
           // Only a genuinely complete pagination proves absence — a stuck
@@ -341,6 +378,24 @@ export async function runDiscoveryRound(
               debugLog(networkErrorLevel(err), `[COORDINATOR] Deletion sweep failed for ${cat}: ${err}`);
             });
           }
+          break;
+        }
+
+        // A shallow round only refreshes the head of the list. Everything that
+        // changed sorts there; the rest is re-read on the deep clock, so stop
+        // rather than paginating through history that enqueues nothing. No
+        // sweep: absence is only provable by a walk that reached the end.
+        if (depth === 'shallow' && pagesThisCategory >= SHALLOW_DISCOVERY_PAGES) {
+          await db.syncState.update(cat, {
+            phase: 'backfilling',
+            cursor: '',
+            totalDiscovered,
+            discoveryCompletedAt: Date.now(),
+          });
+          debugLog(
+            'info',
+            `[COORDINATOR] Shallow discovery done for ${cat} after ${pagesThisCategory} page(s)`
+          );
           break;
         }
 

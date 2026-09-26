@@ -10,6 +10,15 @@ import { WEB_APP_URL, appTabUrlPatterns } from './app-urls';
 const TAB_STRIP_LOCKED_RE = /cannot be edited/i;
 
 const MAX_ATTEMPTS = 10;
+/**
+ * Base delay between retries; each attempt waits a multiple of it, so ten
+ * attempts span ~11s rather than 2s.
+ *
+ * A flat 200ms gave up after two seconds — shorter than an ordinary tab drag,
+ * and the click that was dropped is one the user made (the toolbar icon, or a
+ * notification). Backing off covers a real drag without hammering a locked
+ * tab strip.
+ */
 const DEFAULT_RETRY_DELAY_MS = 200;
 
 /**
@@ -60,10 +69,15 @@ export async function openAppTab(
     } catch (err: any) {
       const message = String(err?.message ?? err);
       if (TAB_STRIP_LOCKED_RE.test(message) && attempt < MAX_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, retryDelayMs));
+        await new Promise((r) => setTimeout(r, retryDelayMs * attempt));
         continue;
       }
-      debugLog('warn', `[TABS] openAppTab failed (attempt ${attempt}): ${message}`);
+      // Say what was lost: with a conversation recorded this was a
+      // notification click, and the app never came up to answer it.
+      debugLog(
+        'warn',
+        `[TABS] openAppTab failed (attempt ${attempt}${conversationId ? `, notification click for ${conversationId.substring(0, 20)}...` : ''}): ${message}`,
+      );
       return;
     }
   }

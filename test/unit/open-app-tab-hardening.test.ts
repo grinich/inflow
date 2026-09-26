@@ -204,3 +204,27 @@ describe('reloadWebAppShellTabs and the drag lock', () => {
     expect(pattern.url).not.toContain('chrome-extension');
   });
 });
+
+describe('retry budget while the tab strip is locked', () => {
+  it('backs off so ten attempts span a realistic drag, not two seconds', async () => {
+    const DRAG = new Error('Tabs cannot be edited right now (user may be dragging a tab).');
+    vi.mocked(chrome.tabs.query).mockResolvedValue([]);
+    vi.mocked(chrome.tabs.create).mockReset();
+    vi.mocked(chrome.tabs.create).mockRejectedValue(DRAG);
+
+    const delays: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: any, ms?: number) => {
+      delays.push(ms ?? 0);
+      return realSetTimeout(fn, 0);
+    }) as any);
+
+    await openAppTab();
+
+    vi.mocked(globalThis.setTimeout).mockRestore();
+    // Nine waits between ten attempts, each longer than the last
+    expect(delays).toEqual([200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800]);
+    // Nine seconds of patience, against the two it used to give up after
+    expect(delays.reduce((a, b) => a + b, 0)).toBe(9000);
+  });
+});
