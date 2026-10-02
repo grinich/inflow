@@ -1,0 +1,9 @@
+node_modules/
+.mcp-use/
+.env
+.env.*
+!.env.example
+.inflow-local/
+*.log
+.DS_Store
+private/

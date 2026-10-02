@@ -1,0 +1,52 @@
+@import '@openai/mcp-extensions/app/styles.css';
+@import './upstream/global.css';
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+button,
+select {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
+.inflow {
+  height: 640px;
+  min-height: 420px;
+  background: var(--surface);
+  color: var(--fg);
+}
+.inflow[data-display-mode='fullscreen'] {
+  height: 100dvh;
+}
+.inflow-sidebar {
+  width: 360px;
+  min-width: 280px;
+}
+.inflow-back {
+  display: none;
+}
+@media (max-width: 640px) {
+  .inflow-sidebar {
+    width: 100%;
+    min-width: 0;
+  }
+  .inflow:not(.has-selection) .inflow-thread {
+    display: none;
+  }
+  .inflow.has-selection .inflow-sidebar {
+    display: none;
+  }
+  .inflow-back {
+    display: block;
+  }
+}

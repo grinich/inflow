@@ -198,6 +198,13 @@ card. Your data is stored locally and is preserved across updates — the
 extension uses a fixed ID, so reinstalling or moving the folder keeps your
 conversations and settings.
 
+## ChatGPT integration (experimental)
+
+An optional [ChatGPT MCP App example](examples/chatgpt/README.md) renders the inbox
+in ChatGPT and exposes Inflow’s agent tools through an authenticated remote server.
+It requires a local bridge and the running Chrome extension; LinkedIn credentials
+stay in the browser. Each installer deploys their own single-owner server.
+
 ## Development
 
 ```sh

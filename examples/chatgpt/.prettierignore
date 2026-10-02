@@ -1,0 +1,6 @@
+node_modules
+.mcp-use
+vendor
+views/inbox/upstream
+package-lock.json
+mcp-env.d.ts

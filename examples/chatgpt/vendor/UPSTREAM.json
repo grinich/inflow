@@ -1,0 +1,25 @@
+{
+  "repository": "https://github.com/grinich/inflow",
+  "commit": "52ed7d6b54b093d002ab45586cec80210ac61fbd",
+  "files": [
+    "mcpb/server/bridge-core.mjs",
+    "mcpb/server/tool-catalog.mjs"
+  ],
+  "uiFiles": [
+    "global.css",
+    "types/message.ts",
+    "types/conversation.ts",
+    "components/common/GroupAvatar.tsx",
+    "components/conversations/ConversationRow.tsx",
+    "components/thread/EmojiAutocomplete.tsx",
+    "components/thread/MessageBubble.tsx",
+    "components/thread/SharedPostCard.tsx",
+    "hooks/useOptimisticAction.tsx",
+    "hooks/useCachedImage.ts",
+    "lib/emoji-search.ts",
+    "lib/edge-clamp.ts",
+    "lib/search-filters.ts",
+    "lib/sanitize-url.ts",
+    "store/ui-store.ts"
+  ]
+}

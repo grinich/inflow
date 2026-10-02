@@ -1,0 +1,22 @@
+[
+  "send_message",
+  "archive_conversation",
+  "unarchive_conversation",
+  "mark_read",
+  "mark_unread",
+  "move_to_focused",
+  "move_to_other",
+  "move_to_spam",
+  "accept_invitation",
+  "save_draft",
+  "send_draft",
+  "start_conversation",
+  "star_conversation",
+  "unstar_conversation",
+  "delete_conversation",
+  "react_to_message",
+  "edit_message",
+  "delete_message",
+  "withdraw_invitation",
+  "ignore_invitation"
+]

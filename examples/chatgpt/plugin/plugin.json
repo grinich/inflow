@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "inflow",
+  "version": "1.1.0",
+  "description": "Your LinkedIn conversations in ChatGPT, connected through your own Inflow browser session.",
+  "repository": "https://github.com/grinich/inflow",
+  "license": "MIT",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Inflow",
+        "shortDescription": "A calmer home for your LinkedIn inbox",
+        "longDescription": "Browse LinkedIn conversations, find messages, and reply from a sidebar inbox. Connects to your own Inflow Chrome extension through a private bridge. Requires Chrome and the bridge to remain running.",
+        "category": "Productivity",
+        "capabilities": ["Interactive", "Read", "Write"],
+        "composerIcon": "./assets/icon.svg",
+        "logo": "./assets/icon.svg",
+        "defaultPrompt": ["Open my LinkedIn inbox", "Summarize my unread LinkedIn conversations"],
+        "brandColor": "#1D6547"
+      }
+    }
+  }
+}
