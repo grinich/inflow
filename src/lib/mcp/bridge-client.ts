@@ -111,11 +111,13 @@ function setStatus(status: BridgeStatus, error?: string) {
   useUIStore.getState().setMcpStatus(status, error ?? null);
 }
 /**
- * Commit of this extension build, injected by the bundler. Absent under test
- * (and in any build without the define), so callers must treat it as optional.
+ * The companion code this extension build expects, injected by the bundler.
+ * Not the extension's own commit: staleness is about the companion's code, and
+ * comparing repo HEAD flagged every unrelated commit. Absent under test (and in
+ * any build without the define), so callers must treat it as optional.
  */
-function appCommit(): string | undefined {
-  return typeof __COMMIT_SHA__ === 'string' ? __COMMIT_SHA__ : undefined;
+function appCompanionSha(): string | undefined {
+  return typeof __COMPANION_SHA__ === 'string' ? __COMPANION_SHA__ : undefined;
 }
 
 function pushActivity(text: string) {
@@ -166,7 +168,7 @@ function open() {
         loggedWaiting = false;
       }
     },
-    appCommit: appCommit(),
+    appCompanionSha: appCompanionSha(),
     onActivity: (t) => pushActivity(t),
     onCompanionKeys: (keys) => {
       companionKeys = keys;

@@ -5,6 +5,36 @@
  */
 import { createBridgeSession, activityLabel, describeCompanion, describeBuildMatch } from '@/lib/mcp/bridge-protocol';
 
+describe('describeBuildMatch', () => {
+  it('judges staleness on the companion code, not the repo it was packed from', () => {
+    // The whole point: inflow has moved on, but the companion's own code has
+    // not, so there is nothing to reinstall. Comparing repo HEAD used to nag
+    // after literally any commit.
+    expect(describeBuildMatch({ commit: 'packed99', codeCommit: 'code111' }, 'code111')).toBe(
+      'Companion is up to date ✓',
+    );
+  });
+
+  it('names both sides when the companion code really is behind', () => {
+    const line = describeBuildMatch({ codeCommit: 'old111' }, 'new222')!;
+    expect(line).toMatch(/out of date/i);
+    expect(line).toMatch(/old111/);
+    expect(line).toMatch(/new222/);
+    expect(line).toMatch(/Reinstall/i);
+  });
+
+  it('says nothing when either side cannot say, rather than guessing', () => {
+    // An older companion sends no codeCommit at all. A wrong nag here costs a
+    // pointless reinstall and teaches the user to ignore the real warning.
+    expect(describeBuildMatch({ commit: 'abc1234' }, 'code111')).toBeNull();
+    expect(describeBuildMatch({ codeCommit: 'code111' }, undefined)).toBeNull();
+    expect(describeBuildMatch({ codeCommit: 'unknown' }, 'code111')).toBeNull();
+    expect(describeBuildMatch({ codeCommit: 'code111' }, 'nogit')).toBeNull();
+    expect(describeBuildMatch(undefined, 'code111')).toBeNull();
+  });
+});
+
+
 function harness(callTool = vi.fn(async () => ({ ok: true }))) {
   const sent: any[] = [];
   const status: { s: string; e?: string }[] = [];
@@ -155,36 +185,14 @@ it('omits the commit when the build was never stamped', () => {
   );
 });
 
-// --- does the companion match this inflow build? ---------------------------
-
-it('says plainly when the companion is the same build as this session', () => {
-  expect(describeBuildMatch({ commit: 'abc1234' }, 'abc1234')).toBe('Same build as this inflow session ✓');
-});
-
-it('names both sides when they differ, and how to fix it', () => {
-  const line = describeBuildMatch({ commit: 'abc1234' }, 'def5678')!;
-  expect(line).toContain('companion abc1234');
-  expect(line).toContain('inflow def5678');
-  expect(line).toMatch(/Reinstall the companion/i);
-});
-
-it('stays silent when either side cannot say, instead of guessing', () => {
-  // Build numbers are NOT comparable (CI run number vs commit count), so the
-  // absence of a sha must mean "no claim", not a false mismatch.
-  expect(describeBuildMatch({ version: '0.1.0.214' }, 'abc1234')).toBeNull();
-  expect(describeBuildMatch({ commit: 'abc1234' }, undefined)).toBeNull();
-  expect(describeBuildMatch({ commit: 'unknown' }, 'abc1234')).toBeNull();
-  expect(describeBuildMatch({ commit: 'abc1234' }, 'nogit')).toBeNull();
-  expect(describeBuildMatch(undefined, 'abc1234')).toBeNull();
-});
-
 it('adds the match line to the feed on connect', async () => {
   const sent: any[] = [];
   const activity: string[] = [];
   const session = createBridgeSession({
     token: 'T', tools: [], callTool: vi.fn(), send: (m) => sent.push(m),
-    onStatus: () => {}, onActivity: (t) => activity.push(t), appCommit: 'abc1234',
+    onStatus: () => {}, onActivity: (t) => activity.push(t), appCompanionSha: 'code111',
   });
-  await session.handleMessage(JSON.stringify({ type: 'hello_ack', status: { commit: 'abc1234', port: 8123, ownsBridge: true } }));
-  expect(activity).toContain('Same build as this inflow session ✓');
+  // The packed-from sha differs and must not matter; only codeCommit does.
+  await session.handleMessage(JSON.stringify({ type: 'hello_ack', status: { commit: 'packed99', codeCommit: 'code111', port: 8123, ownsBridge: true } }));
+  expect(activity).toContain('Companion is up to date ✓');
 });

@@ -60,6 +60,9 @@ const BUILD_INFO = (() => {
 })();
 const COMPANION_VERSION = BUILD_INFO.version || 'dev';
 const COMPANION_COMMIT = BUILD_INFO.commit || undefined;
+// What inflow compares to decide whether this companion is stale: the commit
+// of the companion's own code, not of the repo it was packed from.
+const COMPANION_CODE_COMMIT = BUILD_INFO.codeCommit || undefined;
 /** True once we own the bridge (the WS server is listening). */
 let ownsBridge = false;
 
@@ -290,6 +293,7 @@ function onConnection(socket) {
         status: {
           version: COMPANION_VERSION,
           commit: COMPANION_COMMIT,
+          codeCommit: COMPANION_CODE_COMMIT,
           port: PORT,
           ownsBridge,
           tools: advertisedTools.length,

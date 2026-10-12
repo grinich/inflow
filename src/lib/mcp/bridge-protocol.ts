@@ -19,6 +19,8 @@ export interface CompanionStatus {
   version?: string;
   /** Short git sha of the build, when known. */
   commit?: string;
+  /** Commit of the companion's own code — what staleness is judged on. */
+  codeCommit?: string;
   /** Localhost port the bridge is on. */
   port?: number;
   /** False when this companion relays through another that owns the bridge. */
@@ -57,8 +59,8 @@ export interface BridgeHandlers {
   send: (msg: object) => void;
   onStatus: (status: BridgeStatus, error?: string) => void;
   onActivity: (text: string) => void;
-  /** Commit sha of this extension build, for the companion build comparison. */
-  appCommit?: string;
+  /** Companion code sha this build expects, for the staleness comparison. */
+  appCompanionSha?: string;
   /** Learn which provider keys the companion holds (from hello_ack). */
   onCompanionKeys?: (keys: CompanionKeys) => void;
   /** Resolve a pending Anthropic proxy request (bridge-client owns the map). */
@@ -123,13 +125,24 @@ export function describeCompanion(status?: CompanionStatus): string {
  * code can carry different numbers. Returns null when either side can't say,
  * rather than guessing a match or crying wolf.
  */
-export function describeBuildMatch(status?: CompanionStatus, appCommit?: string): string | null {
-  const theirs = status?.commit;
-  if (!theirs || !appCommit || theirs === 'unknown' || appCommit === 'nogit') return null;
-  if (theirs === appCommit) return 'Same build as this inflow session ✓';
+/**
+ * Compares the COMPANION'S OWN code, not the repo it was packed from. An
+ * earlier version compared repo HEAD, so any commit at all — a test fix, an
+ * icon — made the two diverge and told the user to reinstall a companion that
+ * was perfectly current. A reinstall only ever helps when the companion's own
+ * code changed; its tool catalog refreshes live at pairing.
+ *
+ * Returns null when either side cannot say (an older companion sends no
+ * codeCommit), because a confident wrong answer here costs the user a pointless
+ * reinstall and makes the warning easy to ignore when it is real.
+ */
+export function describeBuildMatch(status?: CompanionStatus, appCompanionSha?: string): string | null {
+  const theirs = status?.codeCommit;
+  if (!theirs || !appCompanionSha || theirs === 'unknown' || appCompanionSha === 'nogit') return null;
+  if (theirs === appCompanionSha) return 'Companion is up to date ✓';
   return (
-    `Different build from this inflow session — companion ${theirs}, inflow ${appCommit}. ` +
-    'Reinstall the companion from the MCP connector to match.'
+    `Companion is out of date — it has ${theirs}, this build expects ${appCompanionSha}. ` +
+    'Reinstall it from the MCP connector.'
   );
 }
 
@@ -155,7 +168,7 @@ export function createBridgeSession(h: BridgeHandlers) {
           h.onActivity('Connected to Claude');
           h.onActivity(describeCompanion(msg.status));
           {
-            const match = describeBuildMatch(msg.status, h.appCommit);
+            const match = describeBuildMatch(msg.status, h.appCompanionSha);
             if (match) h.onActivity(match);
           }
           // Older companions omit `keys`. Preserve the prior behavior (Anthropic

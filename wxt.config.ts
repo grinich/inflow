@@ -23,6 +23,24 @@ function shortSha(): string {
     return 'nogit';
   }
 }
+/**
+ * The last commit touching the companion's own code — what the companion
+ * stamps itself with. Comparing this instead of HEAD means the "reinstall the
+ * companion" nudge fires only when the companion actually changed, rather than
+ * after every unrelated commit.
+ */
+function companionSha(): string {
+  try {
+    return execSync(
+      "git log -1 --format=%h -- mcp-companion ':(exclude)mcp-companion/src/default-tools.json'",
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+      .toString()
+      .trim() || 'nogit';
+  } catch {
+    return 'nogit';
+  }
+}
 // Total commit count — a monotonic local build number that changes as the app
 // evolves, with no dependency on CI/upstream releases.
 function commitCount(): number {
@@ -102,6 +120,7 @@ export default defineConfig({
     // number while the companion always uses the commit count.
     define: {
       __COMMIT_SHA__: JSON.stringify(shortSha()),
+      __COMPANION_SHA__: JSON.stringify(companionSha()),
     },
     plugins: [tailwindcss()],
     resolve: {

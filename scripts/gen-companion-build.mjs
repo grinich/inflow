@@ -27,12 +27,23 @@ const git = (cmd, fallback) => {
 
 const build = git('git rev-list --count HEAD', '');
 const commit = git('git rev-parse --short HEAD', 'unknown');
+// The last commit that touched the companion's own code. This is what decides
+// whether an installed companion is stale, NOT the repo HEAD: nearly every
+// commit is an extension change that the companion neither ships nor cares
+// about, so comparing HEAD told users to reinstall after any commit at all.
+// default-tools.json is excluded because the extension refreshes it live at
+// pairing, so a change there never needs a reinstall either.
+const codeCommit = git(
+  "git log -1 --format=%h -- mcp-companion ':(exclude)mcp-companion/src/default-tools.json'",
+  'unknown',
+);
 const info = {
   version: build ? `${pkg.version}.${build}` : pkg.version,
   commit,
+  codeCommit,
   builtAt: new Date().toISOString(),
 };
 
 const out = join(root, 'mcp-companion', 'src', 'build-info.json');
 writeFileSync(out, JSON.stringify(info, null, 2) + '\n');
-console.log(`Stamped companion v${info.version} (${info.commit})`);
+console.log(`Stamped companion v${info.version} (${info.commit}, code ${info.codeCommit})`);
