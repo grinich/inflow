@@ -93,7 +93,13 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
       // outbound message creates a fresh conversation from the recipient URNs.
       const res = msg.conversationId
         ? await sendBridgeMessage({ type: 'SEND_MESSAGE', conversationId: msg.conversationId, body: msg.body })
-        : await sendBridgeMessage({ type: 'CREATE_CONVERSATION', recipientUrns: msg.recipientUrns, body: msg.body });
+        : await sendBridgeMessage({
+            type: 'CREATE_CONVERSATION',
+            recipientUrns: msg.recipientUrns,
+            body: msg.body,
+            // Queued as an InMail, so it still goes out as one (and spends a credit).
+            ...(msg.inMailSubject !== undefined ? { inMail: { subject: msg.inMailSubject } } : {}),
+          });
       if (res.success) {
         await save({ status: 'sent', sentAt: Date.now() });
         // Sent items don't linger in the queue anymore — they surface in the
@@ -132,6 +138,14 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
         <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ${badgeClass(msg.status, !!ready)}`}>
           {ready ? 'Ready to send' : statusLabel(msg.status)}
         </span>
+        {msg.inMailSubject !== undefined && (
+          <span
+            title="Sends as a Premium InMail and uses one credit"
+            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/30 dark:text-amber-300"
+          >
+            InMail
+          </span>
+        )}
         {!ready && msg.status === 'scheduled' && msg.scheduledAt && (
           <span className="shrink-0 text-[11px] text-fg-faint">{format(new Date(msg.scheduledAt), 'MMM d, h:mm a')}</span>
         )}
@@ -140,6 +154,10 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
         )}
       </div>
 
+      {/* An InMail's subject is part of what gets sent, so show it with the body. */}
+      {!!msg.inMailSubject && (
+        <p className="truncate text-sm font-semibold text-fg-strong">{msg.inMailSubject}</p>
+      )}
       <p className="whitespace-pre-wrap text-sm text-fg-secondary">{msg.body}</p>
       {msg.status === 'failed' && msg.error && <p className="mt-1 text-[11px] text-red-500 dark:text-red-400">{msg.error}</p>}
 

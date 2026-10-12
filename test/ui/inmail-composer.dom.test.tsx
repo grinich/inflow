@@ -90,3 +90,36 @@ it('does NOT spend a credit when the recipient is a real connection', async () =
   const sent = sendBridgeMessageMock.mock.calls.find((c) => c[0]?.type === 'CREATE_CONVERSATION')![0];
   expect(sent.inMail).toBeUndefined();
 });
+
+it('carries the subject into the Outbox so a later send is still an InMail', async () => {
+  await renderDraftTo('urn:li:fsd_profile:STRANGER', 'Theo Marsh', false);
+  fireEvent.change(await screen.findByLabelText(/InMail subject/i), {
+    target: { value: 'Working smarter' },
+  });
+  fireEvent.change(screen.getByPlaceholderText('Reply...'), { target: { value: 'Mr. Albert,' } });
+
+  // Queue it instead of sending now.
+  fireEvent.click(screen.getByRole('button', { name: 'Save as draft or schedule' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Save as draft' }));
+
+  await waitFor(async () => {
+    const queued = await testDb.scheduledMessages.toArray();
+    expect(queued).toHaveLength(1);
+    // Without this the message would quietly go out as a normal message later,
+    // to someone who cannot receive one.
+    expect(queued[0].inMailSubject).toBe('Working smarter');
+  });
+});
+
+it('queues an ordinary message with no InMail subject at all', async () => {
+  await renderDraftTo('urn:li:fsd_profile:FRIEND', 'Ada Lovelace', true);
+  fireEvent.change(screen.getByPlaceholderText('Reply...'), { target: { value: 'hi Ada' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save as draft or schedule' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Save as draft' }));
+
+  await waitFor(async () => {
+    const queued = await testDb.scheduledMessages.toArray();
+    expect(queued).toHaveLength(1);
+    expect(queued[0].inMailSubject).toBeUndefined();
+  });
+});

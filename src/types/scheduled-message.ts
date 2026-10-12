@@ -26,4 +26,11 @@ export interface ScheduledMessage {
   sentAt?: number;
   /** Human-readable failure reason when status is 'failed'. */
   error?: string;
+  /**
+   * Subject line, set only when this goes out as a Premium InMail (the
+   * recipient is not a connection). Its presence is what marks the queued
+   * message as an InMail, so sending it later spends a credit exactly as it
+   * would have at compose time.
+   */
+  inMailSubject?: string;
 }

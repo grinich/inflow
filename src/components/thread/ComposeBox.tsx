@@ -398,6 +398,9 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
         body: text,
         status,
         ...(scheduledAt ? { scheduledAt } : {}),
+        // Carry the InMail subject into the queue, so a draft sent days later
+        // still goes out as the InMail it was composed as.
+        ...(inMailRef.current.to ? { inMailSubject: inMailRef.current.subject.trim() } : {}),
         createdAt: now,
         updatedAt: now,
       });
