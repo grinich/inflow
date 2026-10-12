@@ -459,6 +459,55 @@ export const MCP_TOOLS: McpTool[] = [
     },
   },
   {
+    name: 'list_drafts',
+    description:
+      "Read the user's Outbox: the drafts and scheduled messages waiting for them to send, plus recently sent and failed ones. Use it to confirm a draft you created actually landed, to check whether an InMail draft still needs the user to confirm the recipient before it can send, and to avoid drafting a second message to someone who already has one waiting. Nothing here has been sent unless its status says so.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['pending', 'draft', 'scheduled', 'sent', 'failed', 'all'],
+          description: 'Which to include. Default "pending" (draft, scheduled and failed — everything still waiting).',
+        },
+        limit: { type: 'number', description: 'Max results (default 25, max 100).' },
+      },
+      additionalProperties: false,
+    },
+    handler: async ({ status, limit }) => {
+      if (!db) return { total: 0, results: [] };
+      const lim = clampLimit(limit, 25, 100);
+      const want = String(status || 'pending');
+      const all = await db.scheduledMessages.toArray();
+
+      const keep = (m: { status: string }) =>
+        want === 'all' ? true : want === 'pending' ? m.status !== 'sent' && m.status !== 'sending' : m.status === want;
+
+      const rows = all.filter(keep).sort((a, b) => b.createdAt - a.createdAt);
+      return {
+        total: rows.length,
+        results: rows.slice(0, lim).map((m) => ({
+          id: m.id,
+          to: m.recipientName,
+          status: m.status,
+          // Present only on an InMail, and its presence is what makes it one.
+          inMailSubject: m.inMailSubject,
+          preview: clip(m.body, 160),
+          profileUrl: m.profileUrl,
+          createdAt: iso(m.createdAt),
+          scheduledAt: iso(m.scheduledAt),
+          sentAt: iso(m.sentAt),
+          error: m.error,
+          // A draft Claude made, whose recipient came from a name search, needs
+          // the user to confirm the profile before the Send button works.
+          ...(m.source === 'mcp' && m.inMailSubject !== undefined
+            ? { awaitingRecipientConfirmation: !m.recipientConfirmedAt }
+            : {}),
+        })),
+      };
+    },
+  },
+  {
     name: 'find_person',
     description:
       "Look up someone on LinkedIn by name, INCLUDING people the user is not connected to, and get the profileUrn that create_draft needs to draft an InMail. Names repeat, so check the headline against what you already know about the person before using a result. You may pass a /in/<slug> as publicId, but LinkedIn often omits that field, in which case the filter is skipped and the response says so. Each result says whether that person is already a connection: if they are, messaging them is free and create_draft takes no subject; if they are not, a draft to them is a Premium InMail and needs one. This searches LinkedIn live rather than the local database.",

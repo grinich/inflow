@@ -75,7 +75,7 @@ it('advertises the read tools plus create_draft, and never a send tool', () => {
       'list_connections', 'search_connections', 'get_connection',
       'get_network_stats', 'get_conversation_summary', 'create_draft',
       'search_messages', 'list_conversations', 'get_thread', 'find_stale_connections',
-      'find_person',
+      'find_person', 'list_drafts',
     ]),
   );
   // The only write is create_draft (Outbox). Nothing may send on the user's behalf.
@@ -205,6 +205,69 @@ it('create_draft requires a subject for a stranger and refuses one for a connect
   ).rejects.toThrow(/200 characters/i);
 
   expect(await db!.scheduledMessages.count()).toBe(0);
+});
+
+describe('list_drafts', () => {
+  const row = (over: any) => ({
+    id: 'q' + Math.random().toString(36).slice(2),
+    recipientUrns: ['urn:li:fsd_profile:DANA'],
+    recipientName: 'Dana Whitfield',
+    body: 'Ms. Whitfield,',
+    status: 'draft',
+    createdAt: 10,
+    updatedAt: 10,
+    ...over,
+  });
+
+  it('reads back what create_draft wrote, which nothing else could see', async () => {
+    await db!.scheduledMessages.add(
+      row({
+        inMailSubject: 'Built for billing teams',
+        profileUrl: 'https://www.linkedin.com/in/dana-whitfield-4471/',
+        source: 'mcp',
+      }) as any,
+    );
+
+    const res: any = await callTool('list_drafts', {});
+    expect(res.total).toBe(1);
+    expect(res.results[0]).toMatchObject({
+      to: 'Dana Whitfield',
+      status: 'draft',
+      inMailSubject: 'Built for billing teams',
+      // The user still has to confirm the profile before Send works.
+      awaitingRecipientConfirmation: true,
+    });
+  });
+
+  it('clears the confirmation flag once the user has confirmed', async () => {
+    await db!.scheduledMessages.add(
+      row({ inMailSubject: 'S', source: 'mcp', recipientConfirmedAt: 99 }) as any,
+    );
+    const res: any = await callTool('list_drafts', {});
+    expect(res.results[0].awaitingRecipientConfirmation).toBe(false);
+  });
+
+  it('says nothing about confirmation for a draft the user wrote themselves', async () => {
+    await db!.scheduledMessages.add(row({ inMailSubject: 'S' }) as any);
+    const res: any = await callTool('list_drafts', {});
+    expect(res.results[0]).not.toHaveProperty('awaitingRecipientConfirmation');
+  });
+
+  it('defaults to what is still waiting, and filters on request', async () => {
+    await db!.scheduledMessages.bulkAdd([
+      row({ status: 'draft' }),
+      row({ status: 'scheduled', scheduledAt: 50 }),
+      row({ status: 'failed', error: 'nope' }),
+      row({ status: 'sent', sentAt: 60 }),
+    ] as any);
+
+    // 'pending' leaves out what has already gone.
+    expect((await callTool('list_drafts', {}) as any).total).toBe(3);
+    expect((await callTool('list_drafts', { status: 'all' }) as any).total).toBe(4);
+    const sent: any = await callTool('list_drafts', { status: 'sent' });
+    expect(sent.total).toBe(1);
+    expect(sent.results[0].sentAt).toBeTruthy();
+  });
 });
 
 describe('find_person', () => {
