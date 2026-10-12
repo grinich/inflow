@@ -13,9 +13,19 @@
  */
 import { db } from '@/db/database';
 import { computeInsights, parseCompany } from '@/lib/connection-insights';
+import { sendBridgeMessage } from '@/lib/bridge';
 import { isValidProfileUrn } from '@/lib/voyager-normalizer';
 import type { Connection } from '@/types/connection';
 import type { Conversation } from '@/types/conversation';
+
+/** A typeahead hit as the background's searchTypeahead returns it. */
+interface TypeaheadHit {
+  name: string;
+  headline: string;
+  pictureUrl: string;
+  profileUrn: string;
+  publicId: string;
+}
 
 export interface McpToolDescriptor {
   name: string;
@@ -444,6 +454,55 @@ export const MCP_TOOLS: McpTool[] = [
           lastInteractionAt: last ? iso(last) : null,
           daysSinceLastInteraction: last ? Math.floor((Date.now() - last) / 86_400_000) : null,
           neverMessaged: last === 0,
+        })),
+      };
+    },
+  },
+  {
+    name: 'find_person',
+    description:
+      "Look up someone on LinkedIn by name, INCLUDING people the user is not connected to, and get the profileUrn that create_draft needs to draft an InMail. Names repeat, so when a profile URL is known pass its /in/<slug> as publicId and only an exact match is returned. Each result says whether that person is already a connection: if they are, messaging them is free and create_draft takes no subject; if they are not, a draft to them is a Premium InMail and needs one. This searches LinkedIn live rather than the local database.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: "The person's name, e.g. \"Dana Whitfield\"." },
+        publicId: {
+          type: 'string',
+          description: 'Optional /in/<slug> from a known profile URL (a full URL is fine). Narrows results to an exact match on it.',
+        },
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    handler: async ({ name, publicId }) => {
+      const query = String(name || '').trim();
+      if (!query) throw new Error('name is required');
+
+      const res = await sendBridgeMessage({ type: 'TYPEAHEAD_SEARCH', query });
+      if (!res?.success) throw new Error(res?.error || 'LinkedIn search failed');
+      let hits = (res.data as TypeaheadHit[]) || [];
+
+      // Accept a whole URL as well as a bare slug, since that is what a CRM
+      // record holds. Trailing slash and query string are LinkedIn's, not part
+      // of the identifier.
+      const slug = String(publicId || '')
+        .trim()
+        .replace(/[?#].*$/, '')
+        .replace(/^.*\/in\//, '')
+        .replace(/\/+$/, '');
+      if (slug) hits = hits.filter((h) => h.publicId === slug);
+
+      // Whether they are a connection decides InMail vs a free message, so the
+      // caller should not have to ask separately.
+      const known = new Set((await allConnections()).map((c) => c.profileUrn));
+      return {
+        total: hits.length,
+        results: hits.map((h) => ({
+          name: h.name,
+          headline: h.headline || undefined,
+          profileUrn: h.profileUrn,
+          publicId: h.publicId || undefined,
+          isConnection: known.has(h.profileUrn),
         })),
       };
     },

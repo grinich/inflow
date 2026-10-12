@@ -9,6 +9,9 @@ export interface TypeaheadResult {
   headline: string;
   pictureUrl: string;
   profileUrn: string;
+  /** The /in/<publicId> slug. Lets a caller match a result against a known
+   *  profile URL exactly, rather than trusting that a name is unique. */
+  publicId: string;
 }
 
 export async function searchTypeahead(query: string): Promise<TypeaheadResult[]> {
@@ -52,7 +55,7 @@ export async function searchTypeahead(query: string): Promise<TypeaheadResult[]>
       }
     }
 
-    results.push({ name, headline, pictureUrl, profileUrn });
+    results.push({ name, headline, pictureUrl, profileUrn, publicId: entity.publicIdentifier || '' });
   }
 
   debugLog('info', `typeahead: "${query}" → ${results.length} results`);

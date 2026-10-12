@@ -3,6 +3,12 @@
  * shape and filtering over a real (fake-indexeddb) database.
  */
 import Dexie from 'dexie';
+
+const sendBridgeMessage = vi.fn();
+vi.mock('@/lib/bridge', () => ({
+  sendBridgeMessage: (...args: any[]) => sendBridgeMessage(...args),
+}));
+
 import { switchDatabase, db } from '@/db/database';
 import { toolDescriptors, callTool } from '@/lib/mcp/tools';
 import type { Connection } from '@/types/connection';
@@ -69,6 +75,7 @@ it('advertises the read tools plus create_draft, and never a send tool', () => {
       'list_connections', 'search_connections', 'get_connection',
       'get_network_stats', 'get_conversation_summary', 'create_draft',
       'search_messages', 'list_conversations', 'get_thread', 'find_stale_connections',
+      'find_person',
     ]),
   );
   // The only write is create_draft (Outbox). Nothing may send on the user's behalf.
@@ -196,6 +203,65 @@ it('create_draft requires a subject for a stranger and refuses one for a connect
   ).rejects.toThrow(/200 characters/i);
 
   expect(await db!.scheduledMessages.count()).toBe(0);
+});
+
+describe('find_person', () => {
+  const hit = (over: any) => ({
+    name: 'Dana Whitfield',
+    headline: 'Director of Coding and Billing Services',
+    pictureUrl: '',
+    profileUrn: 'urn:li:fsd_profile:DANA',
+    publicId: 'dana-whitfield-4471',
+    ...over,
+  });
+
+  beforeEach(() => sendBridgeMessage.mockReset());
+
+  it('returns strangers with the URN create_draft needs, flagged as non-connections', async () => {
+    sendBridgeMessage.mockResolvedValue({ success: true, data: [hit({})] });
+
+    const res: any = await callTool('find_person', { name: 'Dana Whitfield' });
+
+    expect(sendBridgeMessage).toHaveBeenCalledWith({
+      type: 'TYPEAHEAD_SEARCH',
+      query: 'Dana Whitfield',
+    });
+    expect(res.total).toBe(1);
+    expect(res.results[0]).toMatchObject({
+      profileUrn: 'urn:li:fsd_profile:DANA',
+      publicId: 'dana-whitfield-4471',
+      // Not in the local connections table, so a draft to her is an InMail.
+      isConnection: false,
+    });
+  });
+
+  it('marks an existing connection, since messaging them is free', async () => {
+    await db!.connections.add(conn({ profileUrn: 'urn:li:fsd_profile:DANA', fullName: 'Dana' }));
+    sendBridgeMessage.mockResolvedValue({ success: true, data: [hit({})] });
+
+    const res: any = await callTool('find_person', { name: 'Dana Whitfield' });
+    expect(res.results[0].isConnection).toBe(true);
+  });
+
+  it('narrows to an exact publicId, given a bare slug or a whole profile URL', async () => {
+    const others = [hit({}), hit({ profileUrn: 'urn:li:fsd_profile:OTHER', publicId: 'dana-w-99' })];
+    sendBridgeMessage.mockResolvedValue({ success: true, data: others });
+
+    for (const publicId of [
+      'dana-whitfield-4471',
+      'https://www.linkedin.com/in/dana-whitfield-4471/',
+    ]) {
+      const res: any = await callTool('find_person', { name: 'Dana Whitfield', publicId });
+      expect(res.total).toBe(1);
+      expect(res.results[0].profileUrn).toBe('urn:li:fsd_profile:DANA');
+    }
+  });
+
+  it('surfaces a failed search instead of returning an empty list', async () => {
+    sendBridgeMessage.mockResolvedValue({ success: false, error: 'Typeahead search failed: 429' });
+    await expect(callTool('find_person', { name: 'Dana' })).rejects.toThrow(/429/);
+    await expect(callTool('find_person', { name: '  ' })).rejects.toThrow(/name is required/i);
+  });
 });
 
 it('throws on an unknown tool', async () => {

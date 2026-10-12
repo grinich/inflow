@@ -214,6 +214,27 @@
     }
   },
   {
+    "name": "find_person",
+    "description": "Look up someone on LinkedIn by name, INCLUDING people the user is not connected to, and get the profileUrn that create_draft needs to draft an InMail. Names repeat, so when a profile URL is known pass its /in/<slug> as publicId and only an exact match is returned. Each result says whether that person is already a connection: if they are, messaging them is free and create_draft takes no subject; if they are not, a draft to them is a Premium InMail and needs one. This searches LinkedIn live rather than the local database.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The person's name, e.g. \"Dana Whitfield\"."
+        },
+        "publicId": {
+          "type": "string",
+          "description": "Optional /in/<slug> from a known profile URL (a full URL is fine). Narrows results to an exact match on it."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "create_draft",
     "description": "Create a draft message and put it in the user's Outbox for them to review and send — this NEVER sends. Optionally schedule it for a time (still surfaced for the user to send with one click; never auto-sent). Recipient: for an existing connection pass profileUrn (preferred) or publicId. For someone the user is NOT connected to — a cold lead — pass their full profileUrn plus inMailSubject: that draft goes out as a Premium InMail and spends one of the user's InMail credits when they send it, so only do this when asked to reach someone outside their network.",
     "inputSchema": {
