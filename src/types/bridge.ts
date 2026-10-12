@@ -33,7 +33,9 @@ export type BridgeMessage =
   | { type: 'UNSTAR'; conversationId: string }
   | { type: 'EDIT_MESSAGE'; conversationId: string; messageId: string; body: string }
   | { type: 'TYPEAHEAD_SEARCH'; query: string }
-  | { type: 'CREATE_CONVERSATION'; recipientUrns: string[]; body: string; attachments?: BridgeAttachment[] }
+  // `inMail` turns this into a Premium InMail: it reaches someone you are not
+  // connected to and spends one of the account's InMail credits.
+  | { type: 'CREATE_CONVERSATION'; recipientUrns: string[]; body: string; attachments?: BridgeAttachment[]; inMail?: { subject: string } }
   | { type: 'TOGGLE_SYNC_PAUSE' }
   | { type: 'REEVAL_BACKFILL_WINDOW' }
   | { type: 'PREFETCH_MESSAGES'; conversationIds: string[] }

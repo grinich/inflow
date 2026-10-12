@@ -308,7 +308,7 @@ export async function handleMessage(msg: BridgeMessage): Promise<BridgeResponse>
       return { success: true, data: results };
     }
     case 'CREATE_CONVERSATION': {
-      const result = await createConversation(msg.recipientUrns, msg.body, msg.attachments);
+      const result = await createConversation(msg.recipientUrns, msg.body, msg.attachments, msg.inMail);
       // LinkedIn REUSES the conversation id when messaging a person whose
       // thread was deleted — the thread is live again, so a leftover delete
       // tombstone must not keep blocking sync from re-inserting it.

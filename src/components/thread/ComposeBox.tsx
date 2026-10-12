@@ -97,6 +97,10 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     const photoInputRef = useReactRef<HTMLInputElement | null>(null);
     // Tracks whether AI compose mode is on, for stale-closure send listeners.
     const aiModeRef = useReactRef(false);
+    // A draft conversation whose recipient is not one of the user's connections
+    // can only be reached by InMail: it carries a subject and spends a credit.
+    // Held in a ref too, because the send listeners capture a stale closure.
+    const inMailRef = useReactRef<{ to: string | null; subject: string }>({ to: null, subject: '' });
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     // Outbox actions (Save draft / Schedule) — only on the new-message flow,
     // where recipients are unambiguous (a draft-* conversation).
@@ -104,6 +108,8 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     const [scheduleWhen, setScheduleWhen] = useState('');
     const isDraftConv = conversationId.startsWith('draft-');
 
+    const [inMailTo, setInMailTo] = useState<string | null>(null);
+    const [subject, setSubject] = useState('');
     const [cursorAtEnd, setCursorAtEnd] = useState(true);
     const emojiOpen = emojiQuery !== null && emojiResults.length > 0;
 
@@ -186,6 +192,31 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     useEffect(() => () => {
       for (const url of prevUrls.current.values()) URL.revokeObjectURL(url);
     }, []);
+
+    // Decide whether this draft can only go out as an InMail. We check the
+    // recipients against the synced connection list rather than asking
+    // LinkedIn, so it costs nothing and works offline.
+    useEffect(() => {
+      let cancelled = false;
+      setInMailTo(null);
+      setSubject('');
+      if (!isDraftConv || !db) return;
+      (async () => {
+        try {
+          const conv = await db.conversations.get(conversationId);
+          const urns = conv?.participantUrns ?? [];
+          if (!urns.length) return;
+          const known = await db.connections.bulkGet(urns);
+          // Any known connection means an ordinary message, not an InMail.
+          if (!cancelled && !known.some(Boolean)) {
+            setInMailTo(conv?.participantNames?.[0] || 'This person');
+          }
+        } catch {
+          /* leave it as an ordinary message rather than guessing InMail */
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [conversationId, isDraftConv]);
 
     // Restore draft when switching conversations
     useEffect(() => {
@@ -436,6 +467,9 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
           recipientUrns: draftConv.participantUrns,
           body: text,
           ...(bridgeAttachments && { attachments: bridgeAttachments }),
+          ...(inMailRef.current.to
+            ? { inMail: { subject: inMailRef.current.subject.trim() } }
+            : {}),
         });
 
         if (res.success && res.data?.conversationId) {
@@ -545,6 +579,7 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
     // AI compose mode: the reply field is reused as the instruction box, and the
     // Send arrow becomes Generate. A ref lets the (stale-closure) send listeners
     // bail so a stray Enter never sends a leftover message while instructing.
+    inMailRef.current = { to: inMailTo, subject };
     const aiMode = !!ai?.enabled;
     const displayValue = aiMode ? (ai?.instruction ?? '') : body;
     aiModeRef.current = aiMode;
@@ -642,6 +677,30 @@ export const ComposeBox = forwardRef<HTMLTextAreaElement, ComposeBoxProps>(
             e.target.value = '';
           }}
         />
+
+        {/* InMail: the recipient is not a connection, so this goes out as a
+            Premium InMail with a subject and costs one credit. Say so plainly
+            before they send rather than after. */}
+        {inMailTo && (
+          <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-2">
+            <div className="flex items-center gap-2 px-0.5">
+              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                InMail
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-fg-muted">
+                {inMailTo} is not a connection. Sending uses one InMail credit.
+              </span>
+            </div>
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Subject (optional)"
+              aria-label="InMail subject"
+              maxLength={200}
+              className="mt-1.5 w-full rounded-lg bg-surface px-2.5 py-1.5 text-sm text-fg-strong ring-1 ring-inset ring-edge outline-none placeholder:text-fg-faint focus:ring-blue-500/40"
+            />
+          </div>
+        )}
 
         {/* Unified composer field: attachments, textarea, and a slim action row
             all share one rounded surface (iMessage / Slack style). */}
