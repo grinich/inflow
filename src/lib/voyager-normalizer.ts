@@ -290,6 +290,11 @@ export function normalizeMessages(raw: VoyagerResponse, conversationId: string):
         : 'Unknown',
       senderPicture: sender ? getParticipantPicture(sender) : '',
       body: entity.body?.text || '',
+      // Present on InMail only. LinkedIn shows it as a heading above the body;
+      // dropping it lost information the user can see on linkedin.com.
+      ...(typeof entity.subject === 'string' && entity.subject.trim()
+        ? { subject: entity.subject.trim() }
+        : {}),
       createdAt: entity.deliveredAt || 0,
       isFromMe: false, // Set by sync-engine based on memberUrn
       ...(attachments.length > 0 ? { attachments } : {}),
@@ -360,6 +365,9 @@ export function extractSentMessage(
       senderName: 'You',
       senderPicture: '',
       body: entity.body?.text || '',
+      ...(typeof entity.subject === 'string' && entity.subject.trim()
+        ? { subject: entity.subject.trim() }
+        : {}),
       createdAt: entity.deliveredAt,
       isFromMe: true,
     };

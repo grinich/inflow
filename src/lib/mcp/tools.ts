@@ -245,7 +245,11 @@ export const MCP_TOOLS: McpTool[] = [
           if (conversationId && m.conversationId !== conversationId) return false;
           if (who === 'me' && !m.isFromMe) return false;
           if (who === 'them' && m.isFromMe) return false;
-          return (m.body || '').toLowerCase().includes(q);
+          // An InMail's subject is part of what was said, so search it too.
+          return (
+            (m.body || '').toLowerCase().includes(q) ||
+            (m.subject || '').toLowerCase().includes(q)
+          );
         })
         .limit(lim)
         .toArray();
@@ -263,7 +267,9 @@ export const MCP_TOOLS: McpTool[] = [
           with: (byId.get(m.conversationId)?.participantNames || []).filter(Boolean),
           from: m.isFromMe ? 'You' : m.senderName || 'Them',
           at: iso(m.createdAt),
-          snippet: snippet(m.body || '', q),
+          // Only InMail has one; it marks the message as an InMail too.
+          ...(m.subject ? { subject: m.subject } : {}),
+          snippet: snippet(`${m.subject ? m.subject + ' — ' : ''}${m.body || ''}`, q),
         })),
       };
     },
@@ -378,6 +384,7 @@ export const MCP_TOOLS: McpTool[] = [
         messages: msgs.map((m) => ({
           from: m.isFromMe ? 'You' : m.senderName || 'Them',
           at: iso(m.createdAt),
+          ...(m.subject ? { subject: m.subject } : {}),
           body: m.body || (m.attachments?.length ? '[attachment]' : ''),
           ...(m.attachments?.length ? { attachments: m.attachments.length } : {}),
         })),

@@ -41,6 +41,12 @@ export interface ReactionSummary {
 export interface Message {
   id: string;
   conversationId: string;
+  /**
+   * InMail subject line. Only InMail carries one, so its presence is what marks
+   * a message as an InMail — the conversation itself is no help, since a
+   * received InMail sits in PRIMARY_INBOX like anything else.
+   */
+  subject?: string;
   senderUrn: string;
   senderName: string;
   senderPicture: string;

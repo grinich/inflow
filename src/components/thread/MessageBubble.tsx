@@ -357,6 +357,19 @@ function MessageBubbleImpl({ message, grouped, isLastInGroup, senderProfileUrl =
             </div>
           ) : (
             <>
+              {/* InMail carries a subject; ordinary messages never do, so its
+                  presence is also what identifies an InMail. LinkedIn shows it
+                  as a heading above the body, and only on ones you receive —
+                  we show it on both, since you can't otherwise tell which of
+                  your own messages cost a credit. */}
+              {message.subject && (
+                <div className="mb-1.5 border-b border-current/10 pb-1.5">
+                  <span className="mb-0.5 inline-block rounded bg-amber-500/20 px-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                    InMail
+                  </span>
+                  <p className="font-semibold text-fg-strong">{message.subject}</p>
+                </div>
+              )}
               {message.repliedMessage && (
                 <button
                   type="button"
