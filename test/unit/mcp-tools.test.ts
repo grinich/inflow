@@ -151,7 +151,51 @@ it('create_draft can schedule (still not sent) and validates input', async () =>
   expect(row.scheduledAt).toBe(new Date(when).getTime());
 
   await expect(callTool('create_draft', { profileUrn: 'urn:li:fsd_profile:Z', body: '' })).rejects.toThrow(/body/i);
-  await expect(callTool('create_draft', { profileUrn: 'nope', body: 'hi' })).rejects.toThrow(/not found/i);
+  // A stranger's URN is allowed (that's InMail), but it still has to be a URN.
+  await expect(callTool('create_draft', { profileUrn: 'nope', body: 'hi' })).rejects.toThrow(/well-formed/i);
+  await expect(callTool('create_draft', { publicId: 'stranger', body: 'hi' })).rejects.toThrow(/not found/i);
+});
+
+it('create_draft queues an InMail for someone outside the network', async () => {
+  const res: any = await callTool('create_draft', {
+    profileUrn: 'urn:li:fsd_profile:COLD',
+    recipientName: 'Dana Cold',
+    inMailSubject: 'Working smarter at Acme',
+    body: 'Hi Dana — saw your billing team is growing.',
+  });
+  expect(res).toMatchObject({ created: true, recipient: 'Dana Cold', status: 'draft', inMail: true });
+
+  const row = (await db!.scheduledMessages.toArray())[0];
+  // The subject on the row is what makes this send as an InMail later, rather
+  // than silently going out as a normal message that LinkedIn would reject.
+  expect(row.inMailSubject).toBe('Working smarter at Acme');
+  expect(row.recipientUrns).toEqual(['urn:li:fsd_profile:COLD']);
+  expect(row.status).toBe('draft');
+});
+
+it('create_draft requires a subject for a stranger and refuses one for a connection', async () => {
+  await db!.connections.add(conn({ profileUrn: 'urn:li:fsd_profile:Z', publicId: 'zack', fullName: 'Zack Allen' }));
+
+  // No subject for a non-connection: the draft could only ever go out as InMail.
+  await expect(
+    callTool('create_draft', { profileUrn: 'urn:li:fsd_profile:COLD', body: 'hi' }),
+  ).rejects.toThrow(/inMailSubject is required/i);
+
+  // Subject for a connection: messaging them is free, so this would burn a
+  // credit on something LinkedIn gives away.
+  await expect(
+    callTool('create_draft', { profileUrn: 'urn:li:fsd_profile:Z', body: 'hi', inMailSubject: 'Hello' }),
+  ).rejects.toThrow(/first-degree/i);
+
+  await expect(
+    callTool('create_draft', {
+      profileUrn: 'urn:li:fsd_profile:COLD',
+      body: 'hi',
+      inMailSubject: 'x'.repeat(201),
+    }),
+  ).rejects.toThrow(/200 characters/i);
+
+  expect(await db!.scheduledMessages.count()).toBe(0);
 });
 
 it('throws on an unknown tool', async () => {

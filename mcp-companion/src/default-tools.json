@@ -215,17 +215,17 @@
   },
   {
     "name": "create_draft",
-    "description": "Create a draft message to one of the user's connections. It lands in the user's Outbox for them to review and send — this NEVER sends. Optionally schedule it for a time (still surfaced for the user to send with one click; never auto-sent). The recipient must be an existing connection (by profileUrn or publicId).",
+    "description": "Create a draft message and put it in the user's Outbox for them to review and send — this NEVER sends. Optionally schedule it for a time (still surfaced for the user to send with one click; never auto-sent). Recipient: for an existing connection pass profileUrn (preferred) or publicId. For someone the user is NOT connected to — a cold lead — pass their full profileUrn plus inMailSubject: that draft goes out as a Premium InMail and spends one of the user's InMail credits when they send it, so only do this when asked to reach someone outside their network.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "profileUrn": {
           "type": "string",
-          "description": "Recipient connection profileUrn (preferred)."
+          "description": "Recipient profileUrn (urn:li:fsd_profile:…). Required for a non-connection."
         },
         "publicId": {
           "type": "string",
-          "description": "Recipient publicId (alternative to profileUrn)."
+          "description": "Recipient publicId. Resolves existing connections only."
         },
         "body": {
           "type": "string",
@@ -234,6 +234,14 @@
         "scheduleAt": {
           "type": "string",
           "description": "Optional ISO 8601 time to schedule for. The user still sends it — nothing auto-sends."
+        },
+        "inMailSubject": {
+          "type": "string",
+          "description": "Subject line, max 200 chars. Required for a non-connection (sends as Premium InMail, costs a credit). Rejected for a connection, who can be messaged for free."
+        },
+        "recipientName": {
+          "type": "string",
+          "description": "Display name for the Outbox queue. Used only for a non-connection, whose name inflow doesn't know."
         }
       },
       "required": [

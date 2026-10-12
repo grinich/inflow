@@ -13,6 +13,7 @@
  */
 import { db } from '@/db/database';
 import { computeInsights, parseCompany } from '@/lib/connection-insights';
+import { isValidProfileUrn } from '@/lib/voyager-normalizer';
 import type { Connection } from '@/types/connection';
 import type { Conversation } from '@/types/conversation';
 
@@ -450,22 +451,31 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: 'create_draft',
     description:
-      "Create a draft message to one of the user's connections. It lands in the user's Outbox for them to review and send — this NEVER sends. Optionally schedule it for a time (still surfaced for the user to send with one click; never auto-sent). The recipient must be an existing connection (by profileUrn or publicId).",
+      "Create a draft message and put it in the user's Outbox for them to review and send — this NEVER sends. Optionally schedule it for a time (still surfaced for the user to send with one click; never auto-sent). Recipient: for an existing connection pass profileUrn (preferred) or publicId. For someone the user is NOT connected to — a cold lead — pass their full profileUrn plus inMailSubject: that draft goes out as a Premium InMail and spends one of the user's InMail credits when they send it, so only do this when asked to reach someone outside their network.",
     inputSchema: {
       type: 'object',
       properties: {
-        profileUrn: { type: 'string', description: 'Recipient connection profileUrn (preferred).' },
-        publicId: { type: 'string', description: 'Recipient publicId (alternative to profileUrn).' },
+        profileUrn: { type: 'string', description: 'Recipient profileUrn (urn:li:fsd_profile:…). Required for a non-connection.' },
+        publicId: { type: 'string', description: 'Recipient publicId. Resolves existing connections only.' },
         body: { type: 'string', description: 'The message text to draft.' },
         scheduleAt: {
           type: 'string',
           description: 'Optional ISO 8601 time to schedule for. The user still sends it — nothing auto-sends.',
         },
+        inMailSubject: {
+          type: 'string',
+          description:
+            'Subject line, max 200 chars. Required for a non-connection (sends as Premium InMail, costs a credit). Rejected for a connection, who can be messaged for free.',
+        },
+        recipientName: {
+          type: 'string',
+          description: "Display name for the Outbox queue. Used only for a non-connection, whose name inflow doesn't know.",
+        },
       },
       required: ['body'],
       additionalProperties: false,
     },
-    handler: async ({ profileUrn, publicId, body, scheduleAt }) => {
+    handler: async ({ profileUrn, publicId, body, scheduleAt, inMailSubject, recipientName }) => {
       if (!db) throw new Error('Database unavailable');
       const text = String(body || '').trim();
       if (!text) throw new Error('body is required');
@@ -474,7 +484,40 @@ export const MCP_TOOLS: McpTool[] = [
       const c = list.find(
         (x) => (profileUrn && x.profileUrn === profileUrn) || (publicId && x.publicId === publicId),
       );
-      if (!c) throw new Error('Recipient not found among your connections');
+      const subject = String(inMailSubject || '').trim();
+
+      // Connections are first-degree, so LinkedIn messages them for free and
+      // InMail is simply the wrong product. Anyone else can ONLY be reached by
+      // InMail, which is why the subject is required there: its presence on the
+      // queued row is what makes this send as an InMail days later.
+      let urn: string;
+      let name: string;
+      if (c) {
+        if (subject) {
+          throw new Error(
+            `${c.fullName} is a first-degree connection — messaging them is free. Drop inMailSubject; InMail is for people outside the user's network.`,
+          );
+        }
+        urn = c.profileUrn;
+        name = c.fullName || 'Unknown';
+      } else {
+        if (!profileUrn) {
+          throw new Error(
+            'Recipient not found among your connections, and publicId resolves connections only. Pass the full profileUrn (urn:li:fsd_profile:…) to draft an InMail to someone else.',
+          );
+        }
+        if (!isValidProfileUrn(profileUrn)) {
+          throw new Error('profileUrn is not a well-formed urn:li:fsd_profile:… URN');
+        }
+        if (!subject) {
+          throw new Error(
+            'This recipient is not a connection, so the draft can only go out as a Premium InMail — inMailSubject is required.',
+          );
+        }
+        if (subject.length > 200) throw new Error('inMailSubject is longer than 200 characters');
+        urn = profileUrn;
+        name = String(recipientName || '').trim() || 'Unknown';
+      }
 
       let status: 'draft' | 'scheduled' = 'draft';
       let scheduledAt: number | undefined;
@@ -488,15 +531,16 @@ export const MCP_TOOLS: McpTool[] = [
       const id = crypto.randomUUID();
       await db.scheduledMessages.add({
         id,
-        recipientUrns: [c.profileUrn],
-        recipientName: c.fullName || 'Unknown',
+        recipientUrns: [urn],
+        recipientName: name,
         body: text,
         status,
+        ...(subject ? { inMailSubject: subject } : {}),
         ...(scheduledAt ? { scheduledAt } : {}),
         createdAt: now,
         updatedAt: now,
       });
-      return { created: true, id, recipient: c.fullName, status };
+      return { created: true, id, recipient: name, status, inMail: !!subject };
     },
   },
 ];
