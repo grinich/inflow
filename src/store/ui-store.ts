@@ -8,7 +8,7 @@ export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system' | 'purple';
 export type InboxTab = 'focused' | 'other' | 'inmail' | 'archived' | 'spam' | 'drafts' | 'scheduled';
 export type AppSection = 'inbox' | 'connections' | 'invitations' | 'insights' | 'chat' | 'outbox';
-export type SettingsSection = 'ai' | 'chat' | 'appearance' | 'backup' | 'advanced' | 'about';
+export type SettingsSection = 'ai' | 'chat' | 'sending' | 'appearance' | 'backup' | 'advanced' | 'about';
 
 /**
  * Active filter over the connections list (shared so Insights can drive it).
@@ -77,6 +77,9 @@ interface UIState {
   sectionHistory: AppSection[];
   sectionForward: AppSection[];
   navRailCollapsed: boolean;
+  /** Require opening the recipient's profile before an InMail draft can send. */
+  confirmRecipient: boolean;
+  setConfirmRecipient: (on: boolean) => void;
   selectedConnectionUrn: string | null;
   connectionsFilter: ConnectionFilter;
   connectionsSearch: string;
@@ -203,6 +206,19 @@ function getStoredNavCollapsed(): boolean {
   return false;
 }
 
+/**
+ * Defaults to ON. An InMail goes to someone the user has never spoken to,
+ * resolved from a live LinkedIn name search, and spends a credit when sent —
+ * a search for one prospect returned two different real people with the same
+ * name. So a human confirms the profile before the Send button works.
+ */
+function getStoredConfirmRecipient(): boolean {
+  try {
+    return localStorage.getItem('inflow-confirm-recipient') !== '0';
+  } catch {}
+  return true;
+}
+
 function resolveTheme(theme: Theme): 'light' | 'dark' | 'purple' {
   if (theme === 'system') {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
@@ -268,6 +284,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   sectionHistory: [],
   sectionForward: [],
   navRailCollapsed: getStoredNavCollapsed(),
+  confirmRecipient: getStoredConfirmRecipient(),
   selectedConnectionUrn: null,
   connectionsFilter: { roles: [], interests: [] },
   connectionsSearch: '',
@@ -385,6 +402,12 @@ export const useUIStore = create<UIState>((set, get) => ({
       localStorage.setItem('inflow-nav-collapsed', next ? '1' : '0');
     } catch {}
     set({ navRailCollapsed: next });
+  },
+  setConfirmRecipient: (on) => {
+    try {
+      localStorage.setItem('inflow-confirm-recipient', on ? '1' : '0');
+    } catch {}
+    set({ confirmRecipient: on });
   },
   setSelectedConnectionUrn: (urn) => set({ selectedConnectionUrn: urn }),
   setMcpStatus: (status, error = null) =>

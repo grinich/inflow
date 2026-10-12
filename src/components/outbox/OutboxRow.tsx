@@ -78,6 +78,13 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   const [rescheduling, setRescheduling] = useState(false);
   const [when, setWhen] = useState('');
   const pending = msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'failed';
+  const confirmRecipient = useUIStore((s) => s.confirmRecipient);
+  // An InMail reaches someone the user has never spoken to, resolved from a
+  // live name search that can return two different people with the same name,
+  // and spends a credit. So a human opens the profile and confirms first.
+  // Connections are exempt: their URN came from the user's own synced list.
+  const needsConfirm =
+    confirmRecipient && msg.inMailSubject !== undefined && !msg.recipientConfirmedAt;
 
   const save = async (patch: Partial<ScheduledMessage>) => {
     if (!db) return;
@@ -161,6 +168,35 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
       <p className="whitespace-pre-wrap text-sm text-fg-secondary">{msg.body}</p>
       {msg.status === 'failed' && msg.error && <p className="mt-1 text-[11px] text-red-500 dark:text-red-400">{msg.error}</p>}
 
+      {pending && msg.inMailSubject !== undefined && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+          {msg.profileUrl ? (
+            <a
+              href={msg.profileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="truncate font-medium text-blue-700 underline underline-offset-2 hover:text-blue-600 dark:text-blue-300"
+            >
+              {msg.profileUrl.replace(/^https:\/\/(www\.)?linkedin\.com/, '')}
+            </a>
+          ) : (
+            <span className="text-fg-faint">No profile link on this draft</span>
+          )}
+          {msg.recipientConfirmedAt ? (
+            <span className="font-medium text-emerald-700 dark:text-emerald-400">Recipient confirmed</span>
+          ) : (
+            confirmRecipient && (
+              <button
+                onClick={() => db?.scheduledMessages.update(msg.id, { recipientConfirmedAt: Date.now(), updatedAt: Date.now() })}
+                className="rounded-md px-2 py-0.5 font-semibold text-amber-700 ring-1 ring-inset ring-amber-500/40 transition-colors hover:bg-amber-500/10 dark:text-amber-300"
+              >
+                This is the right person
+              </button>
+            )
+          )}
+        </div>
+      )}
+
       {pending && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {rescheduling ? (
@@ -180,7 +216,12 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
             </>
           ) : (
             <>
-              <button onClick={sendNow} disabled={busy} className="rounded-md bg-blue-500/15 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-500/30 transition-colors hover:bg-blue-500/25 disabled:opacity-40 dark:text-blue-300">
+              <button
+                onClick={sendNow}
+                disabled={busy || needsConfirm}
+                title={needsConfirm ? 'Open the profile and confirm this is the right person first' : undefined}
+                className="rounded-md bg-blue-500/15 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-500/30 transition-colors hover:bg-blue-500/25 disabled:opacity-40 dark:text-blue-300"
+              >
                 {busy ? 'Sending…' : msg.status === 'failed' ? 'Retry send' : 'Send now'}
               </button>
               {msg.status === 'scheduled' && (

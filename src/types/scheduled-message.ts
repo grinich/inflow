@@ -33,4 +33,13 @@ export interface ScheduledMessage {
    * would have at compose time.
    */
   inMailSubject?: string;
+  /**
+   * The recipient's LinkedIn profile URL, so a human can open it and confirm
+   * this is the right person before sending. Carried in from wherever the
+   * recipient came from (a CRM record, or a connection's own publicId): a
+   * profile URL cannot be derived from an fsd_profile URN.
+   */
+  profileUrl?: string;
+  /** Epoch ms the user confirmed the recipient by opening their profile. */
+  recipientConfirmedAt?: number;
 }

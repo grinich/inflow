@@ -263,6 +263,10 @@
         "recipientName": {
           "type": "string",
           "description": "Display name for the Outbox queue. Used only for a non-connection, whose name inflow doesn't know."
+        },
+        "profileUrl": {
+          "type": "string",
+          "description": "The recipient's linkedin.com/in/... URL, e.g. from the CRM record you found them in. Shown in the Outbox so the user can open the profile and confirm it is the right person before sending, which they are required to do for an InMail by default. Pass it whenever you have it. Derived automatically for an existing connection."
         }
       },
       "required": [

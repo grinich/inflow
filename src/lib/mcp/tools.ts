@@ -543,11 +543,16 @@ export const MCP_TOOLS: McpTool[] = [
           type: 'string',
           description: "Display name for the Outbox queue. Used only for a non-connection, whose name inflow doesn't know.",
         },
+        profileUrl: {
+          type: 'string',
+          description:
+            "The recipient's linkedin.com/in/... URL, e.g. from the CRM record you found them in. Shown in the Outbox so the user can open the profile and confirm it is the right person before sending, which they are required to do for an InMail by default. Pass it whenever you have it. Derived automatically for an existing connection.",
+        },
       },
       required: ['body'],
       additionalProperties: false,
     },
-    handler: async ({ profileUrn, publicId, body, scheduleAt, inMailSubject, recipientName }) => {
+    handler: async ({ profileUrn, publicId, body, scheduleAt, inMailSubject, recipientName, profileUrl }) => {
       if (!db) throw new Error('Database unavailable');
       const text = String(body || '').trim();
       if (!text) throw new Error('body is required');
@@ -557,6 +562,12 @@ export const MCP_TOOLS: McpTool[] = [
         (x) => (profileUrn && x.profileUrn === profileUrn) || (publicId && x.publicId === publicId),
       );
       const subject = String(inMailSubject || '').trim();
+      // Only a real LinkedIn profile URL: this becomes a link the user clicks
+      // to verify identity, so it must not be able to point anywhere else.
+      let link = String(profileUrl || '').trim();
+      if (link && !/^https:\/\/(www\.)?linkedin\.com\/in\/[^/\s]+\/?$/.test(link)) {
+        throw new Error('profileUrl must be a https://www.linkedin.com/in/... URL');
+      }
 
       // Connections are first-degree, so LinkedIn messages them for free and
       // InMail is simply the wrong product. Anyone else can ONLY be reached by
@@ -572,6 +583,8 @@ export const MCP_TOOLS: McpTool[] = [
         }
         urn = c.profileUrn;
         name = c.fullName || 'Unknown';
+        // A synced connection knows its own slug, so the link needs no caller.
+        if (!link && c.publicId) link = `https://www.linkedin.com/in/${c.publicId}/`;
       } else {
         if (!profileUrn) {
           throw new Error(
@@ -608,11 +621,12 @@ export const MCP_TOOLS: McpTool[] = [
         body: text,
         status,
         ...(subject ? { inMailSubject: subject } : {}),
+        ...(link ? { profileUrl: link } : {}),
         ...(scheduledAt ? { scheduledAt } : {}),
         createdAt: now,
         updatedAt: now,
       });
-      return { created: true, id, recipient: name, status, inMail: !!subject };
+      return { created: true, id, recipient: name, status, inMail: !!subject, profileUrl: link || undefined };
     },
   },
 ];
