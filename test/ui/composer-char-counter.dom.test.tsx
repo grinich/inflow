@@ -6,6 +6,7 @@ import '../dom-setup';
 import Dexie from 'dexie';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 import { makeConversation } from '../fixtures/factories';
 import { useUIStore } from '@/store/ui-store';
 
@@ -33,6 +34,7 @@ beforeEach(async () => {
   act(() => useUIStore.setState({ toast: null }));
 });
 afterEach(async () => {
+  await settleOptimistic(testDb);
   if (testDb) { testDb.close(); await Dexie.delete(testDb.name); }
 });
 

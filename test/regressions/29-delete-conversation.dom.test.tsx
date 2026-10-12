@@ -5,6 +5,7 @@
 import '../dom-setup';
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 
 let testDb: any;
 vi.mock('@/db/database', async (importOriginal) => ({
@@ -49,7 +50,10 @@ beforeEach(async () => {
   await testDb.syncQueue.put({ conversationId: 'c1', status: 'done', failCount: 0 });
 });
 
-afterEach(() => testDb.close());
+afterEach(async () => {
+  await settleOptimistic(testDb);
+  testDb.close();
+});
 
 async function del(id: string) {
   const conv = await testDb.conversations.get(id);

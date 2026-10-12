@@ -7,6 +7,7 @@
 import '../dom-setup';
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 
 let testDb: any;
 vi.mock('@/db/database', async (importOriginal) => ({
@@ -40,7 +41,8 @@ beforeEach(async () => {
   useUIStore.setState({ toast: null });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await settleOptimistic(testDb);
   testDb.close();
 });
 

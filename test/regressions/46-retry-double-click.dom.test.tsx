@@ -17,6 +17,7 @@ if (typeof (globalThis as any).ResizeObserver === 'undefined') {
 import Dexie from 'dexie';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 import { makeConversation, makeMessage } from '../fixtures/factories';
 
 let testDb: any;
@@ -77,6 +78,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await settleOptimistic(testDb);
   if (testDb) {
     testDb.close();
     await Dexie.delete(testDb.name);

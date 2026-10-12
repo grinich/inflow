@@ -32,6 +32,7 @@ if (typeof (globalThis as any).IntersectionObserver === 'undefined') {
 
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 import { computeWindow } from '@/lib/list-window';
 import { makeConversation, resetFactories } from '../fixtures/factories';
 
@@ -64,7 +65,8 @@ beforeEach(async () => {
   useUIStore.setState({ inboxTab: 'focused', searchQuery: '', selectedConversationId: null });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await settleOptimistic(testDb);
   testDb.close();
 });
 

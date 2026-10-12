@@ -5,6 +5,7 @@
 import '../dom-setup';
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 
 let testDb: any;
 vi.mock('@/db/database', async (importOriginal) => ({
@@ -44,7 +45,10 @@ beforeEach(async () => {
   ]);
 });
 
-afterEach(() => testDb.close());
+afterEach(async () => {
+  await settleOptimistic(testDb);
+  testDb.close();
+});
 
 async function recall(messageId: string) {
   const { result } = renderHook(() => useOptimisticAction());

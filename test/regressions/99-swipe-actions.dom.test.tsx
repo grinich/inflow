@@ -11,6 +11,7 @@
 import '../dom-setup';
 import Dexie from 'dexie';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 
 let testDb: any;
 vi.mock('@/db/database', async (importOriginal) => ({
@@ -49,12 +50,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (testDb) {
-    // Let in-flight optimistic actions finish their confirm/rollback writes
-    // before closing, or they reject with DatabaseClosedError after the test.
-    await waitFor(async () => {
-      const pending = await testDb.pendingActions.where('status').equals('pending').count();
-      expect(pending).toBe(0);
-    });
+    await settleOptimistic(testDb);
     testDb.close();
     await Dexie.delete(testDb.name);
   }

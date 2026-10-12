@@ -9,6 +9,7 @@ import Dexie from 'dexie';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 import { makeConversation } from '../fixtures/factories';
 
 let testDb: any;
@@ -42,6 +43,7 @@ beforeEach(async () => {
   await testDb.open();
 });
 afterEach(async () => {
+  await settleOptimistic(testDb);
   if (testDb) { testDb.close(); await Dexie.delete(testDb.name); }
 });
 

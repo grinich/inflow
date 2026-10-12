@@ -4,6 +4,7 @@ import '../dom-setup';
 import Dexie from 'dexie';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { applySchema } from '@/db/database';
+import { settleOptimistic } from '../helpers/settle';
 import { makeConversation, makeMessage } from '../fixtures/factories';
 
 let testDb: any;
@@ -53,8 +54,7 @@ afterEach(async () => {
   for (const resolve of bridgeResolvers) {
     resolve({ success: true });
   }
-  await Promise.resolve();
-  await Promise.resolve();
+  await settleOptimistic(testDb);
   if (testDb) {
     testDb.close();
     await Dexie.delete(testDb.name);
