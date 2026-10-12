@@ -101,6 +101,21 @@ function MailIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+/**
+ * InMail: an envelope with a mark. "Other" keeps the plain envelope, since the
+ * two sat side by side sharing one icon and were indistinguishable. A tray or
+ * box shape was the obvious alternative but reads as Archive at nav size.
+ */
+function InMailIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="7" width="14" height="11" rx="2" />
+      <path d="M16 10l-7 4-7-4" />
+      {/* Filled, so it stays crisp rather than muddy at 14px. */}
+      <path d="M19 1.5l1.2 2.3 2.3 1.2-2.3 1.2-1.2 2.3-1.2-2.3L15.5 5l2.3-1.2z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 function ArchiveIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -256,7 +271,7 @@ export function NavRail({ connectionsCount, inboxUnread, inboxQueue, outboxAtten
         { key: 'other', tab: 'other', label: tabLabel('other', inboxLabels), desc: "LinkedIn's Other folder: requests and lower-priority threads.", Icon: MailIcon, count: inboxUnread?.other },
         // Deliberately not a folder: an InMail can sit in Primary or Other, so
         // this selects by message type instead of by LinkedIn category.
-        { key: 'inmail', tab: 'inmail', label: tabLabel('inmail', inboxLabels), desc: 'Every InMail, whichever folder LinkedIn filed it in.', Icon: MailIcon },
+        { key: 'inmail', tab: 'inmail', label: tabLabel('inmail', inboxLabels), desc: 'Every InMail, whichever folder LinkedIn filed it in.', Icon: InMailIcon },
         { key: 'archived', tab: 'archived', label: tabLabel('archived', inboxLabels), desc: 'Conversations you have archived.', Icon: ArchiveIcon },
         { key: 'spam', tab: 'spam', label: tabLabel('spam', inboxLabels), desc: 'Flagged as spam.', Icon: SpamIcon },
         { key: 'drafts', tab: 'drafts', label: tabLabel('drafts', inboxLabels), desc: 'Unsent drafts — yours and any drafted by Claude.', Icon: DraftIcon, count: inboxQueue?.drafts },

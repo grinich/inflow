@@ -110,3 +110,13 @@ it('hides the inline text label when collapsed (icon-only button)', () => {
   const nav = screen.getByRole('navigation');
   expect(within(nav).getAllByRole('button').length).toBeGreaterThanOrEqual(3);
 });
+
+it('gives Other and InMail distinct icons, since they sit side by side', () => {
+  render(<NavRail connectionsCount={3} />);
+  const other = screen.getByRole('button', { name: 'Other' }).querySelector('svg');
+  const inmail = screen.getByRole('button', { name: 'InMail' }).querySelector('svg');
+  expect(other).toBeTruthy();
+  expect(inmail).toBeTruthy();
+  // They shared one envelope icon and were indistinguishable at a glance.
+  expect(inmail!.innerHTML).not.toBe(other!.innerHTML);
+});
