@@ -537,6 +537,22 @@ export function useOptimisticAction() {
   }
 
   async function deleteConversation(conversation: Conversation) {
+    // A draft conversation exists only here: the composer mints one to hold an
+    // unsent body, and LinkedIn has no such thread. Asking LinkedIn to delete
+    // it fails, which rolled the optimistic delete back and left the row
+    // undeletable by every route in the UI. Drop it locally and skip the
+    // bridge — there is no remote state to reconcile, and no tombstone is
+    // needed because sync can't re-insert a thread the server never had.
+    if (conversation.draft === 1) {
+      await db.transaction('rw', [db.conversations, db.messages, db.draftAttachments], async () => {
+        await db.conversations.delete(conversation.id);
+        await db.messages.where('conversationId').equals(conversation.id).delete();
+        await db.draftAttachments.delete(conversation.id).catch(() => {});
+      });
+      showToast({ message: 'Draft deleted' });
+      return;
+    }
+
     // Save messages + syncQueue row for rollback before deleting
     const savedMessages = await db.messages.where('conversationId').equals(conversation.id).toArray();
     const savedQueueItem = await db.syncQueue.get(conversation.id).catch(() => undefined);
