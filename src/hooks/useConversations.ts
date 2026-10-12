@@ -13,6 +13,8 @@ const TAB_TO_CATEGORY: Record<InboxTab, string> = {
   other: 'SECONDARY_INBOX',
   archived: 'ARCHIVE',
   spam: 'SPAM',
+  // Not a LinkedIn folder: InMail is a message type, selected by subject.
+  inmail: 'INMAIL_VIEW',
   // Local outbound queue views — no LinkedIn category, so these match no
   // conversations (ConversationList renders the queue for them instead).
   drafts: 'DRAFTS_QUEUE',
@@ -66,6 +68,17 @@ export function useConversations() {
         .between(['SECONDARY_INBOX', Dexie.minKey], ['SECONDARY_INBOX', Dexie.maxKey])
         .reverse()
         .toArray();
+    } else if (inboxTab === 'inmail') {
+      // InMail is a message type, not a LinkedIn folder: a received InMail can
+      // sit in PRIMARY_INBOX just as easily as in Other, so filtering by
+      // category would miss them. Select the conversations that actually
+      // contain an InMail, via the sparse subject index.
+      const withSubject = await db.messages.where('subject').above('').toArray();
+      const convIds = [...new Set(withSubject.map((m) => m.conversationId))];
+      const convs = await db.conversations.bulkGet(convIds);
+      results = convs
+        .filter((c): c is NonNullable<typeof c> => !!c && c.draft !== 1)
+        .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
     } else if (inboxTab === 'archived') {
       results = await db.conversations
         .where('[archived+lastActivityAt]')

@@ -64,8 +64,9 @@ it('highlights the Inbox parent and the active tab together (option B)', () => {
   render(<NavRail connectionsCount={3} />);
   // Parent Inbox is marked current…
   expect(screen.getByRole('button', { name: 'Inbox' })).toHaveAttribute('aria-current', 'page');
-  // …and so is the active tab child (InMail = the 'other' tab).
-  expect(screen.getByRole('button', { name: 'InMail' })).toHaveAttribute('aria-current', 'page');
+  // …and so is the active tab child (Other = the 'other' tab; the InMail tab
+  // is a separate, message-type view).
+  expect(screen.getByRole('button', { name: 'Other' })).toHaveAttribute('aria-current', 'page');
   // Connections (a different section) is not highlighted.
   expect(screen.getByRole('button', { name: 'Connections' })).not.toHaveAttribute('aria-current');
 });

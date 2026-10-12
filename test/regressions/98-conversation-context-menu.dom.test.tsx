@@ -69,7 +69,7 @@ describe('regression #98: conversation row context menu', () => {
   it('right-click opens the menu with all actions', async () => {
     await renderListWithMenu(makeConversation());
     expect(menu()).toBeTruthy();
-    for (const label of ['Mark as unread', 'Archive', 'Star', 'Move to InMail', 'Mark as spam', 'Delete']) {
+    for (const label of ['Mark as unread', 'Archive', 'Star', 'Move to Other', 'Mark as spam', 'Delete']) {
       expect(within(menu()!).getByText(label)).toBeTruthy();
     }
   });
@@ -135,7 +135,7 @@ describe('regression #98: conversation row context menu', () => {
     const conv = makeConversation();
     await renderListWithMenu(conv);
 
-    fireEvent.click(within(menu()!).getByText('Move to InMail'));
+    fireEvent.click(within(menu()!).getByText('Move to Other'));
     await waitFor(async () => {
       const stored = await testDb.conversations.get(conv.id);
       expect(stored.category).toBe('SECONDARY_INBOX');

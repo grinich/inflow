@@ -2,20 +2,23 @@ import type { InboxTab } from '@/store/ui-store';
 
 /**
  * User-facing names for the two LinkedIn inbox buckets. These are the only tab
- * labels the user can rename (Archive/Spam/Drafts/Scheduled are fixed). The
- * defaults match LinkedIn's own product wording — Primary and InMail — but the
- * user can set them to anything in Settings → Appearance.
+ * labels the user can rename (the rest are fixed). The defaults match
+ * LinkedIn's own folder names, Primary and Other.
+ *
+ * "Other" used to default to "InMail", which was wrong: this tab filters on the
+ * SECONDARY_INBOX folder, whereas an InMail is a kind of message and lands in
+ * either folder. The separate InMail tab is what actually selects them.
  */
 export interface InboxLabels {
   /** PRIMARY_INBOX — your main conversations. */
   focused: string;
-  /** SECONDARY_INBOX — InMail, requests, and lower-priority threads. */
+  /** SECONDARY_INBOX — LinkedIn's "Other": requests and lower-priority threads. */
   other: string;
 }
 
 export const DEFAULT_INBOX_LABELS: InboxLabels = {
   focused: 'Primary',
-  other: 'InMail',
+  other: 'Other',
 };
 
 /** Default name for the Inbox nav section itself (renamable, e.g. "Messages"). */
@@ -28,6 +31,7 @@ export function normalizeSectionLabel(raw: string | null | undefined): string {
 
 /** Fixed labels for the tabs the user can't rename. */
 const FIXED_TAB_LABELS: Record<Exclude<InboxTab, 'focused' | 'other'>, string> = {
+  inmail: 'InMail',
   archived: 'Archive',
   spam: 'Spam',
   drafts: 'Drafts',

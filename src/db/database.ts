@@ -297,6 +297,13 @@ export function applySchema(database: Dexie): void {
   database.version(17).stores({
     invitations: 'id, sentAt, status',
   });
+
+  // v18: index message.subject. Only InMail carries one, and Dexie indexes are
+  // sparse, so this is effectively an index of every InMail message — which is
+  // what the InMail view needs, with no scan over ordinary messages.
+  database.version(18).stores({
+    messages: 'id, conversationId, createdAt, subject, [conversationId+createdAt]',
+  });
 }
 
 function createDatabase(name: string): InflowDatabase {

@@ -6,7 +6,7 @@ import { type InboxLabels, DEFAULT_INBOX_LABELS, normalizeInboxLabels, DEFAULT_I
 
 export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system' | 'purple';
-export type InboxTab = 'focused' | 'other' | 'archived' | 'spam' | 'drafts' | 'scheduled';
+export type InboxTab = 'focused' | 'other' | 'inmail' | 'archived' | 'spam' | 'drafts' | 'scheduled';
 export type AppSection = 'inbox' | 'connections' | 'invitations' | 'insights' | 'chat' | 'outbox';
 export type SettingsSection = 'ai' | 'chat' | 'appearance' | 'backup' | 'advanced' | 'about';
 

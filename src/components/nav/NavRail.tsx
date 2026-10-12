@@ -253,7 +253,10 @@ export function NavRail({ connectionsCount, inboxUnread, inboxQueue, outboxAtten
       count: inboxUnread?.total,
       children: [
         { key: 'focused', tab: 'focused', label: tabLabel('focused', inboxLabels), desc: 'Your primary conversations.', Icon: StarIcon, count: inboxUnread?.focused },
-        { key: 'other', tab: 'other', label: tabLabel('other', inboxLabels), desc: 'InMail, requests, and lower-priority threads.', Icon: MailIcon, count: inboxUnread?.other },
+        { key: 'other', tab: 'other', label: tabLabel('other', inboxLabels), desc: "LinkedIn's Other folder: requests and lower-priority threads.", Icon: MailIcon, count: inboxUnread?.other },
+        // Deliberately not a folder: an InMail can sit in Primary or Other, so
+        // this selects by message type instead of by LinkedIn category.
+        { key: 'inmail', tab: 'inmail', label: tabLabel('inmail', inboxLabels), desc: 'Every InMail, whichever folder LinkedIn filed it in.', Icon: MailIcon },
         { key: 'archived', tab: 'archived', label: tabLabel('archived', inboxLabels), desc: 'Conversations you have archived.', Icon: ArchiveIcon },
         { key: 'spam', tab: 'spam', label: tabLabel('spam', inboxLabels), desc: 'Flagged as spam.', Icon: SpamIcon },
         { key: 'drafts', tab: 'drafts', label: tabLabel('drafts', inboxLabels), desc: 'Unsent drafts — yours and any drafted by Claude.', Icon: DraftIcon, count: inboxQueue?.drafts },

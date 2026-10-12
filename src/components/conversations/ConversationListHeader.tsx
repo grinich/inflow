@@ -38,6 +38,9 @@ const TABS: { id: InboxTab; key: string }[] = [
 export const TAB_CATEGORY: Record<InboxTab, string | null> = {
   focused: null, // synced proactively by the poller
   other: 'SECONDARY_INBOX',
+  // InMail spans both LinkedIn folders, so there is nothing to sync on demand;
+  // it is derived from messages already synced.
+  inmail: null,
   archived: 'ARCHIVE',
   spam: 'SPAM',
   // Local outbound queue views — no LinkedIn category to sync.
