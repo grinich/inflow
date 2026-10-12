@@ -3,12 +3,13 @@
   "name": "inflow-mcp",
   "display_name": "inflow",
   "version": "0.1.0",
-  "description": "Let Claude work with your inflow LinkedIn network — search connections, read network stats, and draft messages into your Outbox. Claude reads and drafts only; it never sends.",
+  "description": "Let Claude work with your inflow LinkedIn network — search connections, read network stats, and draft messages into your Outbox.",
   "icon": "icon.png",
   "author": {
     "name": "inflow"
   },
   "license": "MIT",
+  "tools_generated": true,
   "server": {
     "type": "node",
     "entry_point": "src/index.mjs",

@@ -55,3 +55,17 @@ it('ships an icon that actually exists in the bundle', () => {
   const iconPath = resolve(process.cwd(), 'mcp-companion', manifest.icon);
   expect(existsSync(iconPath), `icon ${manifest.icon} is declared but not present`).toBe(true);
 });
+
+it('keeps the install-dialog description to what the connector does', () => {
+  // The dialog shows this one line. It used to end with a promise about what
+  // Claude never does, which belongs in the tool descriptions (where it is
+  // enforced) rather than in marketing copy the user reads once at install.
+  expect(manifest.description).not.toMatch(/never sends/i);
+  expect(manifest.description.length).toBeLessThanOrEqual(160);
+});
+
+it('declares that the tool list comes from the browser at runtime', () => {
+  // The extension hands the catalog over at pairing, so the bundle never holds
+  // the authoritative list — default-tools.json is only a cold-start fallback.
+  expect(manifest.tools_generated).toBe(true);
+});
