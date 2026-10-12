@@ -36,7 +36,7 @@ import { useUIStore } from '@/store/ui-store';
 import { makeConversation } from '../fixtures/factories';
 
 beforeEach(async () => {
-  testDb = new Dexie(`TestDB_100_${Date.now()}_${Math.random()}`);
+  testDb = new Dexie(`TestDB_101_${Date.now()}_${Math.random()}`);
   applySchema(testDb);
   await testDb.open();
   sendBridgeMessage.mockReset();

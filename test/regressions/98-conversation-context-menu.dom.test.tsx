@@ -45,6 +45,16 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (testDb) {
+    // An optimistic action patches the DB, then confirms on an un-awaited
+    // promise chain once the bridge replies. These tests wait only for the
+    // local patch — which lands first — so the confirm write arrived after
+    // teardown had closed the database, surfacing as an unhandled
+    // DatabaseClosedError blamed on whichever file was running at the time.
+    // Let those chains finish before tearing down.
+    await waitFor(async () => {
+      const pending = await testDb.pendingActions.where('status').equals('pending').count();
+      expect(pending).toBe(0);
+    });
     testDb.close();
     await Dexie.delete(testDb.name);
   }
