@@ -102,17 +102,22 @@ function MailIcon({ className }: { className?: string }) {
   );
 }
 /**
- * InMail: an envelope with a mark. "Other" keeps the plain envelope, since the
- * two sat side by side sharing one icon and were indistinguishable. A tray or
- * box shape was the obvious alternative but reads as Archive at nav size.
+ * InMail: an envelope inside a circle. "Other" keeps the plain envelope, since
+ * the two sat side by side sharing one icon and were indistinguishable.
+ *
+ * The enclosed envelope is drawn thinner than the ring (1.6 vs 2): at nav size
+ * it has about 10px to live in, and matching the ring's weight closed up the
+ * flap. Note Spam and Scheduled are circles too, so the three share a
+ * silhouette — the envelope is what tells them apart, not the outline.
  */
 function InMailIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="7" width="14" height="11" rx="2" />
-      <path d="M16 10l-7 4-7-4" />
-      {/* Filled, so it stays crisp rather than muddy at 14px. */}
-      <path d="M19 1.5l1.2 2.3 2.3 1.2-2.3 1.2-1.2 2.3-1.2-2.3L15.5 5l2.3-1.2z" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="10" />
+      <g strokeWidth="1.6">
+        <rect x="5.5" y="8" width="13" height="8.5" rx="1.5" />
+        <path d="M5.5 9.3l6.5 4.2 6.5-4.2" />
+      </g>
     </svg>
   );
 }

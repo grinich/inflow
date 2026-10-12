@@ -111,12 +111,18 @@ it('hides the inline text label when collapsed (icon-only button)', () => {
   expect(within(nav).getAllByRole('button').length).toBeGreaterThanOrEqual(3);
 });
 
-it('gives Other and InMail distinct icons, since they sit side by side', () => {
+it('gives every inbox tab its own icon, including the three circles', () => {
   render(<NavRail connectionsCount={3} />);
-  const other = screen.getByRole('button', { name: 'Other' }).querySelector('svg');
-  const inmail = screen.getByRole('button', { name: 'InMail' }).querySelector('svg');
-  expect(other).toBeTruthy();
-  expect(inmail).toBeTruthy();
-  // They shared one envelope icon and were indistinguishable at a glance.
-  expect(inmail!.innerHTML).not.toBe(other!.innerHTML);
+  const svgFor = (name: string) => {
+    const svg = screen.getByRole('button', { name }).querySelector('svg');
+    expect(svg).toBeTruthy();
+    return svg!.innerHTML;
+  };
+  // Other and InMail shared one envelope and were indistinguishable at a
+  // glance; InMail is now a circled envelope, which puts it in a set with Spam
+  // and Scheduled, so check all four against each other rather than just the
+  // original pair.
+  const names = ['Other', 'InMail', 'Spam', 'Scheduled'];
+  const drawn = names.map(svgFor);
+  expect(new Set(drawn).size).toBe(names.length);
 });
