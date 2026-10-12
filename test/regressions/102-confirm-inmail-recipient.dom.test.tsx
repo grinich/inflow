@@ -43,6 +43,7 @@ function draft(over: any = {}) {
     updatedAt: 1,
     inMailSubject: 'Built for billing teams',
     profileUrl: PROFILE,
+    source: 'mcp' as const,
     ...over,
   };
 }
@@ -91,6 +92,19 @@ it('leaves Send enabled once the recipient is already confirmed', async () => {
 
   expect(sendButton().disabled).toBe(false);
   expect(screen.getByText(/Recipient confirmed/i)).toBeTruthy();
+});
+
+it('does not gate an InMail the user wrote themselves in the composer', async () => {
+  // No source: the user picked this recipient from a list showing their name,
+  // headline and photo, so they are already the human in the middle. Gating it
+  // asked them to confirm against a link the composer cannot supply.
+  const msg = draft({ source: undefined, profileUrl: undefined });
+  await testDb.scheduledMessages.put(msg);
+  render(<OutboxRow msg={msg as any} />);
+
+  expect(sendButton().disabled).toBe(false);
+  expect(screen.queryByText(/No profile link on this draft/i)).toBeNull();
+  expect(screen.queryByRole('button', { name: /This is the right person/i })).toBeNull();
 });
 
 it('does not gate a normal message to a connection', async () => {

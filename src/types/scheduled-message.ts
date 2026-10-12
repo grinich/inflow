@@ -42,4 +42,13 @@ export interface ScheduledMessage {
   profileUrl?: string;
   /** Epoch ms the user confirmed the recipient by opening their profile. */
   recipientConfirmedAt?: number;
+  /**
+   * Set when Claude created this draft over MCP, rather than the user writing
+   * it in the composer. That distinction is the whole basis of the recipient
+   * check: in the composer the user picked the person from a list showing
+   * their name, headline and photo, so they already confirmed who it is. Over
+   * MCP a name was resolved to a URN out of sight, which is where the wrong
+   * person gets picked.
+   */
+  source?: 'mcp';
 }

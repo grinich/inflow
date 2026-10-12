@@ -176,6 +176,8 @@ it('create_draft queues an InMail for someone outside the network', async () => 
   // The subject on the row is what makes this send as an InMail later, rather
   // than silently going out as a normal message that LinkedIn would reject.
   expect(row.inMailSubject).toBe('Working smarter at Acme');
+  // Marks the draft as Claude's, which is what arms the recipient check.
+  expect(row.source).toBe('mcp');
   expect(row.recipientUrns).toEqual(['urn:li:fsd_profile:COLD']);
   expect(row.status).toBe('draft');
 });

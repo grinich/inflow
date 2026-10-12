@@ -79,12 +79,13 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   const [when, setWhen] = useState('');
   const pending = msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'failed';
   const confirmRecipient = useUIStore((s) => s.confirmRecipient);
-  // An InMail reaches someone the user has never spoken to, resolved from a
-  // live name search that can return two different people with the same name,
-  // and spends a credit. So a human opens the profile and confirms first.
-  // Connections are exempt: their URN came from the user's own synced list.
-  const needsConfirm =
-    confirmRecipient && msg.inMailSubject !== undefined && !msg.recipientConfirmedAt;
+  // Only a draft Claude created: it resolved a name to a URN out of sight, and
+  // a name search can return two different people with the same name. A draft
+  // written in the composer is already confirmed, because the user picked the
+  // recipient from a list showing their name, headline and photo. Connections
+  // are exempt either way — their URN came from the user's own synced list.
+  const claudeInMail = msg.source === 'mcp' && msg.inMailSubject !== undefined;
+  const needsConfirm = confirmRecipient && claudeInMail && !msg.recipientConfirmedAt;
 
   const save = async (patch: Partial<ScheduledMessage>) => {
     if (!db) return;
@@ -168,7 +169,7 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
       <p className="whitespace-pre-wrap text-sm text-fg-secondary">{msg.body}</p>
       {msg.status === 'failed' && msg.error && <p className="mt-1 text-[11px] text-red-500 dark:text-red-400">{msg.error}</p>}
 
-      {pending && msg.inMailSubject !== undefined && (
+      {pending && claudeInMail && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
           {msg.profileUrl ? (
             <a

@@ -622,6 +622,7 @@ export const MCP_TOOLS: McpTool[] = [
         status,
         ...(subject ? { inMailSubject: subject } : {}),
         ...(link ? { profileUrl: link } : {}),
+        source: 'mcp',
         ...(scheduledAt ? { scheduledAt } : {}),
         createdAt: now,
         updatedAt: now,

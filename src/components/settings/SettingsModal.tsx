@@ -33,10 +33,11 @@ import { Toggle } from '@/components/common/Toggle';
 import { Logo } from '@/components/common/Wordmark';
 
 /**
- * Sending safeguards. The one setting here guards InMail, where the recipient
- * is someone the user has never spoken to, found by a live name search that
- * can return several different people with the same name, and sending spends
- * a credit. On by default for that reason.
+ * Safeguards on the drafts Claude creates. It lives under AI because that is
+ * exactly its scope: a draft Claude made resolved a name to a URN out of the
+ * user's sight, and a name search can return several different people with the
+ * same name. A draft written in the composer needs no such check, since the
+ * user picked the recipient from a list showing their name, headline and photo.
  */
 function SendingSettings() {
   const confirmRecipient = useUIStore((s) => s.confirmRecipient);
@@ -44,19 +45,20 @@ function SendingSettings() {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-fg-strong">Confirming recipients</h3>
+      <h3 className="text-sm font-semibold text-fg-strong">Drafts from Claude</h3>
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-fg-strong">Confirm the person before sending an InMail</p>
+          <p className="text-sm font-medium text-fg-strong">Confirm the person before sending Claude's InMail drafts</p>
           <p className="text-xs text-fg-muted">
-            An InMail goes to someone outside your network and uses a credit. With this on,
-            the Outbox shows their LinkedIn profile link and Send stays disabled until you
-            open it and confirm it is the right person. Messages to your connections are
-            never gated, since inflow already knows who they are.
+            When Claude drafts an InMail it looks the person up by name, and names repeat.
+            With this on, the Outbox shows their LinkedIn profile link and Send stays
+            disabled until you open it and confirm it is the right person. InMail you write
+            yourself is never gated, because you already picked the recipient, and neither
+            are messages to your connections.
           </p>
         </div>
         <Toggle
-          label="Confirm the person before sending an InMail"
+          label="Confirm the person before sending Claude's InMail drafts"
           checked={confirmRecipient}
           onChange={setConfirmRecipient}
         />
@@ -73,8 +75,7 @@ interface SectionDef {
 }
 
 const SECTIONS: SectionDef[] = [
-  { id: 'ai', label: 'AI', children: [{ id: 'chat', label: 'Chat' }] },
-  { id: 'sending', label: 'Sending' },
+  { id: 'ai', label: 'AI', children: [{ id: 'chat', label: 'Chat' }, { id: 'sending', label: 'Drafts' }] },
   { id: 'appearance', label: 'Appearance' },
   { id: 'backup', label: 'Backup' },
   { id: 'advanced', label: 'Demo mode' },
