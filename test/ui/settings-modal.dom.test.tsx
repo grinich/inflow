@@ -158,6 +158,24 @@ it('switches to Appearance and changes the theme on Save', async () => {
   expect(useUIStore.getState().theme).toBe('dark');
 });
 
+it('Sending section: an on-by-default switch, matching every other setting', async () => {
+  await openSettings('sending');
+
+  // A switch, not a checkbox: every other toggle in settings is the shared
+  // Toggle component, and this one was hand-rolled as an <input> at first.
+  const toggle = await screen.findByRole('switch', {
+    name: /Confirm the person before sending an InMail/i,
+  });
+  expect(toggle.getAttribute('aria-checked')).toBe('true');
+
+  fireEvent.click(toggle);
+  expect(useUIStore.getState().confirmRecipient).toBe(false);
+  expect(toggle.getAttribute('aria-checked')).toBe('false');
+
+  fireEvent.click(toggle);
+  expect(useUIStore.getState().confirmRecipient).toBe(true);
+});
+
 it('shows the Demo mode control', async () => {
   await openSettings('advanced');
   expect(await screen.findByText(/Browse a synthetic inbox/i)).toBeInTheDocument();

@@ -29,6 +29,7 @@ import { isDemoMode, enableDemoMode, disableDemoMode } from '@/lib/demo-mode';
 import { checkForUpdateAndToast } from '@/lib/check-update';
 import { AIKeySettings } from './AIKeySettings';
 import { BackupSettings } from './BackupSettings';
+import { Toggle } from '@/components/common/Toggle';
 import { Logo } from '@/components/common/Wordmark';
 
 /**
@@ -44,25 +45,22 @@ function SendingSettings() {
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-fg-strong">Confirming recipients</h3>
-      <label className="flex cursor-pointer items-start gap-3">
-        <input
-          type="checkbox"
-          checked={confirmRecipient}
-          onChange={(e) => setConfirmRecipient(e.target.checked)}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-blue-500"
-        />
-        <span>
-          <span className="block text-sm font-medium text-fg-strong">
-            Confirm the person before sending an InMail
-          </span>
-          <span className="mt-0.5 block text-xs text-fg-muted">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-fg-strong">Confirm the person before sending an InMail</p>
+          <p className="text-xs text-fg-muted">
             An InMail goes to someone outside your network and uses a credit. With this on,
             the Outbox shows their LinkedIn profile link and Send stays disabled until you
             open it and confirm it is the right person. Messages to your connections are
             never gated, since inflow already knows who they are.
-          </span>
-        </span>
-      </label>
+          </p>
+        </div>
+        <Toggle
+          label="Confirm the person before sending an InMail"
+          checked={confirmRecipient}
+          onChange={setConfirmRecipient}
+        />
+      </div>
     </div>
   );
 }
