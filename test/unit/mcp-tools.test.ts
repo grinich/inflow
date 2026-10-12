@@ -257,6 +257,23 @@ describe('find_person', () => {
     }
   });
 
+  it('does not filter on publicId when LinkedIn omits it, and says so', async () => {
+    // Live responses carry no publicIdentifier. Filtering on it matched nothing
+    // and read as "no such person", hiding the person who was right there.
+    sendBridgeMessage.mockResolvedValue({
+      success: true,
+      data: [hit({ publicId: '' }), hit({ profileUrn: 'urn:li:fsd_profile:STUDENT', publicId: '' })],
+    });
+
+    const res: any = await callTool('find_person', {
+      name: 'Dana Whitfield',
+      publicId: 'dana-whitfield-4471',
+    });
+
+    expect(res.total).toBe(2);
+    expect(res.note).toMatch(/did not return a publicId/i);
+  });
+
   it('surfaces a failed search instead of returning an empty list', async () => {
     sendBridgeMessage.mockResolvedValue({ success: false, error: 'Typeahead search failed: 429' });
     await expect(callTool('find_person', { name: 'Dana' })).rejects.toThrow(/429/);

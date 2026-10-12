@@ -461,7 +461,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: 'find_person',
     description:
-      "Look up someone on LinkedIn by name, INCLUDING people the user is not connected to, and get the profileUrn that create_draft needs to draft an InMail. Names repeat, so when a profile URL is known pass its /in/<slug> as publicId and only an exact match is returned. Each result says whether that person is already a connection: if they are, messaging them is free and create_draft takes no subject; if they are not, a draft to them is a Premium InMail and needs one. This searches LinkedIn live rather than the local database.",
+      "Look up someone on LinkedIn by name, INCLUDING people the user is not connected to, and get the profileUrn that create_draft needs to draft an InMail. Names repeat, so check the headline against what you already know about the person before using a result. You may pass a /in/<slug> as publicId, but LinkedIn often omits that field, in which case the filter is skipped and the response says so. Each result says whether that person is already a connection: if they are, messaging them is free and create_draft takes no subject; if they are not, a draft to them is a Premium InMail and needs one. This searches LinkedIn live rather than the local database.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -490,13 +490,26 @@ export const MCP_TOOLS: McpTool[] = [
         .replace(/[?#].*$/, '')
         .replace(/^.*\/in\//, '')
         .replace(/\/+$/, '');
-      if (slug) hits = hits.filter((h) => h.publicId === slug);
+      // The typeahead projection does not actually return publicIdentifier
+      // (verified live), so filtering on it silently matched nothing and looked
+      // exactly like "no such person". Only filter when some hit carries one,
+      // and say so otherwise rather than returning a misleading empty list.
+      let unmatchedSlug = false;
+      if (slug) {
+        if (hits.some((h) => h.publicId)) hits = hits.filter((h) => h.publicId === slug);
+        else unmatchedSlug = hits.length > 0;
+      }
 
       // Whether they are a connection decides InMail vs a free message, so the
       // caller should not have to ask separately.
       const known = new Set((await allConnections()).map((c) => c.profileUrn));
       return {
         total: hits.length,
+        ...(unmatchedSlug
+          ? {
+              note: 'LinkedIn did not return a publicId for these results, so the publicId filter was not applied. Match on the headline instead before drafting.',
+            }
+          : {}),
         results: hits.map((h) => ({
           name: h.name,
           headline: h.headline || undefined,
