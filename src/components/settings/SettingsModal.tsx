@@ -29,6 +29,7 @@ import { isDemoMode, enableDemoMode, disableDemoMode } from '@/lib/demo-mode';
 import { checkForUpdateAndToast } from '@/lib/check-update';
 import { AIKeySettings } from './AIKeySettings';
 import { BackupSettings } from './BackupSettings';
+import { THEME_OPTIONS } from '@/lib/themes';
 import { Toggle } from '@/components/common/Toggle';
 import { Logo } from '@/components/common/Wordmark';
 
@@ -353,12 +354,6 @@ function AppearanceSettings() {
     setLabels({ ...DEFAULT_INBOX_LABELS });
   };
 
-  const themeOptions: { value: Theme; label: string }[] = [
-    { value: 'light', label: 'Light' },
-    { value: 'dark', label: 'Dark' },
-    { value: 'system', label: 'System' },
-    { value: 'purple', label: 'Purple' },
-  ];
   const nameFields: { key: 'focused' | 'other'; heading: string; hint: string }[] = [
     { key: 'focused', heading: 'Primary tab', hint: 'LinkedIn’s primary inbox — your main conversations.' },
     { key: 'other', heading: 'Secondary tab', hint: 'InMail, connection requests, and lower-priority threads.' },
@@ -370,7 +365,7 @@ function AppearanceSettings() {
         <h3 className="text-sm font-semibold text-fg-strong">Theme</h3>
         <p className="mt-1 text-sm text-fg-secondary">Choose how inflow looks.</p>
         <div className="mt-3 inline-flex rounded-lg bg-surface p-1 ring-1 ring-ring">
-          {themeOptions.map((o) => (
+          {THEME_OPTIONS.map((o) => (
             <button
               key={o.value}
               onClick={() => setThemeDraft(o.value)}

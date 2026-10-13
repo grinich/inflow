@@ -1,0 +1,80 @@
+// @vitest-environment jsdom
+/**
+ * Theme switching from the nav rail, above Settings.
+ *
+ * A flyout rather than a strip inside the rail: the rail collapses to ~48px,
+ * too narrow for four labelled swatches, and an in-rail strip would push the
+ * items below it as it opened. Floating keeps one layout for both states and
+ * leaves the rail still.
+ */
+import '../dom-setup';
+
+import { render, screen, fireEvent } from '@testing-library/react';
+import { useUIStore } from '@/store/ui-store';
+import { ThemeSwitcher } from '@/components/nav/ThemeSwitcher';
+
+beforeEach(() => {
+  useUIStore.setState({ theme: 'dark' });
+  document.documentElement.className = '';
+});
+
+const trigger = () => screen.getByRole('button', { name: /^Theme:/ });
+
+it('is closed until asked, then lists every theme', () => {
+  render(<ThemeSwitcher />);
+  expect(screen.queryByRole('menu')).toBeNull();
+
+  fireEvent.click(trigger());
+
+  const menu = screen.getByRole('menu', { name: 'Theme' });
+  for (const name of ['Light', 'Dark', 'System', 'Purple']) {
+    expect(screen.getByRole('menuitemradio', { name: new RegExp(name) })).toBeTruthy();
+  }
+  expect(menu).toBeTruthy();
+});
+
+it('applies a theme on the spot, with no second confirmation', () => {
+  // The Settings panel drafts and saves; a switcher that needed that too
+  // would not be worth reaching for.
+  render(<ThemeSwitcher />);
+  fireEvent.click(trigger());
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /Purple/ }));
+
+  expect(useUIStore.getState().theme).toBe('purple');
+  // Purple layers on the dark base, so both classes apply (see applyTheme).
+  expect(document.documentElement.classList.contains('theme-purple')).toBe(true);
+  expect(document.documentElement.classList.contains('dark')).toBe(true);
+  // And it closes behind itself.
+  expect(screen.queryByRole('menu')).toBeNull();
+});
+
+it('marks which theme is on, so the swatches do not have to be decoded', () => {
+  useUIStore.setState({ theme: 'system' });
+  render(<ThemeSwitcher />);
+  fireEvent.click(trigger());
+
+  expect(screen.getByRole('menuitemradio', { name: /System/ }).getAttribute('aria-checked')).toBe('true');
+  expect(screen.getByRole('menuitemradio', { name: /Light/ }).getAttribute('aria-checked')).toBe('false');
+});
+
+it('names the current theme on the trigger, which is all there is when collapsed', () => {
+  useUIStore.setState({ theme: 'purple' });
+  render(<ThemeSwitcher collapsed />);
+  // Collapsed the label is gone, so the accessible name carries it.
+  expect(screen.getByRole('button', { name: 'Theme: Purple' })).toBeTruthy();
+  expect(screen.queryByText('Theme')).toBeNull();
+});
+
+it('closes on Escape and on a click outside, not only on a choice', () => {
+  render(<ThemeSwitcher />);
+
+  fireEvent.click(trigger());
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(useUIStore.getState().theme).toBe('dark'); // nothing changed
+
+  fireEvent.click(trigger());
+  fireEvent.click(document.querySelector('.fixed.inset-0')!);
+  expect(screen.queryByRole('menu')).toBeNull();
+  expect(useUIStore.getState().theme).toBe('dark');
+});

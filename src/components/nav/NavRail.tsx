@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { ThemeSwitcher } from './ThemeSwitcher';
 import { useUIStore, type AppSection, type InboxTab } from '@/store/ui-store';
 import { tabLabel } from '@/lib/inbox-labels';
 import { Logo } from '@/components/common/Wordmark';
@@ -410,6 +411,8 @@ export function NavRail({ connectionsCount, inboxUnread, inboxQueue, outboxAtten
       })}
 
       <div className="flex-1" />
+
+      <ThemeSwitcher collapsed={collapsed} />
 
       {/* Settings */}
       <button
