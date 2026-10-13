@@ -25,3 +25,37 @@ it('leaves disabled controls alone, so unavailable still feels unavailable', () 
   expect(rule).toMatch(/:not\(:disabled\)/);
   expect(rule).toMatch(/\[role='button'\]:not\(\[aria-disabled='true'\]\)/);
 });
+
+describe('theme surfaces', () => {
+  /** The token block for a theme selector, e.g. ":root" or ".theme-purple". */
+  function tokens(selector: string): Record<string, string> {
+    const block = css.match(new RegExp(`\\${selector}\\s*\\{([^}]*)\\}`));
+    expect(block, `${selector} should define tokens`).toBeTruthy();
+    const out: Record<string, string> = {};
+    for (const line of block![1].split(';')) {
+      const m = line.match(/(--[\w-]+)\s*:\s*(.+)/);
+      if (m) out[m[1]] = m[2].trim();
+    }
+    return out;
+  }
+
+  const translucent = (v: string) => /rgba\([^)]*,\s*0?\.\d+\s*\)/.test(v);
+
+  it.each([':root', '.dark', '.theme-purple'])(
+    '%s keeps --surface-raised opaque, since it floats over content',
+    (selector) => {
+      // A menu, modal or tooltip at less than full opacity lets the rows
+      // underneath show through its own text. Purple shipped it at 0.7, which
+      // read as the theme bleeding into the background.
+      const raised = tokens(selector)['--surface-raised'];
+      expect(raised, `${selector} --surface-raised`).toBeTruthy();
+      expect(translucent(raised), `${selector} --surface-raised is ${raised}`).toBe(false);
+    },
+  );
+
+  it('still lets the purple page surface show its gradient', () => {
+    // The translucent base is the theme's character, not the bug: nothing sits
+    // behind it except the fixed backdrop.
+    expect(translucent(tokens('.theme-purple')['--surface'])).toBe(true);
+  });
+});

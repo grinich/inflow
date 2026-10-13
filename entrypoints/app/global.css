@@ -49,21 +49,31 @@
 }
 
 /*
- * Purple theme — a dark base tinted purple, with translucent surfaces layered
- * over a fixed gradient backdrop for a glassy "transparent purple" look.
- * Applied together with .dark (see applyTheme), so it only overrides the tokens
- * that differ and inherits dark behavior for everything else.
+ * Purple theme — a dark purple base under a fixed gradient backdrop, applied
+ * together with .dark (see applyTheme) so it overrides only what differs.
+ *
+ * Which surfaces are translucent is the whole design here, and it is not
+ * uniform. `--surface` is the page itself: nothing sits behind it but the
+ * gradient, so letting that through is the look. Everything that FLOATS above
+ * content is opaque, exactly as in the dark theme — a menu or modal at 70%
+ * let the rows underneath show through its own text, which read as the theme
+ * bleeding into the background. Hover and active stay translucent because
+ * they tint a solid surface rather than covering content.
  */
 .theme-purple {
-  --surface: rgba(23, 15, 43, 0.72);
-  --surface-raised: rgba(38, 25, 66, 0.7);
+  --surface: rgba(23, 15, 43, 0.78);
+  /* Opaque: these float over content. Tinted lighter than --surface so a
+     raised layer still reads as raised once it no longer borrows the
+     backdrop's glow. */
+  --surface-raised: #241640;
   --surface-hover: rgba(124, 92, 214, 0.18);
   --surface-active: rgba(139, 92, 246, 0.32);
-  --surface-input: rgba(45, 30, 78, 0.6);
-  --surface-muted: rgba(76, 52, 128, 0.55);
-  --edge: rgba(167, 139, 250, 0.20);
-  --ring: rgba(167, 139, 250, 0.35);
-  --ring-muted: rgba(139, 92, 246, 0.22);
+  --surface-input: #1d1234;
+  --surface-muted: #46307a;
+  /* Borders carry more of the work now that panels do not glow at the edges. */
+  --edge: rgba(167, 139, 250, 0.26);
+  --ring: rgba(167, 139, 250, 0.42);
+  --ring-muted: rgba(139, 92, 246, 0.26);
   --fg: #ece7fb;
   --fg-strong: #ffffff;
   --fg-secondary: #c7b8f5;
