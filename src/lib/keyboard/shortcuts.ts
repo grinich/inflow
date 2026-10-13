@@ -25,6 +25,10 @@ export const shortcutDefinitions: ShortcutDef[] = [
   { key: 'g', display: 'G U', context: 'Global', group: 'Navigation', description: 'Go to unread' },
   { key: 'g', display: 'G I', context: 'Global', group: 'Navigation', description: 'Go to Inbox' },
   { key: 'g', display: 'G C', context: 'Global', group: 'Navigation', description: 'Go to Connections' },
+  { key: 'g', display: 'G V', context: 'Global', group: 'Navigation', description: 'Go to Invitations' },
+  { key: 'g', display: 'G T', context: 'Global', group: 'Navigation', description: 'Go to Insights' },
+  { key: 'g', display: 'G M', context: 'Global', group: 'Navigation', description: 'Go to MCP connector' },
+  { key: 'g', display: 'G A', context: 'Global', group: 'Navigation', description: 'Go to AI Chat' },
 
   // Actions
   { key: 'e', display: 'E', context: 'List / Thread', group: 'Actions', description: 'Archive / Move to Focused' },

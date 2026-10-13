@@ -1,5 +1,22 @@
 import { useEffect, useRef } from 'react';
-import { useUIStore } from '@/store/ui-store';
+
+/**
+ * Sections reachable with the "g" chord. The shortcut sheet listed "G C → Go
+ * to Connections" while the handler only implemented "g i", so the overlay was
+ * promising a key that did nothing; the sections added since had no key at all.
+ *
+ * Kept as one map because the chord resolves in two places (inbox context and
+ * everywhere else), which is how the two drifted apart to begin with.
+ */
+const G_SECTIONS: Record<string, AppSection> = {
+  i: 'inbox',
+  c: 'connections',
+  v: 'invitations',
+  t: 'insights',
+  m: 'outbox',
+  a: 'chat',
+};
+import { useUIStore, type AppSection } from '@/store/ui-store';
 import { useOptimisticAction } from './useOptimisticAction';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { db } from '@/db/database';
@@ -72,7 +89,8 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
         if (gPendingRef.current) {
           gPendingRef.current = false;
           if (gTimerRef.current) { clearTimeout(gTimerRef.current); gTimerRef.current = null; }
-          if (e.key === 'i') { e.preventDefault(); store.setActiveSection('inbox'); }
+          const target = G_SECTIONS[e.key];
+          if (target) { e.preventDefault(); store.setActiveSection(target); }
           return;
         }
         if (!isInput && e.key === 'g' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
@@ -203,6 +221,10 @@ export function useKeyboard(conversations: Conversation[], composeRef: React.Ref
           const input = document.querySelector<HTMLInputElement>('[data-search-input]');
           input?.focus();
           return;
+        }
+        {
+          const target = G_SECTIONS[e.key];
+          if (target) { e.preventDefault(); store.setActiveSection(target); return; }
         }
         if (e.key === 'c') {
           e.preventDefault();
