@@ -144,7 +144,12 @@ export function MiniChart({ data, type }: { data: ChartDatum[]; type: ChartType 
   });
   const single = slices.length === 1;
   return (
-    <div className="flex flex-wrap items-center justify-between gap-6">
+    // items-start, not items-center: the legend's height follows its row count,
+    // so centring made each chart sit at a different vertical offset depending
+    // on how many entries its data happened to have — eight roles pushed one
+    // pie down, four interest tags left another riding high, and the three read
+    // as misaligned. Pinning both to the top puts every pie on the same line.
+    <div className="flex flex-wrap items-start justify-between gap-6">
       <svg
         viewBox="0 0 240 170"
         data-chart="pie"
@@ -180,7 +185,7 @@ export function MiniChart({ data, type }: { data: ChartDatum[]; type: ChartType 
           ))
         )}
       </svg>
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 pt-2">
         {top.map((d) => (
           <button
             key={d.key}
