@@ -86,6 +86,8 @@ interface UIState {
   sectionHistory: AppSection[];
   sectionForward: AppSection[];
   navRailCollapsed: boolean;
+  outboxView: 'grid' | 'list';
+  setOutboxView: (v: 'grid' | 'list') => void;
   /** Require opening the recipient's profile before an InMail draft can send. */
   confirmRecipient: boolean;
   setConfirmRecipient: (on: boolean) => void;
@@ -214,6 +216,14 @@ function getStoredSection(): AppSection {
   return 'inbox';
 }
 
+/** Grid or list for the Outbox. Grid by default — it fits more on screen. */
+function getStoredOutboxView(): 'grid' | 'list' {
+  try {
+    return localStorage.getItem('inflow-outbox-view') === 'list' ? 'list' : 'grid';
+  } catch {}
+  return 'grid';
+}
+
 function getStoredNavCollapsed(): boolean {
   try {
     return localStorage.getItem('inflow-nav-collapsed') === '1';
@@ -286,6 +296,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   sectionHistory: [],
   sectionForward: [],
   navRailCollapsed: getStoredNavCollapsed(),
+  outboxView: getStoredOutboxView(),
   // These mirror chrome.storage, hydrated on startup (see hydrateSendSettings).
   // Until that resolves they hold the defaults, which match the real ones.
   confirmRecipient: true,
@@ -395,6 +406,12 @@ export const useUIStore = create<UIState>((set, get) => ({
       sectionHistory: [...get().sectionHistory, activeSection].slice(-50),
       composeNewActive: false,
     });
+  },
+  setOutboxView: (v) => {
+    try {
+      localStorage.setItem('inflow-outbox-view', v);
+    } catch {}
+    set({ outboxView: v });
   },
   setNavRailCollapsed: (collapsed) => {
     try {

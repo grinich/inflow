@@ -31,7 +31,7 @@ function badgeClass(status: ScheduledMessage['status'], ready: boolean): string 
 
 /** One draft / scheduled / sent item, with inline actions. Shared by the MCP
  *  connector section and the Inbox Drafts/Scheduled views. */
-export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boolean }) {
+export function OutboxRow({ msg, ready, dense }: { msg: ScheduledMessage; ready?: boolean; dense?: boolean }) {
   const showToast = useUIStore((s) => s.showToast);
   const [busy, setBusy] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -43,7 +43,7 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   const confirmDelete = useUIStore((s) => s.confirmDelete);
   // Cheap heuristic rather than measuring: the toggle only has to appear when
   // the clamp plausibly bites, and a wrong guess costs a redundant link.
-  const longBody = msg.body.split('\n').length > 9 || msg.body.length > 420;
+  const longBody = dense || msg.body.split('\n').length > 9 || msg.body.length > 420;
   const autoSendScheduled = useUIStore((s) => s.autoSendScheduled);
   const [when, setWhen] = useState('');
   const pending = msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'failed';
@@ -194,7 +194,9 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
               white space. The full text is a click away, and always present
               under Edit. */}
           <p
-            className={`whitespace-pre-wrap text-sm text-fg-secondary ${showFull ? '' : 'line-clamp-[9]'}`}
+            className={`whitespace-pre-wrap text-sm text-fg-secondary ${
+              showFull ? '' : dense ? 'line-clamp-2' : 'line-clamp-[9]'
+            }`}
           >
             {msg.body}
           </p>

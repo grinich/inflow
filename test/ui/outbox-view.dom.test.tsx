@@ -183,3 +183,60 @@ it('offers no toggle on a message that already fits', async () => {
   await screen.findByText(/Two lines/);
   expect(screen.queryByRole('button', { name: /Show more/i })).toBeNull();
 });
+
+describe('layout and filtering', () => {
+  beforeEach(() => useUIStore.setState({ outboxView: 'grid' }));
+
+  it('filters across every section at once, not within one bucket', async () => {
+    // What you remember is who it is to, not which status it sits under.
+    await db!.scheduledMessages.bulkAdd([
+      row({ id: 'f1', recipientName: 'Dana Whitfield', status: 'draft' }),
+      row({ id: 'f2', recipientName: 'Owen Pratt', status: 'scheduled', scheduledAt: Date.now() + 9e6 }),
+    ]);
+    render(<OutboxView />);
+    await screen.findByText('Dana Whitfield');
+
+    fireEvent.change(screen.getByLabelText(/Filter the queue/i), { target: { value: 'pratt' } });
+
+    expect(screen.queryByText('Dana Whitfield')).toBeNull();
+    expect(screen.getByText('Owen Pratt')).toBeTruthy();
+  });
+
+  it('matches on the message text and the InMail subject too', async () => {
+    await db!.scheduledMessages.add(
+      row({ id: 'f3', recipientName: 'Someone', body: 'about revenue cycle', inMailSubject: 'Built for billing teams' }),
+    );
+    render(<OutboxView />);
+    await screen.findByText('Someone');
+    const box = screen.getByLabelText(/Filter the queue/i);
+
+    fireEvent.change(box, { target: { value: 'revenue' } });
+    expect(screen.getByText('Someone')).toBeTruthy();
+
+    fireEvent.change(box, { target: { value: 'billing teams' } });
+    expect(screen.getByText('Someone')).toBeTruthy();
+
+    fireEvent.change(box, { target: { value: 'zzz nothing' } });
+    expect(screen.getByText(/Nothing in the queue matches/i)).toBeTruthy();
+  });
+
+  it('switches to a list and remembers the choice', async () => {
+    await db!.scheduledMessages.add(row({ id: 'f4' }));
+    render(<OutboxView />);
+    await screen.findByText('Ada Lovelace');
+
+    fireEvent.click(screen.getByRole('button', { name: /List view/i }));
+    expect(useUIStore.getState().outboxView).toBe('list');
+    expect(screen.getByRole('button', { name: /List view/i }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: /Grid view/i }));
+    expect(useUIStore.getState().outboxView).toBe('grid');
+  });
+
+  it('hides the controls while there is nothing queued', async () => {
+    render(<OutboxView />);
+    await screen.findByText(/No drafts or scheduled sends yet/i);
+    expect(screen.queryByLabelText(/Filter the queue/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /List view/i })).toBeNull();
+  });
+});
