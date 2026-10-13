@@ -18,6 +18,7 @@ import { getConfirmRecipient } from '@/lib/send-settings';
 import { isValidProfileUrn } from '@/lib/voyager-normalizer';
 import type { Connection } from '@/types/connection';
 import type { Conversation } from '@/types/conversation';
+import type { ScheduledMessage } from '@/types/scheduled-message';
 
 /** A typeahead hit as the background's searchTypeahead returns it. */
 interface TypeaheadHit {
@@ -457,6 +458,125 @@ export const MCP_TOOLS: McpTool[] = [
           neverMessaged: last === 0,
         })),
       };
+    },
+  },
+  {
+    name: 'update_draft',
+    description:
+      "Fix a draft that is still waiting in the user's Outbox: its body, InMail subject, recipient display name, profile URL, or scheduled time. Pass only the fields you are changing. Use this instead of deleting and re-creating, which loses the user's place in the queue. Cannot change who it goes to — create a new draft for that — and cannot touch anything already sent. Editing the body or subject clears any recipient confirmation the user had given, since they confirmed a different message.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Draft id from list_drafts.' },
+        body: { type: 'string', description: 'Replacement message text.' },
+        inMailSubject: { type: 'string', description: 'Replacement InMail subject, max 200 chars.' },
+        recipientName: { type: 'string', description: 'Display name for the Outbox row.' },
+        profileUrl: { type: 'string', description: "The recipient's linkedin.com/in/... URL." },
+        scheduleAt: {
+          type: 'string',
+          description: 'ISO 8601 time to send, or "" to turn it back into an unscheduled draft.',
+        },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    handler: async ({ id, body, inMailSubject, recipientName, profileUrl, scheduleAt }) => {
+      if (!db) throw new Error('Database unavailable');
+      const row = await db.scheduledMessages.get(String(id || ''));
+      if (!row) throw new Error('No draft with that id — list_drafts shows what is there');
+      if (row.status === 'sent' || row.status === 'sending') {
+        throw new Error(`That message is ${row.status} — only something still waiting can be edited`);
+      }
+
+      const patch: Partial<ScheduledMessage> = { updatedAt: Date.now() };
+
+      if (body !== undefined) {
+        const text = String(body).trim();
+        if (!text) throw new Error('body cannot be empty');
+        patch.body = text;
+      }
+
+      if (inMailSubject !== undefined) {
+        const subject = String(inMailSubject).trim();
+        if (!subject) throw new Error('inMailSubject cannot be empty — an InMail needs one');
+        if (subject.length > 200) throw new Error('inMailSubject is longer than 200 characters');
+        // Only on something already queued as an InMail: adding a subject to a
+        // plain draft would silently turn a free message into a paid one.
+        if (row.inMailSubject === undefined) {
+          throw new Error('That draft is not an InMail, so it has no subject to change');
+        }
+        patch.inMailSubject = subject;
+      }
+
+      if (recipientName !== undefined) {
+        const name = String(recipientName).trim();
+        if (!name) throw new Error('recipientName cannot be empty');
+        patch.recipientName = name;
+      }
+
+      if (profileUrl !== undefined) {
+        const link = String(profileUrl).trim();
+        if (!/^https:\/\/(www\.)?linkedin\.com\/in\/[^/\s]+\/?$/.test(link)) {
+          throw new Error('profileUrl must be a https://www.linkedin.com/in/... URL');
+        }
+        patch.profileUrl = link;
+      }
+
+      if (scheduleAt !== undefined) {
+        const when = String(scheduleAt).trim();
+        if (!when) {
+          patch.status = 'draft';
+          patch.scheduledAt = undefined;
+        } else {
+          const t = new Date(when).getTime();
+          if (!Number.isFinite(t)) throw new Error('scheduleAt is not a valid date');
+          patch.scheduledAt = t;
+          patch.status = 'scheduled';
+        }
+      }
+
+      // What the user confirmed was a specific message to a specific person.
+      // Change either and that confirmation no longer covers what would send,
+      // which matters most when auto-send is on and nobody is watching.
+      if (patch.body !== undefined || patch.inMailSubject !== undefined || patch.profileUrl !== undefined) {
+        patch.recipientConfirmedAt = undefined;
+      }
+
+      await db.scheduledMessages.update(row.id, patch);
+      const after = await db.scheduledMessages.get(row.id);
+      return {
+        updated: true,
+        id: row.id,
+        status: after?.status,
+        recipientConfirmationCleared: patch.recipientConfirmedAt === undefined
+          && !!row.recipientConfirmedAt,
+      };
+    },
+  },
+  {
+    name: 'delete_draft',
+    description:
+      "Remove one draft or scheduled message from the user's Outbox. Takes a single id from list_drafts. Refuses anything already sent, so it can only discard something still waiting and never rewrites the user's sent history. Prefer update_draft when the message just needs fixing.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Draft id from list_drafts.' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    handler: async ({ id }) => {
+      if (!db) throw new Error('Database unavailable');
+      const row = await db.scheduledMessages.get(String(id || ''));
+      if (!row) throw new Error('No draft with that id — list_drafts shows what is there');
+      if (row.status === 'sent') {
+        throw new Error('That message was already sent — the Outbox keeps it as history');
+      }
+      if (row.status === 'sending') {
+        throw new Error('That message is being sent right now');
+      }
+      await db.scheduledMessages.delete(row.id);
+      return { deleted: true, id: row.id, was: row.status, to: row.recipientName };
     },
   },
   {

@@ -75,7 +75,7 @@ it('advertises the read tools plus create_draft, and never a send tool', () => {
       'list_connections', 'search_connections', 'get_connection',
       'get_network_stats', 'get_conversation_summary', 'create_draft',
       'search_messages', 'list_conversations', 'get_thread', 'find_stale_connections',
-      'find_person', 'list_drafts',
+      'find_person', 'list_drafts', 'update_draft', 'delete_draft',
     ]),
   );
   // The only write is create_draft (Outbox). Nothing may send on the user's behalf.
@@ -391,6 +391,107 @@ it('derives the profile link for a connection, who has a known slug', async () =
   );
   const res: any = await callTool('create_draft', { publicId: 'zack-allen-99', body: 'Hi Zack' });
   expect(res.profileUrl).toBe('https://www.linkedin.com/in/zack-allen-99/');
+});
+
+describe('update_draft and delete_draft', () => {
+  const LINK = 'https://www.linkedin.com/in/dana-whitfield-4471/';
+
+  async function seed(over: any = {}) {
+    const row = {
+      id: 'q1',
+      recipientUrns: ['urn:li:fsd_profile:DANA'],
+      recipientName: 'Unknown',
+      body: 'Ms. Whitfield,',
+      status: 'draft',
+      createdAt: 1,
+      updatedAt: 1,
+      source: 'mcp',
+      inMailSubject: 'Built for billing teams',
+      ...over,
+    };
+    await db!.scheduledMessages.put(row as any);
+    return row;
+  }
+
+  it('repairs the fields a draft was created without', async () => {
+    // Exactly the draft that prompted this: "Unknown", no profile link.
+    await seed();
+
+    const res: any = await callTool('update_draft', {
+      id: 'q1',
+      recipientName: 'Dana Whitfield',
+      profileUrl: LINK,
+    });
+    expect(res.updated).toBe(true);
+
+    const row = await db!.scheduledMessages.get('q1');
+    expect(row!.recipientName).toBe('Dana Whitfield');
+    expect(row!.profileUrl).toBe(LINK);
+    // Untouched fields survive.
+    expect(row!.inMailSubject).toBe('Built for billing teams');
+  });
+
+  it('clears a confirmation when the message or the person changes', async () => {
+    // The user confirmed a specific message to a specific person. Change
+    // either and that approval no longer covers what would actually send —
+    // which matters most when auto-send is on and nobody is watching.
+    await seed({ recipientConfirmedAt: 5, profileUrl: LINK });
+
+    const res: any = await callTool('update_draft', { id: 'q1', body: 'Completely different pitch' });
+
+    expect(res.recipientConfirmationCleared).toBe(true);
+    expect((await db!.scheduledMessages.get('q1'))!.recipientConfirmedAt).toBeUndefined();
+  });
+
+  it('keeps a confirmation when only the send time moves', async () => {
+    await seed({ recipientConfirmedAt: 5, profileUrl: LINK });
+    const when = new Date(Date.now() + 3600_000).toISOString();
+
+    await callTool('update_draft', { id: 'q1', scheduleAt: when });
+
+    const row = await db!.scheduledMessages.get('q1');
+    expect(row!.status).toBe('scheduled');
+    expect(row!.scheduledAt).toBe(new Date(when).getTime());
+    expect(row!.recipientConfirmedAt).toBe(5);
+  });
+
+  it('unschedules back to a plain draft on an empty time', async () => {
+    await seed({ status: 'scheduled', scheduledAt: 123 });
+    await callTool('update_draft', { id: 'q1', scheduleAt: '' });
+    const row = await db!.scheduledMessages.get('q1');
+    expect(row!.status).toBe('draft');
+    expect(row!.scheduledAt).toBeUndefined();
+  });
+
+  it('will not turn a free message into a paid one', async () => {
+    await seed({ inMailSubject: undefined });
+    await expect(
+      callTool('update_draft', { id: 'q1', inMailSubject: 'Surprise InMail' }),
+    ).rejects.toThrow(/not an InMail/i);
+  });
+
+  it('validates what it is given', async () => {
+    await seed();
+    await expect(callTool('update_draft', { id: 'nope', body: 'x' })).rejects.toThrow(/No draft with that id/i);
+    await expect(callTool('update_draft', { id: 'q1', body: '   ' })).rejects.toThrow(/body cannot be empty/i);
+    await expect(callTool('update_draft', { id: 'q1', profileUrl: 'https://example.com/in/x' })).rejects.toThrow(/linkedin\.com\/in/i);
+    await expect(callTool('update_draft', { id: 'q1', scheduleAt: 'tomorrow-ish' })).rejects.toThrow(/not a valid date/i);
+  });
+
+  it('deletes something still waiting', async () => {
+    await seed();
+    const res: any = await callTool('delete_draft', { id: 'q1' });
+    expect(res).toMatchObject({ deleted: true, was: 'draft' });
+    expect(await db!.scheduledMessages.get('q1')).toBeUndefined();
+  });
+
+  it('refuses to touch what was already sent', async () => {
+    // Sent rows are the user's history, not a queue item to discard.
+    await seed({ status: 'sent', sentAt: 9 });
+    await expect(callTool('delete_draft', { id: 'q1' })).rejects.toThrow(/already sent/i);
+    await expect(callTool('update_draft', { id: 'q1', body: 'rewrite' })).rejects.toThrow(/only something still waiting/i);
+    expect(await db!.scheduledMessages.get('q1')).toBeTruthy();
+  });
 });
 
 it('throws on an unknown tool', async () => {
