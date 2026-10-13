@@ -83,6 +83,19 @@ html.theme-purple {
 }
 
 /*
+ * Tailwind v4's preflight sets `appearance: button` but says nothing about the
+ * cursor, where v3 used to apply `cursor: pointer`. Without this every button
+ * in the app shows the arrow cursor, so a control with no ring or fill behind
+ * it reads as a plain label — which is exactly how the connector's "Setup"
+ * looked. Disabled controls keep the default, so an unavailable action still
+ * feels unavailable.
+ */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']) {
+  cursor: pointer;
+}
+
+/*
  * Primary buttons — a soft, glassy translucent accent instead of a loud solid
  * fill. One class so the whole app's CTAs stay consistent; keep sizing/layout
  * utilities inline on each button.

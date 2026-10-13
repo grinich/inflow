@@ -110,7 +110,7 @@ export function McpStatusBar() {
           <button
             onClick={() => setShowSetup((v) => !v)}
             aria-expanded={showSetup}
-            className="rounded-md px-2 py-1 text-xs font-medium text-fg-muted transition-colors hover:text-fg-secondary"
+            className="rounded-md px-2 py-1 text-xs font-medium text-fg-muted ring-1 ring-inset ring-transparent transition-colors hover:bg-surface-hover hover:text-fg-strong hover:ring-edge"
           >
             Setup
           </button>

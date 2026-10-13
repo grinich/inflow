@@ -69,3 +69,14 @@ it('reveals the connection log when the status is clicked', () => {
   fireEvent.click(screen.getByRole('button', { name: /Claude connected/i }));
   expect(screen.getByText(/searched your connections/i)).toBeInTheDocument();
 });
+
+it('makes Setup look like the control it is, not a label', () => {
+  render(<McpStatusBar />);
+  const setup = screen.getByRole('button', { name: /^Setup$/ });
+
+  // Its two neighbours carry weight at rest (Connect is filled and ringed,
+  // Disconnect is ringed); Setup carried none, so it read as plain text.
+  // It stays quiet at rest and gains a surface and a border under the pointer.
+  expect(setup.className).toMatch(/hover:bg-surface-hover/);
+  expect(setup.className).toMatch(/hover:ring-edge/);
+});
