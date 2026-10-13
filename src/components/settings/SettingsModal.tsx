@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useUIStore, type SettingsSection, type Theme } from '@/store/ui-store';
+import { useUIStore, type SettingsSection } from '@/store/ui-store';
 import {
   DEFAULT_INBOX_LABELS,
   DEFAULT_INBOX_SECTION_LABEL,
@@ -29,7 +29,6 @@ import { isDemoMode, enableDemoMode, disableDemoMode } from '@/lib/demo-mode';
 import { checkForUpdateAndToast } from '@/lib/check-update';
 import { AIKeySettings } from './AIKeySettings';
 import { BackupSettings } from './BackupSettings';
-import { THEME_OPTIONS } from '@/lib/themes';
 import { Toggle } from '@/components/common/Toggle';
 import { Logo } from '@/components/common/Wordmark';
 
@@ -311,34 +310,29 @@ function ChatSettings() {
 }
 
 function AppearanceSettings() {
-  const theme = useUIStore((s) => s.theme);
-  const setTheme = useUIStore((s) => s.setTheme);
   const inboxLabels = useUIStore((s) => s.inboxLabels);
   const setInboxLabels = useUIStore((s) => s.setInboxLabels);
   const inboxSectionLabel = useUIStore((s) => s.inboxSectionLabel);
   const setInboxSectionLabel = useUIStore((s) => s.setInboxSectionLabel);
 
-  // Everything in this section is a draft until the one Save at the bottom, so
-  // nothing changes by accident and the whole section commits together.
-  const [themeDraft, setThemeDraft] = useState<Theme>(theme);
+  // The names here are a draft until the one Save at the bottom, so nothing is
+  // renamed by accident and they commit together. Theme is not among them: it
+  // moved to the nav rail, where it applies on the spot.
   const [sectionDraft, setSectionDraft] = useState(inboxSectionLabel);
   const [labels, setLabels] = useState(inboxLabels);
   const [justSaved, setJustSaved] = useState(false);
 
-  useEffect(() => setThemeDraft(theme), [theme]);
   useEffect(() => setSectionDraft(inboxSectionLabel), [inboxSectionLabel]);
   useEffect(() => setLabels(inboxLabels), [inboxLabels]);
 
   const nextSection = normalizeSectionLabel(sectionDraft);
   const nextLabels = normalizeInboxLabels(labels);
   const dirty =
-    themeDraft !== theme ||
     nextSection !== inboxSectionLabel ||
     nextLabels.focused !== inboxLabels.focused ||
     nextLabels.other !== inboxLabels.other;
 
   const save = () => {
-    setTheme(themeDraft);
     setInboxSectionLabel(sectionDraft);
     setInboxLabels(labels);
     setJustSaved(true);
@@ -362,27 +356,6 @@ function AppearanceSettings() {
   return (
     <div className="flex min-h-full flex-col">
       <div>
-        <h3 className="text-sm font-semibold text-fg-strong">Theme</h3>
-        <p className="mt-1 text-sm text-fg-secondary">Choose how inflow looks.</p>
-        <div className="mt-3 inline-flex rounded-lg bg-surface p-1 ring-1 ring-ring">
-          {THEME_OPTIONS.map((o) => (
-            <button
-              key={o.value}
-              onClick={() => setThemeDraft(o.value)}
-              aria-pressed={themeDraft === o.value}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                themeDraft === o.value
-                  ? 'bg-blue-500/15 text-blue-700 ring-1 ring-inset ring-blue-500/30 dark:text-blue-200'
-                  : 'text-fg-secondary hover:text-fg-strong'
-              }`}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-8 border-t border-edge pt-6">
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="text-sm font-semibold text-fg-strong">Inbox names</h3>
           {!namesAtDefault && (

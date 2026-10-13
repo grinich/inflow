@@ -146,16 +146,19 @@ it('Chat section: shows "Your instructions" and reveals the default prompt with 
   expect(await screen.findByText(/future app updates won’t change your copy/i)).toBeInTheDocument();
 });
 
-it('switches to Appearance and changes the theme on Save', async () => {
+it('leaves theme to the nav rail, and keeps renaming behind Save', async () => {
+  // Theme used to live here behind the same Save. It moved to the rail, where
+  // it applies on the spot; this section is now only the inbox names.
   await openSettings();
   fireEvent.click(screen.getByRole('button', { name: 'Appearance' }));
 
-  const dark = await screen.findByRole('button', { name: 'Dark' });
-  fireEvent.click(dark);
-  // Draft only — theme is not applied until Save.
-  expect(useUIStore.getState().theme).not.toBe('dark');
-  fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
-  expect(useUIStore.getState().theme).toBe('dark');
+  expect(await screen.findByText(/Inbox names/i)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /^Dark$/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Purple$/ })).toBeNull();
+
+  // Save still gates the renaming it is left with.
+  const save = screen.getByRole('button', { name: /^Save$/ }) as HTMLButtonElement;
+  expect(save.disabled).toBe(true);
 });
 
 it('Drafts section: an on-by-default switch, matching every other setting', async () => {
