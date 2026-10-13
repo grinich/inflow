@@ -103,11 +103,16 @@ it('resurfaces a past-due scheduled message as Ready to send (does not auto-send
   expect((await db!.scheduledMessages.get('s1'))!.status).toBe('scheduled');
 });
 
-it('deletes a draft', async () => {
+it('deletes a draft, once the discard question is answered', async () => {
   await db!.scheduledMessages.add(row({ id: 'd2' }));
   render(<OutboxView />);
   await screen.findByText('Ada Lovelace');
+
+  // Delete asks first by default — it sits beside Send and cannot be undone.
   fireEvent.click(screen.getByRole('button', { name: /^Delete$/i }));
+  expect(await db!.scheduledMessages.get('d2')).toBeTruthy();
+
+  fireEvent.click(await screen.findByRole('button', { name: /^Delete$/i }));
   await waitFor(async () => expect(await db!.scheduledMessages.get('d2')).toBeUndefined());
 });
 

@@ -13,6 +13,8 @@ import {
   setConfirmRecipient as persistConfirmRecipient,
   getAutoSendScheduled,
   setAutoSendScheduled as persistAutoSendScheduled,
+  getConfirmDelete,
+  setConfirmDelete as persistConfirmDelete,
 } from '@/lib/send-settings';
 
 export type SettingsSection = 'ai' | 'chat' | 'sending' | 'appearance' | 'backup' | 'advanced' | 'about';
@@ -90,6 +92,9 @@ interface UIState {
   /** Send scheduled messages at their time with no click. */
   autoSendScheduled: boolean;
   setAutoSendScheduled: (on: boolean) => void;
+  /** Ask before discarding a draft from the Outbox. */
+  confirmDelete: boolean;
+  setConfirmDelete: (on: boolean) => void;
   selectedConnectionUrn: string | null;
   connectionsFilter: ConnectionFilter;
   connectionsSearch: string;
@@ -285,6 +290,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   // Until that resolves these hold the safe defaults: confirm on, auto-send off.
   confirmRecipient: true,
   autoSendScheduled: false,
+  confirmDelete: true,
   selectedConnectionUrn: null,
   connectionsFilter: { roles: [], interests: [] },
   connectionsSearch: '',
@@ -411,6 +417,10 @@ export const useUIStore = create<UIState>((set, get) => ({
     void persistAutoSendScheduled(on);
     set({ autoSendScheduled: on });
   },
+  setConfirmDelete: (on) => {
+    void persistConfirmDelete(on);
+    set({ confirmDelete: on });
+  },
   setSelectedConnectionUrn: (urn) => set({ selectedConnectionUrn: urn }),
   setMcpStatus: (status, error = null) =>
     set({
@@ -511,9 +521,10 @@ export const useUIStore = create<UIState>((set, get) => ({
  * render, so the store keeps a synchronous mirror. Called once at app start.
  */
 export async function hydrateSendSettings(): Promise<void> {
-  const [confirmRecipient, autoSendScheduled] = await Promise.all([
+  const [confirmRecipient, autoSendScheduled, confirmDelete] = await Promise.all([
     getConfirmRecipient(),
     getAutoSendScheduled(),
+    getConfirmDelete(),
   ]);
-  useUIStore.setState({ confirmRecipient, autoSendScheduled });
+  useUIStore.setState({ confirmRecipient, autoSendScheduled, confirmDelete });
 }

@@ -75,7 +75,7 @@ it('shows the profile link and blocks Send until a human confirms', async () => 
 
   expect(sendButton().disabled).toBe(true);
 
-  fireEvent.click(screen.getByRole('button', { name: /This is the right person/i }));
+  fireEvent.click(screen.getByRole('checkbox', { name: /This is the right person/i }));
 
   await waitFor(async () => {
     const stored = await testDb.scheduledMessages.get('d1');
@@ -91,7 +91,7 @@ it('leaves Send enabled once the recipient is already confirmed', async () => {
   render(<OutboxRow msg={msg as any} />);
 
   expect(sendButton().disabled).toBe(false);
-  expect(screen.getByText(/Recipient confirmed/i)).toBeTruthy();
+  expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true);
 });
 
 it('does not gate an InMail the user wrote themselves in the composer', async () => {
@@ -104,7 +104,7 @@ it('does not gate an InMail the user wrote themselves in the composer', async ()
 
   expect(sendButton().disabled).toBe(false);
   expect(screen.queryByText(/No profile link on this draft/i)).toBeNull();
-  expect(screen.queryByRole('button', { name: /This is the right person/i })).toBeNull();
+  expect(screen.queryByRole('checkbox')).toBeNull();
 });
 
 it('does not gate a normal message to a connection', async () => {
@@ -126,5 +126,63 @@ it('does not gate when the user has turned the check off', async () => {
   expect(sendButton().disabled).toBe(false);
   // The link stays, since it is useful even when it is not required.
   expect((screen.getByRole('link') as HTMLAnchorElement).href).toBe(PROFILE);
-  expect(screen.queryByRole('button', { name: /This is the right person/i })).toBeNull();
+  // The link stays useful even when confirming is not required of the user.
+  expect(screen.queryByRole('checkbox')).toBeNull();
+});
+
+it('lets the user take the confirmation back, since it is a claim not a step', () => {
+  // It used to be a one-way button: confirm once and the row said "Recipient
+  // confirmed" forever. Opening the profile and finding the wrong person is
+  // exactly the case the check exists for, so it has to be reversible.
+  const msg = draft({ recipientConfirmedAt: 123 });
+  render(<OutboxRow msg={msg as any} />);
+
+  const box = screen.getByRole('checkbox', { name: /Recipient confirmed/i }) as HTMLInputElement;
+  expect(box.checked).toBe(true);
+});
+
+it('confirms and unconfirms through the same checkbox', async () => {
+  const msg = draft();
+  await testDb.scheduledMessages.put(msg);
+  const { rerender } = render(<OutboxRow msg={msg as any} />);
+
+  fireEvent.click(screen.getByRole('checkbox', { name: /This is the right person/i }));
+  await waitFor(async () => {
+    expect((await testDb.scheduledMessages.get('d1')).recipientConfirmedAt).toBeGreaterThan(0);
+  });
+
+  const confirmed = { ...msg, recipientConfirmedAt: 123 };
+  rerender(<OutboxRow msg={confirmed as any} />);
+  fireEvent.click(screen.getByRole('checkbox', { name: /Recipient confirmed/i }));
+
+  await waitFor(async () => {
+    expect((await testDb.scheduledMessages.get('d1')).recipientConfirmedAt).toBeUndefined();
+  });
+});
+
+it('asks before discarding a draft, and keeps it if the user backs out', async () => {
+  const msg = draft();
+  await testDb.scheduledMessages.put(msg);
+  render(<OutboxRow msg={msg as any} />);
+
+  fireEvent.click(screen.getByRole('button', { name: /^Delete$/ }));
+  expect(screen.getByText(/Discard this draft\?/i)).toBeTruthy();
+  // Still there while the question is on screen.
+  expect(await testDb.scheduledMessages.get('d1')).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', { name: /^Keep$/ }));
+  expect(screen.queryByText(/Discard this draft\?/i)).toBeNull();
+  expect(await testDb.scheduledMessages.get('d1')).toBeTruthy();
+});
+
+it('deletes on the first click when the user turned the question off', async () => {
+  useUIStore.setState({ confirmDelete: false });
+  const msg = draft();
+  await testDb.scheduledMessages.put(msg);
+  render(<OutboxRow msg={msg as any} />);
+
+  fireEvent.click(screen.getByRole('button', { name: /^Delete$/ }));
+  await waitFor(async () => {
+    expect(await testDb.scheduledMessages.get('d1')).toBeUndefined();
+  });
 });

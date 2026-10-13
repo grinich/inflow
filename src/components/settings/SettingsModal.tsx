@@ -44,6 +44,8 @@ function SendingSettings() {
   const setConfirmRecipient = useUIStore((s) => s.setConfirmRecipient);
   const autoSendScheduled = useUIStore((s) => s.autoSendScheduled);
   const setAutoSendScheduled = useUIStore((s) => s.setAutoSendScheduled);
+  const confirmDelete = useUIStore((s) => s.confirmDelete);
+  const setConfirmDelete = useUIStore((s) => s.setConfirmDelete);
 
   return (
     <div className="space-y-4">
@@ -63,6 +65,21 @@ function SendingSettings() {
           label="Confirm the person before sending Claude's InMail drafts"
           checked={confirmRecipient}
           onChange={setConfirmRecipient}
+        />
+      </div>
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-fg-strong">Ask before discarding a draft</p>
+          <p className="text-xs text-fg-muted">
+            Delete sits next to Send in the Outbox, and a discarded draft cannot be brought
+            back. Turn this off if you would rather it go on the first click.
+          </p>
+        </div>
+        <Toggle
+          label="Ask before discarding a draft"
+          checked={confirmDelete}
+          onChange={setConfirmDelete}
         />
       </div>
 

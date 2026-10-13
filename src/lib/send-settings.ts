@@ -2,6 +2,7 @@ import { readLocal } from './storage';
 
 const CONFIRM_RECIPIENT_KEY = 'confirmRecipient';
 const AUTO_SEND_KEY = 'autoSendScheduled';
+const CONFIRM_DELETE_KEY = 'confirmDeleteDraft';
 
 /**
  * Settings that govern outbound messages. They live in chrome.storage rather
@@ -42,5 +43,21 @@ export async function setAutoSendScheduled(on: boolean): Promise<void> {
     await chrome.storage.local.set({ [AUTO_SEND_KEY]: on });
   } catch {
     // As above — failing closed leaves auto-send off, which is the safe side.
+  }
+}
+
+/**
+ * Ask before discarding a draft from the Outbox. Defaults ON: a draft is
+ * unsent work with no undo, and Delete sits next to Send.
+ */
+export async function getConfirmDelete(): Promise<boolean> {
+  return (await readLocal<boolean>(CONFIRM_DELETE_KEY)) !== false;
+}
+
+export async function setConfirmDelete(on: boolean): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [CONFIRM_DELETE_KEY]: on });
+  } catch {
+    // Storage unavailable: the default stands, which is to ask.
   }
 }

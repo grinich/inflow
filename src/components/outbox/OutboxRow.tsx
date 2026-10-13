@@ -76,6 +76,8 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   const showToast = useUIStore((s) => s.showToast);
   const [busy, setBusy] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const confirmDelete = useUIStore((s) => s.confirmDelete);
   const [when, setWhen] = useState('');
   const pending = msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'failed';
   const confirmRecipient = useUIStore((s) => s.confirmRecipient);
@@ -169,8 +171,12 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
       <p className="whitespace-pre-wrap text-sm text-fg-secondary">{msg.body}</p>
       {msg.status === 'failed' && msg.error && <p className="mt-1 text-[11px] text-red-500 dark:text-red-400">{msg.error}</p>}
 
+      {/* Checking the recipient is about the draft, not part of it: separated
+          by a rule and set in the muted metadata scale so it cannot be read as
+          another line of the message that would go out. */}
       {pending && claudeInMail && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-edge pt-2 text-[11px]">
+          <span className="text-fg-faint">Sending to</span>
           {msg.profileUrl ? (
             <a
               href={msg.profileUrl}
@@ -181,19 +187,34 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
               {msg.profileUrl.replace(/^https:\/\/(www\.)?linkedin\.com/, '')}
             </a>
           ) : (
-            <span className="text-fg-faint">No profile link on this draft</span>
+            <span className="text-fg-faint">no profile link on this draft</span>
           )}
-          {msg.recipientConfirmedAt ? (
-            <span className="font-medium text-emerald-700 dark:text-emerald-400">Recipient confirmed</span>
-          ) : (
-            confirmRecipient && (
-              <button
-                onClick={() => db?.scheduledMessages.update(msg.id, { recipientConfirmedAt: Date.now(), updatedAt: Date.now() })}
-                className="rounded-md px-2 py-0.5 font-semibold text-amber-700 ring-1 ring-inset ring-amber-500/40 transition-colors hover:bg-amber-500/10 dark:text-amber-300"
+          {confirmRecipient && (
+            // A checkbox, not a one-way button: confirming is a claim the user
+            // might want to take back after opening the profile and finding
+            // the wrong person — which is the whole reason the check exists.
+            <label className="ml-auto flex cursor-pointer items-center gap-1.5 whitespace-nowrap">
+              <input
+                type="checkbox"
+                checked={!!msg.recipientConfirmedAt}
+                onChange={(e) =>
+                  db?.scheduledMessages.update(msg.id, {
+                    recipientConfirmedAt: e.target.checked ? Date.now() : undefined,
+                    updatedAt: Date.now(),
+                  })
+                }
+                className="h-3.5 w-3.5 accent-emerald-600"
+              />
+              <span
+                className={
+                  msg.recipientConfirmedAt
+                    ? 'font-medium text-emerald-700 dark:text-emerald-400'
+                    : 'font-medium text-amber-700 dark:text-amber-300'
+                }
               >
-                This is the right person
-              </button>
-            )
+                {msg.recipientConfirmedAt ? 'Recipient confirmed' : 'This is the right person'}
+              </span>
+            </label>
           )}
         </div>
       )}
@@ -233,9 +254,30 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
               <button onClick={() => void reopenInComposer(msg)} className="rounded-md px-2 py-1 text-xs font-medium text-fg-secondary ring-1 ring-inset ring-edge hover:text-fg-strong">
                 Edit
               </button>
-              <button onClick={remove} className="rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:text-red-500 dark:hover:text-red-400">
-                {msg.status === 'scheduled' ? 'Cancel' : 'Delete'}
-              </button>
+              {confirmingDelete ? (
+                <>
+                  <span className="text-xs text-fg-secondary">Discard this draft?</span>
+                  <button
+                    onClick={remove}
+                    className="rounded-md px-2 py-1 text-xs font-semibold text-red-600 ring-1 ring-inset ring-red-500/40 transition-colors hover:bg-red-500/10 dark:text-red-400"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => setConfirmingDelete(false)}
+                    className="rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:text-fg-secondary"
+                  >
+                    Keep
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => (confirmDelete ? setConfirmingDelete(true) : void remove())}
+                  className="rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:text-red-500 dark:hover:text-red-400"
+                >
+                  {msg.status === 'scheduled' ? 'Cancel' : 'Delete'}
+                </button>
+              )}
             </>
           )}
         </div>
