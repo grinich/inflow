@@ -91,7 +91,11 @@ export async function seedDemoData(): Promise<void> {
     // (e.g. a portrait filename changed). Comparing against the full set works
     // even though conversations are shuffled at seed time.
     const validPics = new Set(DEMO_PEOPLE.map((p) => p.picture));
-    if (validPics.has(pic)) return;
+    // A demo database seeded before this seeder grew has conversations and
+    // valid portraits, but no connections — so freshness cannot be judged on
+    // conversations alone, or the sections added later stay empty forever.
+    const seededEverything = (await database.connections.count()) > 0;
+    if (validPics.has(pic) && seededEverything) return;
     // Clear stale data before re-seeding
     await database.conversations.clear();
     await database.messages.clear();

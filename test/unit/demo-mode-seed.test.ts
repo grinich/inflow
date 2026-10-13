@@ -66,3 +66,17 @@ it('re-seeds cleanly rather than doubling up', async () => {
   await seedDemoData();
   expect(await db!.connections.count()).toBe(DEMO_PEOPLE.length);
 });
+
+it('fills in the new sections for a demo database seeded before they existed', async () => {
+  // The freshness check used to look only at conversations, so a demo database
+  // from an older build had valid portraits, returned early, and never got
+  // connections or an Outbox — which is exactly what reloading the extension
+  // looked like: nothing new appeared.
+  await db!.connections.clear();
+  await db!.scheduledMessages.clear();
+
+  await seedDemoData();
+
+  expect(await db!.connections.count()).toBe(DEMO_PEOPLE.length);
+  expect(await db!.scheduledMessages.count()).toBeGreaterThanOrEqual(3);
+});
