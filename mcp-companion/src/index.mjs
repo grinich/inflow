@@ -63,6 +63,22 @@ const COMPANION_COMMIT = BUILD_INFO.commit || undefined;
 // What inflow compares to decide whether this companion is stale: the commit
 // of the companion's own code, not of the repo it was packed from.
 const COMPANION_CODE_COMMIT = BUILD_INFO.codeCommit || undefined;
+/**
+ * Read a value the .mcpb install dialog collects, treating an unexpanded
+ * placeholder as unset.
+ *
+ * A user_config field the user leaves blank can arrive as the literal
+ * "${user_config.whatever}" rather than an empty string. Every truthiness
+ * check then reads that as a real value: the companion advertised a Gemini key
+ * it did not have, inflow believed it and routed Gemini server-side, and each
+ * call reached Google with "${user_config.gemini_api_key}" as the API key.
+ * The only visible symptom was the request failing.
+ */
+function fromUserConfig(name) {
+  const raw = process.env[name]?.trim() || '';
+  return /^\$\{[^}]*\}$/.test(raw) ? '' : raw;
+}
+
 /** True once we own the bridge (the WS server is listening). */
 let ownsBridge = false;
 
@@ -74,13 +90,13 @@ let ownsBridge = false;
 // the extension.
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY?.trim() || '';
+const ANTHROPIC_API_KEY = fromUserConfig('ANTHROPIC_API_KEY');
 
 // --- Gemini proxy (optional) ----------------------------------------------
 // Same idea as the Anthropic proxy: run Gemini server-side so the key stays OUT
 // of the browser. Optional — set GEMINI_API_KEY to enable. The extension picks
 // the model per request; we build the endpoint from it.
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim() || '';
+const GEMINI_API_KEY = fromUserConfig('GEMINI_API_KEY');
 const geminiUrl = (model) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
@@ -107,7 +123,7 @@ function ensurePairingCode() {
 
 // Prefer the code Claude injects from the .mcpb install prompt (which the user
 // copied from inflow); fall back to a locally-persisted code for `npx` runs.
-const PAIRING_CODE = process.env.INFLOW_PAIRING_CODE?.trim() || ensurePairingCode();
+const PAIRING_CODE = fromUserConfig('INFLOW_PAIRING_CODE') || ensurePairingCode();
 
 function printSetup() {
   const cfg = {
