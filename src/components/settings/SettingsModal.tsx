@@ -88,10 +88,12 @@ function SendingSettings() {
         <div className="min-w-0">
           <p className="text-sm font-medium text-fg-strong">Send scheduled messages automatically</p>
           <p className="text-xs text-fg-muted">
-            Off by default. With this on, a message you scheduled is sent at its time with no
-            click, even if inflow is closed. A draft still waiting on the confirmation above is
-            held back rather than sent. Everything else in inflow waits for you, so turn this on
-            only if you want it sending on your LinkedIn account while you are not watching.
+            On by default, since a send time you still have to click is not really a send
+            time. The inflow tab does not need to be open, but Chrome does: inflow lives in the
+            browser, so nothing goes out while Chrome is quit, and anything whose time passed
+            meanwhile is sent once Chrome is running again. A draft still waiting on the
+            confirmation above is held back rather than sent. Turn this off to have scheduled
+            messages wait as "Ready to send" instead.
           </p>
         </div>
         <Toggle

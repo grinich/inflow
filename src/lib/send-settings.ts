@@ -29,20 +29,23 @@ export async function setConfirmRecipient(on: boolean): Promise<void> {
 }
 
 /**
- * Send scheduled messages at their time with no click. Defaults OFF, and
- * deliberately so: everything else here is human-in-the-loop, and unattended
- * sending is the one behaviour that can act on the user's LinkedIn account
- * while they are not watching.
+ * Send scheduled messages at their time with no click. Defaults ON: picking a
+ * send time and then still having to click at that time defeats the point of
+ * scheduling. Turning it off keeps a scheduled message surfaced as "Ready to
+ * send" instead.
+ *
+ * Narrower than it sounds — it only ever sends what the user explicitly
+ * scheduled, and never a draft still awaiting a recipient confirmation.
  */
 export async function getAutoSendScheduled(): Promise<boolean> {
-  return (await readLocal<boolean>(AUTO_SEND_KEY)) === true;
+  return (await readLocal<boolean>(AUTO_SEND_KEY)) !== false;
 }
 
 export async function setAutoSendScheduled(on: boolean): Promise<void> {
   try {
     await chrome.storage.local.set({ [AUTO_SEND_KEY]: on });
   } catch {
-    // As above — failing closed leaves auto-send off, which is the safe side.
+    // Storage unavailable: the default stands.
   }
 }
 

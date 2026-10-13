@@ -134,3 +134,15 @@ it('marks a failure failed, so it cannot retry unattended in a loop', async () =
   await runAutoSendTick(NOW);
   expect(createConversation).toHaveBeenCalledOnce();
 });
+
+it('sends a message whose time passed while Chrome was quit', async () => {
+  // No alarm fires while the browser is closed, so the first tick after it
+  // starts again finds an overdue message. It goes out then, late, rather
+  // than being skipped — the user asked for it to send.
+  await db!.scheduledMessages.add(queued({ id: 'overdue', scheduledAt: NOW - 6 * 3600_000 }) as any);
+
+  await runAutoSendTick(NOW);
+
+  expect(createConversation).toHaveBeenCalledOnce();
+  expect((await db!.scheduledMessages.get('overdue'))!.status).toBe('sent');
+});

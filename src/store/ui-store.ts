@@ -286,10 +286,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   sectionHistory: [],
   sectionForward: [],
   navRailCollapsed: getStoredNavCollapsed(),
-  // Both mirror chrome.storage, hydrated on startup (see hydrateSendSettings).
-  // Until that resolves these hold the safe defaults: confirm on, auto-send off.
+  // These mirror chrome.storage, hydrated on startup (see hydrateSendSettings).
+  // Until that resolves they hold the defaults, which match the real ones.
   confirmRecipient: true,
-  autoSendScheduled: false,
+  autoSendScheduled: true,
   confirmDelete: true,
   selectedConnectionUrn: null,
   connectionsFilter: { roles: [], interests: [] },

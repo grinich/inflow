@@ -8,8 +8,12 @@ const ALARM_NAME = 'auto-send-scheduled';
 const CHECK_INTERVAL_MINUTES = 1;
 
 /**
- * Sends scheduled messages at their time with no click, when the user has
- * turned auto-send on. Off by default.
+ * Sends scheduled messages at their time with no click. On by default: a send
+ * time the user still has to click is not really a send time.
+ *
+ * Runs in the service worker, so the inflow tab need not be open — but Chrome
+ * must be running. While Chrome is quit no alarm fires, and a message whose
+ * time passed meanwhile goes out on the first tick after it starts again.
  *
  * This is the only place inflow acts on the LinkedIn account unattended, so it
  * is deliberately narrow:
