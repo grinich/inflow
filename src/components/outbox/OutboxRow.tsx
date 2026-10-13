@@ -4,7 +4,6 @@ import { db } from '@/db/database';
 import { useUIStore } from '@/store/ui-store';
 import { sendBridgeMessage } from '@/lib/bridge';
 import { statusLabel, awaitsRecipientConfirmation } from '@/lib/scheduled-messages';
-import { makeDraftConversationId } from '@/lib/draft-conversation';
 import { GroupAvatar } from '../common/GroupAvatar';
 import type { ScheduledMessage } from '@/types/scheduled-message';
 
@@ -29,46 +28,6 @@ function badgeClass(status: ScheduledMessage['status'], ready: boolean): string 
   }
 }
 
-/**
- * Reopen a queued item in the real composer: recreate its draft conversation,
- * load the body into the thread's compose box, drop the row, and navigate to
- * the thread. Editing always happens in the one composer — never inline here.
- */
-async function reopenInComposer(msg: ScheduledMessage) {
-  if (!db) return;
-  // A scheduled reply belongs to a real thread — reopen that thread's composer
-  // with the body restored, rather than minting a new draft conversation.
-  if (msg.conversationId) {
-    await db.draftAttachments.put({ conversationId: msg.conversationId, text: msg.body, files: [], names: [], types: [] });
-    await db.scheduledMessages.delete(msg.id);
-    const store = useUIStore.getState();
-    store.setActiveSection('inbox');
-    store.setComposeNewActive(false);
-    store.setSelectedConversationId(msg.conversationId);
-    return;
-  }
-  const convId = makeDraftConversationId(msg.recipientUrns);
-  const names = (msg.recipientName || '').split(',').map((s) => s.trim()).filter(Boolean);
-  await db.conversations.put({
-    id: convId,
-    participantUrns: msg.recipientUrns,
-    participantNames: msg.recipientUrns.map((_, i) => names[i] || names[0] || 'Unknown'),
-    participantPictures: msg.recipientUrns.map(() => ''),
-    lastMessage: '',
-    lastActivityAt: Date.now(),
-    read: 1,
-    archived: 0,
-    category: 'PRIMARY_INBOX',
-    draft: 1,
-  });
-  await db.draftAttachments.put({ conversationId: convId, text: msg.body, files: [], names: [], types: [] });
-  await db.scheduledMessages.delete(msg.id);
-  const store = useUIStore.getState();
-  store.setActiveSection('inbox');
-  store.setInboxTab('focused');
-  store.setComposeNewActive(false);
-  store.setSelectedConversationId(convId);
-}
 
 /** One draft / scheduled / sent item, with inline actions. Shared by the MCP
  *  connector section and the Inbox Drafts/Scheduled views. */
@@ -77,6 +36,9 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   const [busy, setBusy] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editBody, setEditBody] = useState('');
+  const [editSubject, setEditSubject] = useState('');
   const confirmDelete = useUIStore((s) => s.confirmDelete);
   const [when, setWhen] = useState('');
   const pending = msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'failed';
@@ -136,6 +98,32 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
     setWhen('');
   };
 
+  const beginEdit = () => {
+    setEditBody(msg.body);
+    setEditSubject(msg.inMailSubject ?? '');
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    const body = editBody.trim();
+    if (!db || !body) return;
+    const subject = editSubject.trim();
+    await db.scheduledMessages.update(msg.id, {
+      body,
+      // Only on something already queued as an InMail; adding a subject here
+      // would turn a free message into one that spends a credit.
+      ...(msg.inMailSubject !== undefined ? { inMailSubject: subject } : {}),
+      // What the user confirmed was a particular message. Changing it means
+      // that approval no longer describes what would send — and auto-send may
+      // act on it with nobody watching.
+      ...(body !== msg.body || subject !== (msg.inMailSubject ?? '')
+        ? { recipientConfirmedAt: undefined }
+        : {}),
+      updatedAt: Date.now(),
+    });
+    setEditing(false);
+  };
+
   const remove = async () => {
     if (db) await db.scheduledMessages.delete(msg.id);
   };
@@ -164,11 +152,39 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
         )}
       </div>
 
-      {/* An InMail's subject is part of what gets sent, so show it with the body. */}
-      {!!msg.inMailSubject && (
-        <p className="truncate text-sm font-semibold text-fg-strong">{msg.inMailSubject}</p>
+      {/* Editing happens here rather than in the composer: reopening there
+          moved the draft into Primary as a fake conversation, dropped its
+          Outbox row, and lost the InMail subject, which draftAttachments has
+          nowhere to store. */}
+      {editing ? (
+        <div className="space-y-1.5">
+          {msg.inMailSubject !== undefined && (
+            <input
+              value={editSubject}
+              onChange={(e) => setEditSubject(e.target.value)}
+              placeholder="InMail subject"
+              aria-label="InMail subject"
+              maxLength={200}
+              className="w-full rounded-md bg-surface-input px-2 py-1 text-sm font-semibold text-fg-strong ring-1 ring-inset ring-edge outline-none focus:ring-blue-500/40"
+            />
+          )}
+          <textarea
+            value={editBody}
+            onChange={(e) => setEditBody(e.target.value)}
+            aria-label="Message body"
+            rows={Math.min(16, editBody.split('\n').length + 1)}
+            className="w-full resize-y rounded-md bg-surface-input px-2 py-1.5 text-sm text-fg-secondary ring-1 ring-inset ring-edge outline-none focus:ring-blue-500/40"
+          />
+        </div>
+      ) : (
+        <>
+          {/* An InMail's subject is part of what gets sent, so show it with the body. */}
+          {!!msg.inMailSubject && (
+            <p className="truncate text-sm font-semibold text-fg-strong">{msg.inMailSubject}</p>
+          )}
+          <p className="whitespace-pre-wrap text-sm text-fg-secondary">{msg.body}</p>
+        </>
       )}
-      <p className="whitespace-pre-wrap text-sm text-fg-secondary">{msg.body}</p>
       {msg.status === 'failed' && msg.error && <p className="mt-1 text-[11px] text-red-500 dark:text-red-400">{msg.error}</p>}
 
       {/* Checking the recipient is about the draft, not part of it: separated
@@ -221,7 +237,20 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
 
       {pending && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          {rescheduling ? (
+          {editing ? (
+            <>
+              <button
+                onClick={saveEdit}
+                disabled={!editBody.trim()}
+                className="rounded-md bg-blue-500/15 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-500/30 transition-colors hover:bg-blue-500/25 disabled:opacity-40 dark:text-blue-300"
+              >
+                Save
+              </button>
+              <button onClick={() => setEditing(false)} className="rounded-md px-2 py-1 text-xs font-medium text-fg-muted hover:text-fg-secondary">
+                Cancel
+              </button>
+            </>
+          ) : rescheduling ? (
             <>
               <input
                 type="datetime-local"
@@ -246,12 +275,19 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
               >
                 {busy ? 'Sending…' : msg.status === 'failed' ? 'Retry send' : 'Send now'}
               </button>
-              {msg.status === 'scheduled' && (
-                <button onClick={() => setRescheduling(true)} className="rounded-md px-2 py-1 text-xs font-medium text-fg-secondary ring-1 ring-inset ring-edge hover:text-fg-strong">
-                  Reschedule
-                </button>
-              )}
-              <button onClick={() => void reopenInComposer(msg)} className="rounded-md px-2 py-1 text-xs font-medium text-fg-secondary ring-1 ring-inset ring-edge hover:text-fg-strong">
+              {/* Also offered on a plain draft: a draft with no time is the
+                  most likely thing to want one, and the picker already exists. */}
+              <button
+                onClick={() => setRescheduling(true)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-fg-secondary ring-1 ring-inset ring-edge hover:text-fg-strong"
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+                {msg.status === 'scheduled' ? 'Reschedule' : 'Schedule'}
+              </button>
+              <button onClick={beginEdit} className="rounded-md px-2 py-1 text-xs font-medium text-fg-secondary ring-1 ring-inset ring-edge hover:text-fg-strong">
                 Edit
               </button>
               {confirmingDelete ? (

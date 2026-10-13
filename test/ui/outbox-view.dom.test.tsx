@@ -79,7 +79,9 @@ it('sends a scheduled reply into its thread via SEND_MESSAGE (not CREATE_CONVERS
   await waitFor(async () => expect((await db!.scheduledMessages.get('r1'))!.status).toBe('sent'));
 });
 
-it('Edit on a scheduled reply reopens its real thread, not a draft conversation', async () => {
+it('Edit on a scheduled reply stays in the Outbox and leaves the thread alone', async () => {
+  // This used to navigate to the real thread and stash the body in that
+  // conversation's draft, which silently emptied the queue row.
   await db!.scheduledMessages.add(
     row({ id: 'r2', conversationId: 'urn:li:msg_conversation:T2', body: 'Reopen reply' }),
   );
@@ -87,11 +89,11 @@ it('Edit on a scheduled reply reopens its real thread, not a draft conversation'
   await screen.findByText('Ada Lovelace');
 
   fireEvent.click(screen.getByRole('button', { name: /^Edit$/i }));
-  await waitFor(async () => expect(await db!.scheduledMessages.get('r2')).toBeUndefined());
-  const s = useUIStore.getState();
-  expect(s.activeSection).toBe('inbox');
-  expect(s.selectedConversationId).toBe('urn:li:msg_conversation:T2');
-  expect((await db!.draftAttachments.get('urn:li:msg_conversation:T2'))?.text).toBe('Reopen reply');
+
+  expect(await db!.scheduledMessages.get('r2')).toBeTruthy();
+  expect(useUIStore.getState().selectedConversationId).not.toBe('urn:li:msg_conversation:T2');
+  expect(await db!.draftAttachments.get('urn:li:msg_conversation:T2')).toBeUndefined();
+  expect(screen.getByLabelText(/Message body/i)).toBeTruthy();
 });
 
 it('resurfaces a past-due scheduled message as Ready to send (does not auto-send)', async () => {
@@ -116,17 +118,20 @@ it('deletes a draft, once the discard question is answered', async () => {
   await waitFor(async () => expect(await db!.scheduledMessages.get('d2')).toBeUndefined());
 });
 
-it('Edit reopens a draft in the composer and removes the Outbox row', async () => {
+it('Edit keeps the draft in the Outbox instead of minting an inbox conversation', async () => {
+  // It used to create a draft: 1 conversation in PRIMARY_INBOX and drop the
+  // queue row, so the draft appeared to vanish and landed among real threads.
   await db!.scheduledMessages.add(row({ id: 'd3', body: 'Reopen me', recipientUrns: ['urn:li:fsd_profile:Z'], recipientName: 'Zack Allen' }));
   render(<OutboxView />);
   await screen.findByText('Zack Allen');
 
   fireEvent.click(screen.getByRole('button', { name: /^Edit$/i }));
 
-  await waitFor(async () => expect(await db!.scheduledMessages.get('d3')).toBeUndefined());
-  const s = useUIStore.getState();
-  expect(s.activeSection).toBe('inbox');
-  expect(s.selectedConversationId).toBe('draft-Z');
-  const draft = await db!.draftAttachments.get('draft-Z');
-  expect(draft?.text).toBe('Reopen me');
+  expect(await db!.scheduledMessages.get('d3')).toBeTruthy();
+  expect(await db!.conversations.get('draft-Z')).toBeUndefined();
+  expect(await db!.draftAttachments.get('draft-Z')).toBeUndefined();
+
+  // The body is editable where it sits.
+  const field = screen.getByLabelText(/Message body/i) as HTMLTextAreaElement;
+  expect(field.value).toBe('Reopen me');
 });
