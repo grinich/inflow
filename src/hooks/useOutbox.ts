@@ -55,11 +55,25 @@ export function useOutbox(): OutboxGroups {
     else scheduled.push(r); // scheduled (future) or sending
   }
 
-  ready.sort((a, b) => (a.scheduledAt ?? 0) - (b.scheduledAt ?? 0));
-  scheduled.sort((a, b) => (a.scheduledAt ?? 0) - (b.scheduledAt ?? 0));
-  drafts.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  failed.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  sent.sort((a, b) => (b.sentAt ?? b.updatedAt ?? 0) - (a.sentAt ?? a.updatedAt ?? 0));
+  // Every comparison needs a tie-break, or equal keys leave the order to
+  // db.scheduledMessages.toArray() — which is primary-key order over random
+  // UUIDs. Queueing a batch for one time (a morning's outreach, all at 08:00)
+  // made every row compare equal, so they appeared in no order at all and
+  // reshuffled whenever anything changed. Oldest first within a tie, then id,
+  // so the sequence is total and stable across renders.
+  const tie = (a: ScheduledMessage, b: ScheduledMessage) =>
+    (a.createdAt ?? 0) - (b.createdAt ?? 0) || a.id.localeCompare(b.id);
+  const by = (key: (m: ScheduledMessage) => number, desc = false) =>
+    (a: ScheduledMessage, b: ScheduledMessage) => {
+      const d = desc ? key(b) - key(a) : key(a) - key(b);
+      return d || tie(a, b);
+    };
+
+  ready.sort(by((m) => m.scheduledAt ?? 0));
+  scheduled.sort(by((m) => m.scheduledAt ?? 0));
+  drafts.sort(by((m) => m.updatedAt ?? 0, true));
+  failed.sort(by((m) => m.updatedAt ?? 0, true));
+  sent.sort(by((m) => m.sentAt ?? m.updatedAt ?? 0, true));
 
   return { ready, scheduled, drafts, failed, sent, attention: ready.length + failed.length };
 }

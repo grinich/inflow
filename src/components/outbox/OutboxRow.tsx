@@ -37,9 +37,13 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   const [rescheduling, setRescheduling] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [showFull, setShowFull] = useState(false);
   const [editBody, setEditBody] = useState('');
   const [editSubject, setEditSubject] = useState('');
   const confirmDelete = useUIStore((s) => s.confirmDelete);
+  // Cheap heuristic rather than measuring: the toggle only has to appear when
+  // the clamp plausibly bites, and a wrong guess costs a redundant link.
+  const longBody = msg.body.split('\n').length > 9 || msg.body.length > 420;
   const autoSendScheduled = useUIStore((s) => s.autoSendScheduled);
   const [when, setWhen] = useState('');
   const pending = msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'failed';
@@ -130,7 +134,9 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   };
 
   return (
-    <div className={`rounded-lg border px-3 py-2.5 ${ready ? 'border-amber-500/30 bg-amber-500/5' : 'border-edge'}`}>
+    // h-full + flex so every card in a row is the same height and their
+    // buttons line up, instead of each ending wherever its text happened to.
+    <div className={`flex h-full flex-col rounded-lg border px-3 py-2.5 ${ready ? 'border-amber-500/30 bg-amber-500/5' : 'border-edge'}`}>
       <div className="mb-1 flex items-center gap-2">
         <GroupAvatar names={[msg.recipientName || 'Unknown']} pictures={['']} size={24} />
         <span className="truncate text-sm font-semibold text-fg-strong">{msg.recipientName || 'Unknown'}</span>
@@ -183,7 +189,23 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
           {!!msg.inMailSubject && (
             <p className="truncate text-sm font-semibold text-fg-strong">{msg.inMailSubject}</p>
           )}
-          <p className="whitespace-pre-wrap text-sm text-fg-secondary">{msg.body}</p>
+          {/* Clamped by default: these sit in a grid, where one long message
+              stretches its whole row and leaves the shorter cards trailing
+              white space. The full text is a click away, and always present
+              under Edit. */}
+          <p
+            className={`whitespace-pre-wrap text-sm text-fg-secondary ${showFull ? '' : 'line-clamp-[9]'}`}
+          >
+            {msg.body}
+          </p>
+          {longBody && (
+            <button
+              onClick={() => setShowFull((v) => !v)}
+              className="mt-0.5 text-[11px] font-medium text-fg-muted transition-colors hover:text-fg-secondary"
+            >
+              {showFull ? 'Show less' : 'Show more'}
+            </button>
+          )}
         </>
       )}
       {msg.status === 'failed' && msg.error && <p className="mt-1 text-[11px] text-red-500 dark:text-red-400">{msg.error}</p>}
@@ -245,7 +267,7 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
       )}
 
       {pending && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
           {editing ? (
             <>
               <button

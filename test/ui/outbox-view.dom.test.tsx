@@ -158,3 +158,28 @@ it('says nothing of the sort about a message that is only a little late', async 
   await screen.findByText('Ada Lovelace');
   expect(screen.queryByText(/Too far past its time/i)).toBeNull();
 });
+
+it('clamps a long message so one card cannot stretch its whole row', async () => {
+  // The grid aligns each row to its tallest card, so an unclamped long
+  // message left the shorter cards beside it trailing white space.
+  const long = Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n');
+  await db!.scheduledMessages.add(row({ id: 'long1', body: long }));
+  render(<OutboxView />);
+
+  const body = await screen.findByText(/line 0/);
+  expect(body.className).toMatch(/line-clamp/);
+
+  // The whole message stays reachable.
+  fireEvent.click(screen.getByRole('button', { name: /Show more/i }));
+  expect(screen.getByText(/line 0/).className).not.toMatch(/line-clamp/);
+  fireEvent.click(screen.getByRole('button', { name: /Show less/i }));
+  expect(screen.getByText(/line 0/).className).toMatch(/line-clamp/);
+});
+
+it('offers no toggle on a message that already fits', async () => {
+  await db!.scheduledMessages.add(row({ id: 'short1', body: 'Two lines\nonly' }));
+  render(<OutboxView />);
+
+  await screen.findByText(/Two lines/);
+  expect(screen.queryByRole('button', { name: /Show more/i })).toBeNull();
+});

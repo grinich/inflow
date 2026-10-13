@@ -15,7 +15,9 @@ function Section({ title, count, hint, children }: { title: string; count?: numb
       </div>
       {/* Cards flow left→right and wrap, filling the width instead of stacking
           in a single centered column. */}
-      <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      {/* Stretch, not items-start: with top-aligned cards every row was as tall
+          as its longest message and the shorter cards trailed white space. */}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {children}
       </div>
     </section>
