@@ -9,7 +9,8 @@
 // can never get stuck in demo mode (just remove the query param).
 // ---------------------------------------------------------------------------
 
-import { DEMO_PEOPLE, DEMO_MESSAGES_INBOUND, DEMO_MESSAGES_OUTBOUND, DEMO_OPENERS } from './demo-data';
+import { DEMO_PEOPLE, DEMO_PROFILES, DEMO_MESSAGES_INBOUND, DEMO_MESSAGES_OUTBOUND, DEMO_OPENERS } from './demo-data';
+import type { Connection } from '@/types/connection';
 import { buildNotificationIcon } from './notification-icon';
 import type { BridgeMessage, BridgeResponse } from '@/types/bridge';
 import type { Conversation } from '@/types/conversation';
@@ -95,6 +96,8 @@ export async function seedDemoData(): Promise<void> {
     await database.conversations.clear();
     await database.messages.clear();
     await database.profiles.clear();
+    await database.connections.clear();
+    await database.scheduledMessages.clear();
   }
 
   const now = Date.now();
@@ -174,6 +177,76 @@ export async function seedDemoData(): Promise<void> {
   await database.conversations.bulkPut(conversations);
   await database.messages.bulkPut(messages);
   await database.profiles.bulkPut(profiles);
+
+  // Connections, already categorised. Real inflow fills roleCategory and
+  // interestTags from an AI pass; demo mode ships them so Connections and
+  // Insights have something to show without a key or a sync.
+  const connections: Connection[] = DEMO_PEOPLE.map((person, i) => {
+    const profile = DEMO_PROFILES[i];
+    const fullName = `${person.firstName} ${person.lastName}`;
+    return {
+      profileUrn: `urn:li:fsd_profile:demo-conn-${i}`,
+      connectionUrn: `urn:li:fsd_connection:demo-${i}`,
+      // Spread over the last two years, newest first, so "recently connected"
+      // and the stale-connection view both have something to sort.
+      connectedAt: now - (i * 24 + 6) * 60 * 60 * 1000,
+      publicId: fullName.toLowerCase().replace(/[^a-z]+/g, '-'),
+      firstName: person.firstName,
+      lastName: person.lastName,
+      fullName,
+      headline: profile.headline,
+      pictureUrl: person.picture,
+      syncedAt: now,
+      roleCategory: profile.role,
+      interestTags: profile.tags,
+      categorizedAt: now,
+      aiSummary: profile.summary,
+      summarizedAt: now,
+    };
+  });
+  await database.connections.bulkPut(connections);
+
+  // A small Outbox: one plain draft, one scheduled, and one InMail still
+  // waiting on its recipient check — the three states the queue can be in.
+  const inMailTarget = connections[7];
+  await database.scheduledMessages.bulkPut([
+    {
+      id: 'demo-draft-1',
+      recipientUrns: [connections[1].profileUrn],
+      recipientName: connections[1].fullName,
+      body: `${connections[1].firstName} — following up on the infrastructure thread. Would a short call next week suit?`,
+      status: 'draft',
+      createdAt: now - 3 * 60 * 60 * 1000,
+      updatedAt: now - 3 * 60 * 60 * 1000,
+      profileUrl: `https://www.linkedin.com/in/${connections[1].publicId}/`,
+    },
+    {
+      id: 'demo-sched-1',
+      recipientUrns: [connections[9].profileUrn],
+      recipientName: connections[9].fullName,
+      body: `${connections[9].firstName} — sending the summary I promised. Happy to walk through it whenever useful.`,
+      status: 'scheduled',
+      scheduledAt: now + 18 * 60 * 60 * 1000,
+      createdAt: now - 26 * 60 * 60 * 1000,
+      updatedAt: now - 26 * 60 * 60 * 1000,
+      profileUrl: `https://www.linkedin.com/in/${connections[9].publicId}/`,
+    },
+    {
+      id: 'demo-inmail-1',
+      recipientUrns: [inMailTarget.profileUrn],
+      recipientName: inMailTarget.fullName,
+      body: `${inMailTarget.firstName} — I came across Ascent and wanted to reach out about how your billing team handles encounter volume.`,
+      status: 'draft',
+      createdAt: now - 40 * 60 * 1000,
+      updatedAt: now - 40 * 60 * 1000,
+      // Subject marks it as an InMail; source marks it as Claude's, which is
+      // what arms the recipient check. Left unconfirmed on purpose, so the
+      // demo shows Send disabled until a human says it is the right person.
+      inMailSubject: 'Built for billing teams',
+      source: 'mcp',
+      profileUrl: `https://www.linkedin.com/in/${inMailTarget.publicId}/`,
+    },
+  ]);
 }
 
 // ── Bridge message handler ─────────────────────────────────────────────────

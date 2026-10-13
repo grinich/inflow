@@ -1,3 +1,4 @@
+import type { ConnectionRole } from '@/types/connection';
 // ---------------------------------------------------------------------------
 // Demo mode — hardcoded realistic content
 // ---------------------------------------------------------------------------
@@ -66,6 +67,59 @@ export const DEMO_MESSAGES_INBOUND = [
   'Thought of you when I saw this opportunity. Might be a great fit for what you\'re working on.',
   'Really enjoyed your newsletter this week. The section on AI tooling was particularly insightful.',
 ];
+
+/**
+ * Who each demo person is, index-aligned with DEMO_PEOPLE above.
+ *
+ * Real inflow derives these from an AI pass over the connection list. Demo
+ * mode ships them so the Connections and Insights sections have something to
+ * show without a key, a sync, or anyone's real network on screen.
+ *
+ * The role mix is deliberately lopsided — Engineering dominates, Design and
+ * Marketing are thin — because an evenly split pie chart tells you nothing
+ * about what a real network looks like.
+ */
+export interface DemoProfile {
+  headline: string;
+  company: string;
+  role: ConnectionRole;
+  tags: string[];
+  summary: string;
+}
+
+export const DEMO_PROFILES: DemoProfile[] = [
+  { headline: 'Staff Engineer at Northwind', company: 'Northwind', role: 'Engineering', tags: [], summary: 'Works on payments infrastructure; we talked about idempotency keys.' },
+  { headline: 'Partner at Fernbank Capital', company: 'Fernbank Capital', role: 'Investor', tags: ['Investor'], summary: 'Early-stage infrastructure investor. Asked to be kept posted on traction.' },
+  { headline: 'Head of Product at Lumen', company: 'Lumen', role: 'Product', tags: [], summary: 'Running Lumen’s onboarding rewrite.' },
+  { headline: 'Co-founder & CEO at Tidepool Labs', company: 'Tidepool Labs', role: 'Founder', tags: ['Founder'], summary: 'Second-time founder. Building developer tooling.' },
+  { headline: 'Director of Engineering at Castellan', company: 'Castellan', role: 'Engineering', tags: [], summary: 'Manages three platform teams.' },
+  { headline: 'Technical Recruiter at Castellan', company: 'Castellan', role: 'Recruiting', tags: [], summary: 'Reached out about a staff role last spring.' },
+  { headline: 'VP Operations at Meridian Health', company: 'Meridian Health', role: 'Operations', tags: ['Healthcare'], summary: 'Owns revenue operations for a multi-site clinic group.' },
+  { headline: 'Founder at Ascent Billing', company: 'Ascent Billing', role: 'Founder', tags: ['Founder', 'Healthcare'], summary: 'Runs a medical billing group in Ohio.' },
+  { headline: 'Senior Designer at Lumen', company: 'Lumen', role: 'Design', tags: [], summary: 'Design systems. Shared a talk on density.' },
+  { headline: 'CFO at Meridian Health', company: 'Meridian Health', role: 'Executive', tags: ['CFO', 'Healthcare'], summary: 'Evaluating revenue cycle tooling this fiscal year.' },
+  { headline: 'Software Engineer at Northwind', company: 'Northwind', role: 'Engineering', tags: [], summary: 'Backend, mostly Go.' },
+  { headline: 'Head of Sales at Tidepool Labs', company: 'Tidepool Labs', role: 'Sales & BD', tags: [], summary: 'Built Tidepool’s first sales motion.' },
+  { headline: 'Engineering Manager at Castellan', company: 'Castellan', role: 'Engineering', tags: [], summary: 'Was a staff engineer before moving to management.' },
+  { headline: 'Principal at Fernbank Capital', company: 'Fernbank Capital', role: 'Investor', tags: ['Investor'], summary: 'Covers healthcare IT for Fernbank.' },
+  { headline: 'Staff Engineer at Lumen', company: 'Lumen', role: 'Engineering', tags: [], summary: 'Works on the editor team.' },
+  { headline: 'Chief of Staff at Meridian Health', company: 'Meridian Health', role: 'Executive', tags: ['Healthcare'], summary: 'Coordinates the clinical ops leadership team.' },
+  { headline: 'Founder at Harbor Analytics', company: 'Harbor Analytics', role: 'Founder', tags: ['Founder'], summary: 'Bootstrapped; profitable since year two.' },
+  { headline: 'Billing Operations Manager at Ascent Billing', company: 'Ascent Billing', role: 'Operations', tags: ['Healthcare'], summary: 'Runs a team of twelve billers.' },
+  { headline: 'Infrastructure Engineer at Northwind', company: 'Northwind', role: 'Engineering', tags: [], summary: 'On call for the database fleet.' },
+  { headline: 'Head of People at Castellan', company: 'Castellan', role: 'Recruiting', tags: [], summary: 'Scaling Castellan from 40 to 120.' },
+  { headline: 'Account Executive at Harbor Analytics', company: 'Harbor Analytics', role: 'Sales & BD', tags: [], summary: 'Sells into mid-market finance teams.' },
+  { headline: 'Product Designer at Tidepool Labs', company: 'Tidepool Labs', role: 'Design', tags: [], summary: 'Works across the whole product.' },
+  { headline: 'CTO at Ascent Billing', company: 'Ascent Billing', role: 'Executive', tags: ['Healthcare'], summary: 'Chose their clearinghouse integration.' },
+  { headline: 'Growth Marketer at Lumen', company: 'Lumen', role: 'Marketing', tags: [], summary: 'Owns lifecycle email.' },
+  { headline: 'Senior Engineer at Harbor Analytics', company: 'Harbor Analytics', role: 'Engineering', tags: [], summary: 'Query engine internals.' },
+  { headline: 'Managing Director at Fernbank Capital', company: 'Fernbank Capital', role: 'Investor', tags: ['Investor'], summary: 'Led Fernbank’s last healthcare fund.' },
+  { headline: 'Operations Lead at Northwind', company: 'Northwind', role: 'Operations', tags: [], summary: 'Keeps the release process honest.' },
+  { headline: 'Physician and Advisor at Meridian Health', company: 'Meridian Health', role: 'Executive', tags: ['Physician', 'Healthcare'], summary: 'Practising physician; advises on clinical workflow.' },
+  { headline: 'Co-founder at Harbor Analytics', company: 'Harbor Analytics', role: 'Founder', tags: ['Founder'], summary: 'Handles the commercial side.' },
+  { headline: 'Product Manager at Castellan', company: 'Castellan', role: 'Product', tags: [], summary: 'Owns the integrations roadmap.' },
+];
+
 
 export const DEMO_MESSAGES_OUTBOUND = [
   'Thanks for reaching out! Would love to connect. How about next Tuesday?',
