@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { db } from '@/db/database';
 import { useUIStore } from '@/store/ui-store';
 import { sendBridgeMessage } from '@/lib/bridge';
-import { statusLabel } from '@/lib/scheduled-messages';
+import { statusLabel, awaitsRecipientConfirmation } from '@/lib/scheduled-messages';
 import { makeDraftConversationId } from '@/lib/draft-conversation';
 import { GroupAvatar } from '../common/GroupAvatar';
 import type { ScheduledMessage } from '@/types/scheduled-message';
@@ -85,7 +85,7 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   // recipient from a list showing their name, headline and photo. Connections
   // are exempt either way — their URN came from the user's own synced list.
   const claudeInMail = msg.source === 'mcp' && msg.inMailSubject !== undefined;
-  const needsConfirm = confirmRecipient && claudeInMail && !msg.recipientConfirmedAt;
+  const needsConfirm = awaitsRecipientConfirmation(msg, confirmRecipient);
 
   const save = async (patch: Partial<ScheduledMessage>) => {
     if (!db) return;

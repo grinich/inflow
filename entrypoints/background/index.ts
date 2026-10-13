@@ -11,6 +11,7 @@ import { clearSendQueue } from './send-queue';
 import { countUnreadFocused } from '@/lib/inbox-filters';
 import { openAppTab } from './open-app-tab';
 import { setupUpdateChecker } from './update-check';
+import { setupAutoSend } from './auto-send';
 
 /** Count unread Focused-tab conversations and update the toolbar badge.
  *  Uses the same predicate as the Focused list (isFocusedConversation) so the
@@ -33,6 +34,8 @@ export default defineBackground(() => {
 
   // Check GitHub Releases for a newer version (independent of account/DB state).
   setupUpdateChecker();
+  // No-op unless the user turned auto-send on; the tick reads the setting.
+  setupAutoSend();
 
   // Fetch session first to point DB at the correct account, then start sync
   (async () => {

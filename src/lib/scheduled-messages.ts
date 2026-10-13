@@ -36,3 +36,26 @@ export function statusLabel(status: ScheduledStatus): string {
     case 'failed': return 'Failed';
   }
 }
+
+/**
+ * Does this message still need a human to confirm who it is going to?
+ *
+ * Only drafts Claude made, and only InMail: Claude resolved a name to a URN
+ * out of the user's sight, and one real prospect's name returned two different
+ * people. A message the user composed needs no check — they picked the
+ * recipient from a list showing their name, headline and photo — and a
+ * connection needs none either, since that URN came from the user's own
+ * synced list.
+ *
+ * Shared by the Outbox (which disables Send) and the background auto-sender
+ * (which must not fire past a gate the UI is still showing), so the two can
+ * never disagree about whether a message is cleared to go.
+ */
+export function awaitsRecipientConfirmation(
+  msg: Pick<ScheduledMessage, 'source' | 'inMailSubject' | 'recipientConfirmedAt'>,
+  confirmRecipient: boolean,
+): boolean {
+  if (!confirmRecipient) return false;
+  if (msg.source !== 'mcp' || msg.inMailSubject === undefined) return false;
+  return !msg.recipientConfirmedAt;
+}

@@ -42,6 +42,8 @@ import { Logo } from '@/components/common/Wordmark';
 function SendingSettings() {
   const confirmRecipient = useUIStore((s) => s.confirmRecipient);
   const setConfirmRecipient = useUIStore((s) => s.setConfirmRecipient);
+  const autoSendScheduled = useUIStore((s) => s.autoSendScheduled);
+  const setAutoSendScheduled = useUIStore((s) => s.setAutoSendScheduled);
 
   return (
     <div className="space-y-4">
@@ -61,6 +63,24 @@ function SendingSettings() {
           label="Confirm the person before sending Claude's InMail drafts"
           checked={confirmRecipient}
           onChange={setConfirmRecipient}
+        />
+      </div>
+
+      <h3 className="border-t border-edge pt-5 text-sm font-semibold text-fg-strong">Scheduled messages</h3>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-fg-strong">Send scheduled messages automatically</p>
+          <p className="text-xs text-fg-muted">
+            Off by default. With this on, a message you scheduled is sent at its time with no
+            click, even if inflow is closed. A draft still waiting on the confirmation above is
+            held back rather than sent. Everything else in inflow waits for you, so turn this on
+            only if you want it sending on your LinkedIn account while you are not watching.
+          </p>
+        </div>
+        <Toggle
+          label="Send scheduled messages automatically"
+          checked={autoSendScheduled}
+          onChange={setAutoSendScheduled}
         />
       </div>
     </div>

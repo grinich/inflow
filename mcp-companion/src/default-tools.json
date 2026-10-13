@@ -292,7 +292,7 @@
         },
         "profileUrl": {
           "type": "string",
-          "description": "The recipient's linkedin.com/in/... URL. REQUIRED for an InMail: the user opens it to confirm the right person before sending. find_person does not return it, so take it from the record you found them in (a CRM contact, a URL the user gave you) or ask. Derived automatically for an existing connection."
+          "description": "The recipient's linkedin.com/in/... URL. Required for an InMail while the user has recipient confirmation on (the default), since they confirm by opening it; refused without it. find_person does not return it, so take it from the record you found them in (a CRM contact, a URL the user gave you) or ask. Derived automatically for an existing connection. Always pass it when you have it."
         }
       },
       "required": [

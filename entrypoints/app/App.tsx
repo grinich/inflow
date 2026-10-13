@@ -34,7 +34,7 @@ import { useOptimisticAction } from '@/hooks/useOptimisticAction';
 import { useResizableSidebar } from '@/hooks/useResizableSidebar';
 import { useCollapsedSidebar, RAIL_WIDTH } from '@/hooks/useCollapsedSidebar';
 import { useSendObjectUrlReaper } from '@/hooks/useSendObjectUrlReaper';
-import { useUIStore } from '@/store/ui-store';
+import { useUIStore, hydrateSendSettings } from '@/store/ui-store';
 
 export function App() {
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -53,6 +53,9 @@ export function App() {
   // Pull pending invitations once on load so the nav badge is current.
   useEffect(() => {
     void refreshInvitations();
+    // The send settings live in chrome.storage so the background worker can
+    // read them too; mirror them into the store for synchronous UI reads.
+    void hydrateSendSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const shortcutPanelOpen = useUIStore((s) => s.shortcutOverlayOpen);

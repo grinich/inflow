@@ -8,6 +8,13 @@ export type ViewMode = 'list' | 'thread';
 export type Theme = 'light' | 'dark' | 'system' | 'purple';
 export type InboxTab = 'focused' | 'other' | 'inmail' | 'archived' | 'spam' | 'drafts' | 'scheduled';
 export type AppSection = 'inbox' | 'connections' | 'invitations' | 'insights' | 'chat' | 'outbox';
+import {
+  getConfirmRecipient,
+  setConfirmRecipient as persistConfirmRecipient,
+  getAutoSendScheduled,
+  setAutoSendScheduled as persistAutoSendScheduled,
+} from '@/lib/send-settings';
+
 export type SettingsSection = 'ai' | 'chat' | 'sending' | 'appearance' | 'backup' | 'advanced' | 'about';
 
 /**
@@ -80,6 +87,9 @@ interface UIState {
   /** Require opening the recipient's profile before an InMail draft can send. */
   confirmRecipient: boolean;
   setConfirmRecipient: (on: boolean) => void;
+  /** Send scheduled messages at their time with no click. */
+  autoSendScheduled: boolean;
+  setAutoSendScheduled: (on: boolean) => void;
   selectedConnectionUrn: string | null;
   connectionsFilter: ConnectionFilter;
   connectionsSearch: string;
@@ -206,19 +216,6 @@ function getStoredNavCollapsed(): boolean {
   return false;
 }
 
-/**
- * Defaults to ON. An InMail goes to someone the user has never spoken to,
- * resolved from a live LinkedIn name search, and spends a credit when sent —
- * a search for one prospect returned two different real people with the same
- * name. So a human confirms the profile before the Send button works.
- */
-function getStoredConfirmRecipient(): boolean {
-  try {
-    return localStorage.getItem('inflow-confirm-recipient') !== '0';
-  } catch {}
-  return true;
-}
-
 function resolveTheme(theme: Theme): 'light' | 'dark' | 'purple' {
   if (theme === 'system') {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'light';
@@ -284,7 +281,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   sectionHistory: [],
   sectionForward: [],
   navRailCollapsed: getStoredNavCollapsed(),
-  confirmRecipient: getStoredConfirmRecipient(),
+  // Both mirror chrome.storage, hydrated on startup (see hydrateSendSettings).
+  // Until that resolves these hold the safe defaults: confirm on, auto-send off.
+  confirmRecipient: true,
+  autoSendScheduled: false,
   selectedConnectionUrn: null,
   connectionsFilter: { roles: [], interests: [] },
   connectionsSearch: '',
@@ -404,10 +404,12 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ navRailCollapsed: next });
   },
   setConfirmRecipient: (on) => {
-    try {
-      localStorage.setItem('inflow-confirm-recipient', on ? '1' : '0');
-    } catch {}
+    void persistConfirmRecipient(on);
     set({ confirmRecipient: on });
+  },
+  setAutoSendScheduled: (on) => {
+    void persistAutoSendScheduled(on);
+    set({ autoSendScheduled: on });
   },
   setSelectedConnectionUrn: (urn) => set({ selectedConnectionUrn: urn }),
   setMcpStatus: (status, error = null) =>
@@ -501,3 +503,17 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ theme: next });
   },
 }));
+
+/**
+ * Pull the send settings out of chrome.storage into the store. They live there
+ * rather than localStorage because the background worker needs them too, and a
+ * service worker has no localStorage — but the Outbox reads them on every
+ * render, so the store keeps a synchronous mirror. Called once at app start.
+ */
+export async function hydrateSendSettings(): Promise<void> {
+  const [confirmRecipient, autoSendScheduled] = await Promise.all([
+    getConfirmRecipient(),
+    getAutoSendScheduled(),
+  ]);
+  useUIStore.setState({ confirmRecipient, autoSendScheduled });
+}

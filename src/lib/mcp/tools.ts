@@ -14,6 +14,7 @@
 import { db } from '@/db/database';
 import { computeInsights, parseCompany } from '@/lib/connection-insights';
 import { sendBridgeMessage } from '@/lib/bridge';
+import { getConfirmRecipient } from '@/lib/send-settings';
 import { isValidProfileUrn } from '@/lib/voyager-normalizer';
 import type { Connection } from '@/types/connection';
 import type { Conversation } from '@/types/conversation';
@@ -595,7 +596,7 @@ export const MCP_TOOLS: McpTool[] = [
         profileUrl: {
           type: 'string',
           description:
-            "The recipient's linkedin.com/in/... URL. REQUIRED for an InMail: the user opens it to confirm the right person before sending. find_person does not return it, so take it from the record you found them in (a CRM contact, a URL the user gave you) or ask. Derived automatically for an existing connection.",
+            "The recipient's linkedin.com/in/... URL. Required for an InMail while the user has recipient confirmation on (the default), since they confirm by opening it; refused without it. find_person does not return it, so take it from the record you found them in (a CRM contact, a URL the user gave you) or ask. Derived automatically for an existing connection. Always pass it when you have it.",
         },
       },
       required: ['body'],
@@ -648,23 +649,25 @@ export const MCP_TOOLS: McpTool[] = [
             'This recipient is not a connection, so the draft can only go out as a Premium InMail — inMailSubject is required.',
           );
         }
-        // The user confirms an InMail by opening the profile, so a draft
-        // without a link leaves them a confirm button and nothing to check.
-        // find_person cannot supply this (LinkedIn omits the slug), so it has
-        // to come from wherever the person was found.
-        if (!link) {
+        // The link exists so the user can confirm the person before sending.
+        // If they have turned that check off, demanding it is pure friction —
+        // so this is required exactly when the check is on. find_person cannot
+        // supply it (LinkedIn omits the slug); it comes from wherever the
+        // person was found.
+        const mustConfirm = await getConfirmRecipient();
+        if (mustConfirm && !link) {
           throw new Error(
             'profileUrl is required for an InMail: the user confirms the person by opening it before sending. Take the linkedin.com/in/... URL from the record you found them in, or ask the user for it.',
           );
         }
-        if (!String(recipientName || '').trim()) {
+        if (mustConfirm && !String(recipientName || '').trim()) {
           throw new Error(
             'recipientName is required for an InMail: inflow does not know this person, so the Outbox would show "Unknown".',
           );
         }
         if (subject.length > 200) throw new Error('inMailSubject is longer than 200 characters');
         urn = profileUrn;
-        name = String(recipientName).trim();
+        name = String(recipientName || '').trim() || 'Unknown';
       }
 
       let status: 'draft' | 'scheduled' = 'draft';
