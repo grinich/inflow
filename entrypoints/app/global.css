@@ -100,8 +100,7 @@ html.theme-purple {
  * looked. Disabled controls keep the default, so an unavailable action still
  * feels unavailable.
  */
-button:not(:disabled),
-[role='button']:not([aria-disabled='true']) {
+:where(button:not(:disabled), [role='button']:not([aria-disabled='true'])) {
   cursor: pointer;
 }
 
