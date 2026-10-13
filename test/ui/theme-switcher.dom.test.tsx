@@ -78,3 +78,29 @@ it('closes on Escape and on a click outside, not only on a choice', () => {
   expect(screen.queryByRole('menu')).toBeNull();
   expect(useUIStore.getState().theme).toBe('dark');
 });
+
+it('outlines the swatch against itself, not against the panel', () => {
+  // --edge is near-white in light mode, so a white Light swatch on a light
+  // panel had no visible border and the control read as an empty checkbox in
+  // every light-mode screenshot.
+  useUIStore.setState({ theme: 'light' });
+  render(<ThemeSwitcher />);
+
+  const swatch = trigger().querySelector('span[aria-hidden]')!;
+  expect(swatch.className).not.toMatch(/ring-edge/);
+  // Dark ring while light is applied, light ring once dark is.
+  expect(swatch.className).toMatch(/ring-black\//);
+  expect(swatch.className).toMatch(/dark:ring-white\//);
+});
+
+it('outlines the swatches in the menu the same way', () => {
+  render(<ThemeSwitcher />);
+  fireEvent.click(trigger());
+
+  for (const name of ['Light', 'Dark', 'System', 'Purple']) {
+    const row = screen.getByRole('menuitemradio', { name: new RegExp(name) });
+    const swatch = row.querySelector('span[aria-hidden]')!;
+    expect(swatch.className, name).not.toMatch(/ring-edge/);
+    expect(swatch.className, name).toMatch(/ring-black\//);
+  }
+});

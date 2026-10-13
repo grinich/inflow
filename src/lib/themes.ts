@@ -7,6 +7,10 @@ import type { Theme } from '@/store/ui-store';
  * `swatch` is a literal CSS background rather than a token: it has to depict a
  * theme that is NOT currently applied, so it cannot read from the live
  * variables. The values mirror each theme's own --surface in global.css.
+ *
+ * They are also why the swatch border is keyed off the applied theme rather
+ * than --edge: the Light swatch is white, and --edge is near-white in light
+ * mode, so that border was invisible and the control read as an empty box.
  */
 export interface ThemeOption {
   value: Theme;

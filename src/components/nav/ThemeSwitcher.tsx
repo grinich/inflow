@@ -51,7 +51,7 @@ export function ThemeSwitcher({ collapsed }: { collapsed?: boolean }) {
       >
         <span
           aria-hidden
-          className="h-[18px] w-[18px] shrink-0 rounded-md ring-1 ring-inset ring-edge"
+          className="h-[18px] w-[18px] shrink-0 rounded-md ring-1 ring-inset ring-black/25 dark:ring-white/25"
           style={{ background: current.swatch }}
         />
         {!collapsed && <span className="text-xs">Theme</span>}
@@ -84,7 +84,7 @@ export function ThemeSwitcher({ collapsed }: { collapsed?: boolean }) {
                 >
                   <span
                     aria-hidden
-                    className="h-4 w-4 shrink-0 rounded ring-1 ring-inset ring-edge"
+                    className="h-4 w-4 shrink-0 rounded ring-1 ring-inset ring-black/25 dark:ring-white/25"
                     style={{ background: o.swatch }}
                   />
                   {o.label}
