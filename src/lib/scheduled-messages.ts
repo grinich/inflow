@@ -59,3 +59,29 @@ export function awaitsRecipientConfirmation(
   if (msg.source !== 'mcp' || msg.inMailSubject === undefined) return false;
   return !msg.recipientConfirmedAt;
 }
+
+/**
+ * How late a scheduled message may be and still send itself.
+ *
+ * Chrome has to be running for the alarm to fire, so a message whose time
+ * passed while the browser was quit is found overdue on the next tick. Sending
+ * it then is right when the gap is short — the laptop opened twenty minutes
+ * late — and wrong when it is long, because a note timed for Tuesday morning
+ * should not arrive on Wednesday afternoon on its own.
+ *
+ * Three hours keeps it inside the same part of the same day.
+ */
+export const AUTO_SEND_GRACE_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * True when a message is so far past its time that it should wait for the user
+ * instead of sending itself. It stays scheduled, so the Outbox keeps showing
+ * it as ready and one click still sends it.
+ */
+export function isTooLateToAutoSend(
+  msg: Pick<ScheduledMessage, 'scheduledAt'>,
+  now: number,
+): boolean {
+  if (typeof msg.scheduledAt !== 'number') return false;
+  return now - msg.scheduledAt > AUTO_SEND_GRACE_MS;
+}

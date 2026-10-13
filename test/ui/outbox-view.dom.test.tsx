@@ -135,3 +135,26 @@ it('Edit keeps the draft in the Outbox instead of minting an inbox conversation'
   const field = screen.getByLabelText(/Message body/i) as HTMLTextAreaElement;
   expect(field.value).toBe('Reopen me');
 });
+
+it('explains why a long-overdue message did not send itself', async () => {
+  // Auto-send is on and the time has passed, so without a word the silence
+  // looks like a bug rather than a deliberate hold.
+  useUIStore.setState({ autoSendScheduled: true });
+  await db!.scheduledMessages.add(
+    row({ id: 's9', status: 'scheduled', scheduledAt: Date.now() - 30 * 3600_000 }),
+  );
+  render(<OutboxView />);
+
+  expect(await screen.findByText(/Too far past its time to send itself/i)).toBeTruthy();
+});
+
+it('says nothing of the sort about a message that is only a little late', async () => {
+  useUIStore.setState({ autoSendScheduled: true });
+  await db!.scheduledMessages.add(
+    row({ id: 's10', status: 'scheduled', scheduledAt: Date.now() - 60_000 }),
+  );
+  render(<OutboxView />);
+
+  await screen.findByText('Ada Lovelace');
+  expect(screen.queryByText(/Too far past its time/i)).toBeNull();
+});

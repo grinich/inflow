@@ -135,14 +135,35 @@ it('marks a failure failed, so it cannot retry unattended in a loop', async () =
   expect(createConversation).toHaveBeenCalledOnce();
 });
 
-it('sends a message whose time passed while Chrome was quit', async () => {
-  // No alarm fires while the browser is closed, so the first tick after it
-  // starts again finds an overdue message. It goes out then, late, rather
-  // than being skipped — the user asked for it to send.
-  await db!.scheduledMessages.add(queued({ id: 'overdue', scheduledAt: NOW - 6 * 3600_000 }) as any);
+it('sends a message that is only a little late', async () => {
+  // No alarm fires while Chrome is quit, so the first tick after it starts
+  // finds an overdue message. A short gap is still what the user meant.
+  await db!.scheduledMessages.add(queued({ id: 'abitlate', scheduledAt: NOW - 20 * 60_000 }) as any);
 
   await runAutoSendTick(NOW);
 
   expect(createConversation).toHaveBeenCalledOnce();
-  expect((await db!.scheduledMessages.get('overdue'))!.status).toBe('sent');
+  expect((await db!.scheduledMessages.get('abitlate'))!.status).toBe('sent');
+});
+
+it('refuses to send one that is hours past its time', async () => {
+  // A note timed for Tuesday morning should not let itself out on Wednesday
+  // afternoon just because that is when the browser came back.
+  await db!.scheduledMessages.add(queued({ id: 'stale', scheduledAt: NOW - 30 * 3600_000 }) as any);
+
+  await runAutoSendTick(NOW);
+
+  expect(createConversation).not.toHaveBeenCalled();
+  // Left scheduled, so the Outbox still shows it as ready and one click sends.
+  expect((await db!.scheduledMessages.get('stale'))!.status).toBe('scheduled');
+});
+
+it('leaves a stale message alone on every later tick, rather than failing it', async () => {
+  await db!.scheduledMessages.add(queued({ id: 'stale2', scheduledAt: NOW - 30 * 3600_000 }) as any);
+
+  await runAutoSendTick(NOW);
+  await runAutoSendTick(NOW + 60_000);
+
+  expect(createConversation).not.toHaveBeenCalled();
+  expect((await db!.scheduledMessages.get('stale2'))!.status).toBe('scheduled');
 });

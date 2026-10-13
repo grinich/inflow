@@ -1,7 +1,7 @@
 import { db } from '@/db/database';
 import { debugLog } from '@/lib/debug-log';
 import { getAutoSendScheduled, getConfirmRecipient } from '@/lib/send-settings';
-import { awaitsRecipientConfirmation, dueMessages } from '@/lib/scheduled-messages';
+import { awaitsRecipientConfirmation, dueMessages, isTooLateToAutoSend } from '@/lib/scheduled-messages';
 import { createConversation, sendMessage } from './api/messages';
 
 const ALARM_NAME = 'auto-send-scheduled';
@@ -13,7 +13,9 @@ const CHECK_INTERVAL_MINUTES = 1;
  *
  * Runs in the service worker, so the inflow tab need not be open — but Chrome
  * must be running. While Chrome is quit no alarm fires, and a message whose
- * time passed meanwhile goes out on the first tick after it starts again.
+ * time passed meanwhile goes out on the first tick after it starts again —
+ * unless it is more than AUTO_SEND_GRACE_MS late, in which case it waits for
+ * the user rather than arriving a day after it was meant to.
  *
  * This is the only place inflow acts on the LinkedIn account unattended, so it
  * is deliberately narrow:
@@ -38,6 +40,10 @@ export async function runAutoSendTick(now = Date.now()): Promise<void> {
       debugLog('info', `[AUTO-SEND] holding ${msg.id.slice(0, 8)} — recipient not confirmed`);
       continue;
     }
+
+    // Too far past its time to still be what the user meant. Left scheduled,
+    // so the Outbox goes on showing it as ready and one click sends it.
+    if (isTooLateToAutoSend(msg, now)) continue;
 
     // Claim it first. A failed claim means something else already took it.
     const claimed = await db.scheduledMessages

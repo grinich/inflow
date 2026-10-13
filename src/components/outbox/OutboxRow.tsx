@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { db } from '@/db/database';
 import { useUIStore } from '@/store/ui-store';
 import { sendBridgeMessage } from '@/lib/bridge';
-import { statusLabel, awaitsRecipientConfirmation } from '@/lib/scheduled-messages';
+import { statusLabel, awaitsRecipientConfirmation, isTooLateToAutoSend } from '@/lib/scheduled-messages';
 import { GroupAvatar } from '../common/GroupAvatar';
 import type { ScheduledMessage } from '@/types/scheduled-message';
 
@@ -40,6 +40,7 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
   const [editBody, setEditBody] = useState('');
   const [editSubject, setEditSubject] = useState('');
   const confirmDelete = useUIStore((s) => s.confirmDelete);
+  const autoSendScheduled = useUIStore((s) => s.autoSendScheduled);
   const [when, setWhen] = useState('');
   const pending = msg.status === 'draft' || msg.status === 'scheduled' || msg.status === 'failed';
   const confirmRecipient = useUIStore((s) => s.confirmRecipient);
@@ -186,6 +187,14 @@ export function OutboxRow({ msg, ready }: { msg: ScheduledMessage; ready?: boole
         </>
       )}
       {msg.status === 'failed' && msg.error && <p className="mt-1 text-[11px] text-red-500 dark:text-red-400">{msg.error}</p>}
+
+      {/* Otherwise its silence is a mystery: auto-send is on, the time has
+          passed, and nothing happened. */}
+      {ready && autoSendScheduled && isTooLateToAutoSend(msg, Date.now()) && (
+        <p className="mt-1 text-[11px] text-fg-muted">
+          Too far past its time to send itself — send it when you are ready.
+        </p>
+      )}
 
       {/* Checking the recipient is about the draft, not part of it: separated
           by a rule and set in the muted metadata scale so it cannot be read as
