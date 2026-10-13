@@ -168,6 +168,7 @@ it('create_draft queues an InMail for someone outside the network', async () => 
     profileUrn: 'urn:li:fsd_profile:COLD',
     recipientName: 'Dana Cold',
     inMailSubject: 'Working smarter at Acme',
+    profileUrl: 'https://www.linkedin.com/in/dana-cold-123/',
     body: 'Hi Dana — saw your billing team is growing.',
   });
   expect(res).toMatchObject({ created: true, recipient: 'Dana Cold', status: 'draft', inMail: true });
@@ -200,6 +201,8 @@ it('create_draft requires a subject for a stranger and refuses one for a connect
     callTool('create_draft', {
       profileUrn: 'urn:li:fsd_profile:COLD',
       body: 'hi',
+      recipientName: 'Dana Cold',
+      profileUrl: 'https://www.linkedin.com/in/dana-cold-123/',
       inMailSubject: 'x'.repeat(201),
     }),
   ).rejects.toThrow(/200 characters/i);
@@ -344,6 +347,50 @@ describe('find_person', () => {
     await expect(callTool('find_person', { name: 'Dana' })).rejects.toThrow(/429/);
     await expect(callTool('find_person', { name: '  ' })).rejects.toThrow(/name is required/i);
   });
+});
+
+it('refuses an InMail draft with nothing for the user to confirm against', async () => {
+  // A draft Claude made names someone it resolved from a name search. Without
+  // a profile link the Outbox shows a confirm button and nothing to check,
+  // which is how the first real draft landed: "Unknown", no link.
+  await expect(
+    callTool('create_draft', {
+      profileUrn: 'urn:li:fsd_profile:COLD',
+      body: 'hi',
+      inMailSubject: 'Hello',
+      recipientName: 'Dana Cold',
+    }),
+  ).rejects.toThrow(/profileUrl is required/i);
+
+  await expect(
+    callTool('create_draft', {
+      profileUrn: 'urn:li:fsd_profile:COLD',
+      body: 'hi',
+      inMailSubject: 'Hello',
+      profileUrl: 'https://www.linkedin.com/in/dana-cold-123/',
+    }),
+  ).rejects.toThrow(/recipientName is required/i);
+
+  // It becomes a link the user clicks, so it has to be a LinkedIn profile.
+  await expect(
+    callTool('create_draft', {
+      profileUrn: 'urn:li:fsd_profile:COLD',
+      body: 'hi',
+      inMailSubject: 'Hello',
+      recipientName: 'Dana Cold',
+      profileUrl: 'https://example.com/in/dana',
+    }),
+  ).rejects.toThrow(/linkedin\.com\/in/i);
+
+  expect(await db!.scheduledMessages.count()).toBe(0);
+});
+
+it('derives the profile link for a connection, who has a known slug', async () => {
+  await db!.connections.add(
+    conn({ profileUrn: 'urn:li:fsd_profile:Z', publicId: 'zack-allen-99', fullName: 'Zack Allen' }),
+  );
+  const res: any = await callTool('create_draft', { publicId: 'zack-allen-99', body: 'Hi Zack' });
+  expect(res.profileUrl).toBe('https://www.linkedin.com/in/zack-allen-99/');
 });
 
 it('throws on an unknown tool', async () => {

@@ -510,7 +510,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: 'find_person',
     description:
-      "Look up someone on LinkedIn by name, INCLUDING people the user is not connected to, and get the profileUrn that create_draft needs to draft an InMail. Names repeat, so check the headline against what you already know about the person before using a result. You may pass a /in/<slug> as publicId, but LinkedIn often omits that field, in which case the filter is skipped and the response says so. Each result says whether that person is already a connection: if they are, messaging them is free and create_draft takes no subject; if they are not, a draft to them is a Premium InMail and needs one. This searches LinkedIn live rather than the local database.",
+      "Look up someone on LinkedIn by name, INCLUDING people the user is not connected to, and get the profileUrn that create_draft needs to draft an InMail. Names repeat, so check the headline against what you already know about the person before using a result. You may pass a /in/<slug> as publicId, but LinkedIn often omits that field, in which case the filter is skipped and the response says so. Each result says whether that person is already a connection: if they are, messaging them is free and create_draft takes no subject; if they are not, a draft to them is a Premium InMail, and create_draft will also need their profile URL and name, which this tool cannot give you — LinkedIn omits the slug here, so take the URL from the record you found them in or ask the user. This searches LinkedIn live rather than the local database.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -572,7 +572,7 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: 'create_draft',
     description:
-      "Create a draft message and put it in the user's Outbox for them to review and send — this NEVER sends. Optionally schedule it for a time (still surfaced for the user to send with one click; never auto-sent). Recipient: for an existing connection pass profileUrn (preferred) or publicId. For someone the user is NOT connected to — a cold lead — pass their full profileUrn plus inMailSubject: that draft goes out as a Premium InMail and spends one of the user's InMail credits when they send it, so only do this when asked to reach someone outside their network.",
+      "Create a draft message and put it in the user's Outbox for them to review and send — this NEVER sends. Optionally schedule it for a time (still surfaced for the user to send with one click; never auto-sent). Recipient: for an existing connection pass profileUrn (preferred) or publicId. For someone the user is NOT connected to — a cold lead — pass their full profileUrn plus inMailSubject, recipientName and profileUrl: that draft goes out as a Premium InMail, spends one of the user's InMail credits, and the user confirms the person by opening profileUrl before they can send it.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -590,12 +590,12 @@ export const MCP_TOOLS: McpTool[] = [
         },
         recipientName: {
           type: 'string',
-          description: "Display name for the Outbox queue. Used only for a non-connection, whose name inflow doesn't know.",
+          description: "Display name for the Outbox queue. REQUIRED for a non-connection, whose name inflow does not know; otherwise the row reads \"Unknown\".",
         },
         profileUrl: {
           type: 'string',
           description:
-            "The recipient's linkedin.com/in/... URL, e.g. from the CRM record you found them in. Shown in the Outbox so the user can open the profile and confirm it is the right person before sending, which they are required to do for an InMail by default. Pass it whenever you have it. Derived automatically for an existing connection.",
+            "The recipient's linkedin.com/in/... URL. REQUIRED for an InMail: the user opens it to confirm the right person before sending. find_person does not return it, so take it from the record you found them in (a CRM contact, a URL the user gave you) or ask. Derived automatically for an existing connection.",
         },
       },
       required: ['body'],
@@ -648,9 +648,23 @@ export const MCP_TOOLS: McpTool[] = [
             'This recipient is not a connection, so the draft can only go out as a Premium InMail — inMailSubject is required.',
           );
         }
+        // The user confirms an InMail by opening the profile, so a draft
+        // without a link leaves them a confirm button and nothing to check.
+        // find_person cannot supply this (LinkedIn omits the slug), so it has
+        // to come from wherever the person was found.
+        if (!link) {
+          throw new Error(
+            'profileUrl is required for an InMail: the user confirms the person by opening it before sending. Take the linkedin.com/in/... URL from the record you found them in, or ask the user for it.',
+          );
+        }
+        if (!String(recipientName || '').trim()) {
+          throw new Error(
+            'recipientName is required for an InMail: inflow does not know this person, so the Outbox would show "Unknown".',
+          );
+        }
         if (subject.length > 200) throw new Error('inMailSubject is longer than 200 characters');
         urn = profileUrn;
-        name = String(recipientName || '').trim() || 'Unknown';
+        name = String(recipientName).trim();
       }
 
       let status: 'draft' | 'scheduled' = 'draft';
