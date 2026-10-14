@@ -6,7 +6,7 @@
   "description": "Claude Desktop bridge to the inflow Chrome extension",
   "main": "server/index.mjs",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "ws": "^8.21.3"
   },
   "engines": {
